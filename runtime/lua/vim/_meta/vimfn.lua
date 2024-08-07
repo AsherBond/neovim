@@ -268,12 +268,12 @@ function vim.fn.assert_exception(error, msg) end
 --- <
 --- If {msg} is empty then it is not used.  Do this to get the
 --- default message when passing the {lnum} argument.
----
+---           *E1115*
 --- When {lnum} is present and not negative, and the {error}
 --- argument is present and matches, then this is compared with
 --- the line number at which the error was reported. That can be
 --- the line number in a function or in a script.
----
+---           *E1116*
 --- When {context} is present it is used as a pattern and matched
 --- against the context (script name or function name) where
 --- {lnum} is located in.
@@ -1992,6 +1992,19 @@ function vim.fn.feedkeys(string, mode) end
 --- @param file string
 --- @return any
 function vim.fn.file_readable(file) end
+
+--- Copy the file pointed to by the name {from} to {to}. The
+--- result is a Number, which is |TRUE| if the file was copied
+--- successfully, and |FALSE| when it failed.
+--- If a file with name {to} already exists, it will fail.
+--- Note that it does not handle directories (yet).
+---
+--- This function is not available in the |sandbox|.
+---
+--- @param from string
+--- @param to string
+--- @return 0|1
+function vim.fn.filecopy(from, to) end
 
 --- The result is a Number, which is |TRUE| when a file with the
 --- name {file} exists, and can be read.  If {file} doesn't exist,
@@ -4646,6 +4659,24 @@ function vim.fn.interrupt() end
 --- @return any
 function vim.fn.invert(expr) end
 
+--- The result is a Number, which is |TRUE| when {path} is an
+--- absolute path.
+--- On Unix, a path is considered absolute when it starts with '/'.
+--- On MS-Windows, it is considered absolute when it starts with an
+--- optional drive prefix and is followed by a '\' or '/'. UNC paths
+--- are always absolute.
+--- Example: >vim
+---   echo isabsolutepath('/usr/share/')  " 1
+---   echo isabsolutepath('./foobar')    " 0
+---   echo isabsolutepath('C:\Windows')  " 1
+---   echo isabsolutepath('foobar')    " 0
+---   echo isabsolutepath('\\remote\file')  " 1
+--- <
+---
+--- @param path any
+--- @return 0|1
+function vim.fn.isabsolutepath(path) end
+
 --- The result is a Number, which is |TRUE| when a directory
 --- with the name {directory} exists.  If {directory} doesn't
 --- exist, or isn't a directory, the result is |FALSE|.  {directory}
@@ -4699,6 +4730,10 @@ function vim.fn.isnan(expr) end
 ---   for [key, value] in items(mydict)
 ---      echo key .. ': ' .. value
 ---   endfor
+--- <
+--- A List or a String argument is also supported.  In these
+--- cases, items() returns a List with the index and the value at
+--- the index.
 ---
 --- @param dict any
 --- @return any
