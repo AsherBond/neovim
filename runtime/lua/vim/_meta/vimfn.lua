@@ -1586,8 +1586,10 @@ function vim.fn.eventhandler() end
 --- This function checks if an executable with the name {expr}
 --- exists.  {expr} must be the name of the program without any
 --- arguments.
+---
 --- executable() uses the value of $PATH and/or the normal
---- searchpath for programs.    *PATHEXT*
+--- searchpath for programs.
+---           *PATHEXT*
 --- On MS-Windows the ".exe", ".bat", etc. can optionally be
 --- included.  Then the extensions in $PATHEXT are tried.  Thus if
 --- "foo.exe" does not exist, "foo.exe.bat" can be found.  If
@@ -1597,8 +1599,13 @@ function vim.fn.eventhandler() end
 --- then the name is also tried without adding an extension.
 --- On MS-Windows it only checks if the file exists and is not a
 --- directory, not if it's really executable.
---- On Windows an executable in the same directory as Vim is
---- always found (it is added to $PATH at |startup|).
+--- On MS-Windows an executable in the same directory as the Vim
+--- executable is always found (it's added to $PATH at |startup|).
+---       *NoDefaultCurrentDirectoryInExePath*
+--- On MS-Windows an executable in Vim's current working directory
+--- is also normally found, but this can be disabled by setting
+--- the $NoDefaultCurrentDirectoryInExePath environment variable.
+---
 --- The result is a Number:
 ---   1  exists
 ---   0  does not exist
@@ -10396,7 +10403,7 @@ function vim.fn.undofile(name) end
 ---     item.
 ---
 --- @param buf? integer|string
---- @return any
+--- @return vim.fn.undotree.ret
 function vim.fn.undotree(buf) end
 
 --- Remove second and succeeding copies of repeated adjacent
