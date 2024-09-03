@@ -93,15 +93,15 @@ void remote_ui_free_all_mem(void)
 }
 #endif
 
-/// Wait until ui has connected on stdio channel if only_stdio
-/// is true, otherwise any channel.
+/// Wait until UI has connected.
+///
+/// @param only_stdio UI is expected to connect on stdio.
 void remote_ui_wait_for_attach(bool only_stdio)
 {
   if (only_stdio) {
     Channel *channel = find_channel(CHAN_STDIO);
     if (!channel) {
-      // this function should only be called in --embed mode, stdio channel
-      // can be assumed.
+      // `only_stdio` implies --embed mode, thus stdio channel can be assumed.
       abort();
     }
 
@@ -847,7 +847,7 @@ void remote_ui_raw_line(RemoteUI *ui, Integer grid, Integer row, Integer startco
       char sc_buf[MAX_SCHAR_SIZE];
       schar_get(sc_buf, chunk[i]);
       remote_ui_put(ui, sc_buf);
-      if (utf_ambiguous_width(utf_ptr2char(sc_buf))) {
+      if (utf_ambiguous_width(sc_buf)) {
         ui->client_col = -1;  // force cursor update
       }
     }
