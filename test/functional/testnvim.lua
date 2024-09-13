@@ -14,8 +14,7 @@ local is_os = t.is_os
 local ok = t.ok
 local sleep = uv.sleep
 
---- This module uses functions from the context of the test session, i.e. in the context of the
---- nvim being tests.
+--- Functions executing in the current nvim session/process being tested.
 local M = {}
 
 local runtime_set = 'set runtimepath^=./build/lib/nvim/'
@@ -901,26 +900,6 @@ function M.missing_provider(provider)
     return M.exec_lua([[return {require('vim.provider.python').detect_by_module('neovim')}]])[2]
   end
   assert(false, 'Unknown provider: ' .. provider)
-end
-
---- @param obj string|table
---- @return any
-function M.alter_slashes(obj)
-  if not is_os('win') then
-    return obj
-  end
-  if type(obj) == 'string' then
-    local ret = obj:gsub('/', '\\')
-    return ret
-  elseif type(obj) == 'table' then
-    --- @cast obj table<any,any>
-    local ret = {} --- @type table<any,any>
-    for k, v in pairs(obj) do
-      ret[k] = M.alter_slashes(v)
-    end
-    return ret
-  end
-  assert(false, 'expected string or table of strings, got ' .. type(obj))
 end
 
 local load_factor = 1

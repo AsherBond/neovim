@@ -189,7 +189,8 @@ TREESITTER
 
 TUI
 
-• TODO
+• |log| messages written by the builtin UI client (TUI, |--remote-ui|) are
+  now prefixed with "ui" instead of "?".
 
 UI
 
@@ -213,9 +214,6 @@ These existing features changed their behavior.
   in the unicode standard. Noteworthily, this enables proper display of many
   more emoji characters than before, including those encoded with multiple
   emoji codepoints combined with ZWJ (zero width joiner) codepoints.
-
-• |vim.tbl_deep_extend()| no longer ignores any values for which |vim.isarray()|
-  returns `true`.
 
 ==============================================================================
 REMOVED FEATURES                                                 *news-removed*

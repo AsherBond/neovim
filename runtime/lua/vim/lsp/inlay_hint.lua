@@ -43,17 +43,16 @@ function M.on_inlayhint(err, result, ctx, _)
     return
   end
   local bufnr = assert(ctx.bufnr)
-  if util.buf_versions[bufnr] ~= ctx.version then
+  if
+    util.buf_versions[bufnr] ~= ctx.version
+    or not result
+    or not api.nvim_buf_is_loaded(bufnr)
+    or not bufstates[bufnr].enabled
+  then
     return
   end
   local client_id = ctx.client_id
-  if not result then
-    return
-  end
   local bufstate = bufstates[bufnr]
-  if not bufstate.enabled then
-    return
-  end
   if not (bufstate.client_hints and bufstate.version) then
     bufstate.client_hints = vim.defaulttable()
     bufstate.version = ctx.version
@@ -77,12 +76,7 @@ function M.on_inlayhint(err, result, ctx, _)
     local col = position.character
     if col > 0 then
       local line = lines[position.line + 1] or ''
-      local ok, convert_result
-      ok, convert_result = pcall(util._str_byteindex_enc, line, col, client.offset_encoding)
-      if ok then
-        return convert_result
-      end
-      return math.min(#line, col)
+      return util._str_byteindex_enc(line, col, client.offset_encoding)
     end
     return col
   end
