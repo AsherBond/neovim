@@ -1058,7 +1058,7 @@ Lua module: vim.lsp.client                                        *lsp-client*
                                 `client.cancel_request(request_id)` to cancel
                                 the request.
       • {request_sync}          (`fun(method: string, params: table?, timeout_ms: integer?, bufnr: integer): {err: lsp.ResponseError?, result:any}?, string?`)
-                                err # a dictionary, where
+                                err # a dict
       • {notify}                (`fun(method: string, params: table?): boolean`)
                                 Sends a notification to an LSP server.
                                 Returns: a boolean to indicate if the
@@ -1397,7 +1397,11 @@ format({opts})                                          *vim.lsp.buf.format()*
 
 hover()                                                  *vim.lsp.buf.hover()*
     Displays hover information about the symbol under the cursor in a floating
-    window. Calling the function twice will jump into the floating window.
+    window. The window will be dismissed on cursor move. Calling the function
+    twice will jump into the floating window (thus by default, "KK" will open
+    the hover window and focus it). In the floating window, all commands and
+    mappings are available as usual, except that "q" dismisses the window. You
+    can scroll the contents the same as you would any other buffer.
 
 implementation({opts})                          *vim.lsp.buf.implementation()*
     Lists all the implementations for the symbol under the cursor in the
