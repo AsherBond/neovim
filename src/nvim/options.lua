@@ -996,9 +996,10 @@ return {
         The key used in Command-line Mode to open the command-line window.
         Only non-printable keys are allowed.
         The key can be specified as a single character, but it is difficult to
-        type.  The preferred way is to use the <> notation.  Examples: >vim
-        	exe "set cedit=\\<C-Y>"
-        	exe "set cedit=\\<Esc>"
+        type.  The preferred way is to use |key-notation| (e.g. <Up>, <C-F>) or
+        a letter preceded with a caret (e.g. `^F` is CTRL-F).  Examples: >vim
+        	set cedit=^Y
+        	set cedit=<Esc>
         <	|Nvi| also has this option, but it only uses the first character.
         See |cmdwin|.
       ]=],
@@ -1424,6 +1425,26 @@ return {
       short_desc = N_('function to be used for Insert mode completion'),
       type = 'string',
       varname = 'p_cfu',
+    },
+    {
+      abbreviation = 'cia',
+      cb = 'did_set_completeitemalign',
+      defaults = { if_true = 'abbr,kind,menu' },
+      deny_duplicates = true,
+      desc = [=[
+        A comma-separated list of |complete-items| that controls the alignment
+        and display order of items in the popup menu during Insert mode
+        completion. The supported values are abbr, kind, and menu. These
+        options allow to customize how the completion items are shown in the
+        popup menu.  Note: must always contain those three values in any
+        order.
+      ]=],
+      full_name = 'completeitemalign',
+      list = 'onecomma',
+      scope = { 'global' },
+      short_desc = N_('Insert mode completion item align order'),
+      type = 'string',
+      varname = 'p_cia',
     },
     {
       abbreviation = 'cot',
@@ -2811,14 +2832,14 @@ return {
         	/* vim: set filetype=idl : */
         <	|FileType| |filetypes|
         When a dot appears in the value then this separates two filetype
-        names.  Example: >c
+        names, it should therefore not be used for a filetype.  Example: >c
         	/* vim: set filetype=c.doxygen : */
         <	This will use the "c" filetype first, then the "doxygen" filetype.
         This works both for filetype plugins and for syntax files.  More than
         one dot may appear.
         This option is not copied to another buffer, independent of the 's' or
         'S' flag in 'cpoptions'.
-        Only normal file name characters can be used, `/\*?[|<>` are illegal.
+        Only alphanumeric characters, '-' and '_' can be used.
       ]=],
       full_name = 'filetype',
       noglob = true,
@@ -4550,7 +4571,7 @@ return {
         Setting this option to a valid keymap name has the side effect of
         setting 'iminsert' to one, so that the keymap becomes effective.
         'imsearch' is also set to one, unless it was -1
-        Only normal file name characters can be used, `/\*?[|<>` are illegal.
+        Only alphanumeric characters, '.', '-' and '_' can be used.
       ]=],
       full_name = 'keymap',
       normal_fname_chars = true,
@@ -8521,7 +8542,7 @@ return {
         Syntax autocommand event is triggered with the value as argument.
         This option is not copied to another buffer, independent of the 's' or
         'S' flag in 'cpoptions'.
-        Only normal file name characters can be used, `/\*?[|<>` are illegal.
+        Only alphanumeric characters, '.', '-' and '_' can be used.
       ]=],
       full_name = 'syntax',
       noglob = true,
