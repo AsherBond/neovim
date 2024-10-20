@@ -63,6 +63,8 @@ EDITOR
 • Moving in the buffer list using |:bnext| and similar commands behaves as
   documented and skips help buffers if run from a non-help buffer, otherwise
   it moves to another help buffer.
+• Bells from a |terminal| buffer are now silent by default, unless 'belloff'
+  option doesn't contain "term" or "all".
 
 EVENTS
 
@@ -182,6 +184,8 @@ LSP
 • |vim.lsp.buf.format()| now supports passing a list of ranges
   via the `range` parameter (this requires support for the
   `textDocument/rangesFormatting` request).
+• |vim.lsp.buf.code_action()| actions show client name when there are multiple
+  clients.
 
 LUA
 
@@ -238,6 +242,10 @@ UI
   which controls the tool used to open the given path or URL. If you want to
   globally set this, you can override vim.ui.open using the same approach
   described at |vim.paste()|.
+- `vim.ui.open()` now supports
+  [lemonade](https://github.com/lemonade-command/lemonade) as an option for
+  opening urls/files. This is handy if you are in an ssh connection and use
+  `lemonade`.
 • The |ins-completion-menu| now supports cascading highlight styles.
   |hl-PmenuSel| and |hl-PmenuMatch| both inherit from |hl-Pmenu|, and
   |hl-PmenuMatchSel| inherits highlights from both |hl-PmenuSel| and
@@ -268,6 +276,10 @@ These existing features changed their behavior.
 
 • |vim.on_key()| callbacks won't be invoked recursively when a callback itself
   consumes input.
+
+• "q" in man pages now uses |CTRL-W_q| instead of |CTRL-W_c| to close the
+  current window, and it no longer throws |E444| when there is only one window
+  on the screen. Global variable `vim.g.pager` is removed.
 
 ==============================================================================
 REMOVED FEATURES                                                 *news-removed*
