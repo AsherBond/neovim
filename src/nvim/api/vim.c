@@ -796,7 +796,7 @@ void nvim_echo(Array chunks, Boolean history, Dict(echo_opts) *opts, Error *err)
     verbose_enter();
   }
 
-  msg_multiattr(hl_msg, history ? "echomsg" : "echo", history);
+  msg_multihl(hl_msg, history ? "echomsg" : "echo", history);
 
   if (opts->verbose) {
     verbose_leave();
@@ -2161,11 +2161,11 @@ Dict nvim_eval_statusline(String str, Dict(eval_statusline) *opts, Arena *arena,
     if (num_id) {
       stc_hl_id = num_id;
     } else if (statuscol.use_cul) {
-      stc_hl_id = HLF_CLN + 1;
+      stc_hl_id = HLF_CLN;
     } else if (wp->w_p_rnu) {
-      stc_hl_id = (lnum < wp->w_cursor.lnum ? HLF_LNA : HLF_LNB) + 1;
+      stc_hl_id = (lnum < wp->w_cursor.lnum ? HLF_LNA : HLF_LNB);
     } else {
-      stc_hl_id = HLF_N + 1;
+      stc_hl_id = HLF_N;
     }
 
     set_vim_var_nr(VV_LNUM, lnum);
