@@ -1,8 +1,8 @@
 LIBUV_URL https://github.com/libuv/libuv/archive/v1.49.2.tar.gz
 LIBUV_SHA256 388ffcf3370d4cf7c4b3a3205504eea06c4be5f9e80d2ab32d19f8235accc1cf
 
-LUAJIT_URL https://github.com/LuaJIT/LuaJIT/archive/69bbf3c1b01de8239444b0c430a89fa868978fea.tar.gz
-LUAJIT_SHA256 1375ebdbe04df03bf5f21a576885a7a7e7caf3a0191d68eef513ec1fb2921512
+LUAJIT_URL https://github.com/LuaJIT/LuaJIT/archive/fe71d0fb54ceadfb5b5f3b6baf29e486d97f6059.tar.gz
+LUAJIT_SHA256 92325f209b21aaf0a67b099bc73cf9bbac5789a9749bdc3898d4a990abb4f36e
 
 LUA_URL https://www.lua.org/ftp/lua-5.1.5.tar.gz
 LUA_SHA256 2640fc56a795f29d28ef15e13c34a47e223960b0240e8cb0a82d9b0738695333
@@ -56,7 +56,7 @@ TREESITTER_SHA256 61a21f5d83cfe256472bfa941123a6941fb45073784ee7ec0bc32fdd52f7a4
 WASMTIME_URL https://github.com/bytecodealliance/wasmtime/archive/v25.0.2.tar.gz
 WASMTIME_SHA256 6d1c17c756b83f29f629963228e5fa208ba9d6578421ba2cd07132b6a120accb
 
-UNCRUSTIFY_URL https://github.com/uncrustify/uncrustify/archive/uncrustify-0.79.0.tar.gz
-UNCRUSTIFY_SHA256 e7afaeabf636b7f0ce4e3e9747b95f7bd939613a8db49579755dddf44fedca5f
+UNCRUSTIFY_URL https://github.com/uncrustify/uncrustify/archive/uncrustify-0.80.1.tar.gz
+UNCRUSTIFY_SHA256 0e2616ec2f78e12816388c513f7060072ff7942b42f1175eb28b24cb75aaec48
 LUA_DEV_DEPS_URL https://github.com/neovim/deps/raw/5a1f71cceb24990a0b15fd9a472a5f549f019248/opt/lua-dev-deps.tar.gz
 LUA_DEV_DEPS_SHA256 27db2495f5eddc7fc191701ec9b291486853530c6125609d3197d03481e8d5a2

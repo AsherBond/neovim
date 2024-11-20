@@ -980,8 +980,6 @@ void handle_did_throw(void)
     force_abort = true;
   }
 
-  msg_ext_set_kind("emsg");  // kind=emsg for :throw, exceptions. #9993
-
   if (messages != NULL) {
     do {
       msglist_T *next = messages->next;
@@ -5507,6 +5505,8 @@ static void ex_tabs(exarg_T *eap)
     FOR_ALL_WINDOWS_IN_TAB(wp, tp) {
       if (got_int) {
         break;
+      } else if (!wp->w_config.focusable) {
+        continue;
       }
 
       msg_putchar('\n');

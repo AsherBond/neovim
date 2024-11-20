@@ -72,7 +72,8 @@ EDITOR
 
 EVENTS
 
-• TODO
+• |vim.ui_attach()| callbacks for |ui-messages| `msg_show` events are executed in
+  |api-fast| context.
 
 LSP
 
@@ -94,6 +95,9 @@ LSP
   Instead use: >lua
     vim.diagnostic.config(config, vim.lsp.diagnostic.get_namespace(client_id))
 <
+• |vim.lsp.util.make_position_params()|, |vim.lsp.util.make_range_params()|
+  and |vim.lsp.util.make_given_range_params()| now require the `offset_encoding`
+  parameter.
 
 LUA
 
@@ -167,7 +171,7 @@ DEFAULTS
   • |gri| in Normal mode maps to |vim.lsp.buf.implementation()|
   • |gO| in Normal mode maps to |vim.lsp.buf.document_symbol()|
   • |gra| in Normal and Visual mode maps to |vim.lsp.buf.code_action()|
-  • CTRL-S in Insert mode maps to |vim.lsp.buf.signature_help()|
+  • CTRL-S in Insert and Select mode maps to |vim.lsp.buf.signature_help()|
   • Mouse |popup-menu| includes an "Open in web browser" item when you right-click
     on a URL.
   • Mouse |popup-menu| includes a "Go to definition" item when LSP is active
@@ -214,6 +218,10 @@ LSP
   clients.
 • |vim.lsp.buf.signature_help()| can now cycle through different signatures
   using `<C-s>` and also support multiple clients.
+• The client now supports `'utf-8'` and `'utf-32'` position encodings.
+• |vim.lsp.buf.hover()| now highlights hover ranges using the
+  |hl-LspReferenceTarget| highlight group.
+• Functions in |vim.lsp.Client| can now be called as methods.
 
 LUA
 
@@ -226,6 +234,7 @@ LUA
 OPTIONS
 
 • 'completeopt' flag "fuzzy" enables |fuzzy-matching| during |ins-completion|.
+• 'msghistory' controls maximum number of messages to remember.
 • 'tabclose' controls which tab page to focus when closing a tab page.
 
 PERFORMANCE

@@ -181,6 +181,16 @@ function M.changelog(_, bufnr)
 end
 
 --- @type vim.filetype.mapfn
+function M.cl(_, bufnr)
+  local lines = table.concat(getlines(bufnr, 1, 4))
+  if lines:match('/%*') then
+    return 'opencl'
+  else
+    return 'lisp'
+  end
+end
+
+--- @type vim.filetype.mapfn
 function M.class(_, bufnr)
   -- Check if not a Java class (starts with '\xca\xfe\xba\xbe')
   if not getline(bufnr, 1):find('^\202\254\186\190') then
@@ -865,6 +875,16 @@ function M.log(path, _)
     return 'usserverlog'
   elseif findany(path, { 'usw2kagt%.log', 'usw2kagt%..*%.log', '.*%.usw2kagt%.log' }) then
     return 'usw2kagtlog'
+  end
+end
+
+--- @type vim.filetype.mapfn
+function M.ll(_, bufnr)
+  local first_line = getline(bufnr, 1)
+  if matchregex(first_line, [[;\|\<source_filename\>\|\<target\>]]) then
+    return 'llvm'
+  else
+    return 'lifelines'
   end
 end
 
