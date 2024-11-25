@@ -982,11 +982,6 @@ static void add_msg_hist_multihl(const char *s, int len, int hl_id, bool multili
     return;
   }
 
-  // Don't let the message history get too big
-  while (msg_hist_len > p_mhi) {
-    delete_first_msg();
-  }
-
   // allocate an entry and add the message at the end of the history
   struct msg_hist *p = xmalloc(sizeof(struct msg_hist));
   if (s) {
@@ -1018,6 +1013,8 @@ static void add_msg_hist_multihl(const char *s, int len, int hl_id, bool multili
     first_msg_hist = last_msg_hist;
   }
   msg_hist_len++;
+
+  check_msg_hist();
 }
 
 /// Delete the first (oldest) message from the history.
@@ -1039,6 +1036,14 @@ int delete_first_msg(void)
   xfree(p);
   msg_hist_len--;
   return OK;
+}
+
+void check_msg_hist(void)
+{
+  // Don't let the message history get too big
+  while (msg_hist_len > 0 && msg_hist_len > p_mhi) {
+    (void)delete_first_msg();
+  }
 }
 
 /// :messages command implementation
@@ -2277,7 +2282,7 @@ static void msg_puts_display(const char *str, int maxlen, int hl_id, int recurse
           }
         } while (msg_col & 7);
       } else if (c == BELL) {  // beep (from ":sh")
-        vim_beep(BO_SH);
+        vim_beep(kOptBoFlagShell);
       }
     }
   }
@@ -2332,7 +2337,7 @@ int msg_scrollsize(void)
 
 bool msg_do_throttle(void)
 {
-  return msg_use_grid() && !(rdb_flags & RDB_NOTHROTTLE);
+  return msg_use_grid() && !(rdb_flags & kOptRdbFlagNothrottle);
 }
 
 /// Scroll the screen up one line for displaying the next message line.
@@ -2597,7 +2602,7 @@ void show_sb_text(void)
   // weird, typing a command without output results in one line.
   msgchunk_T *mp = msg_sb_start(last_msgchunk);
   if (mp == NULL || mp->sb_prev == NULL) {
-    vim_beep(BO_MESS);
+    vim_beep(kOptBoFlagMess);
   } else {
     do_more_prompt('G');
     wait_return(false);
