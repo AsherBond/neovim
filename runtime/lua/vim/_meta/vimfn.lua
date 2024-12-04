@@ -3885,6 +3885,8 @@ function vim.fn.gettext(text) end
 ---   botline    last complete displayed buffer line
 ---   bufnr    number of buffer in the window
 ---   height    window height (excluding winbar)
+---   leftcol    first column displayed; only used when
+---       'wrap' is off
 ---   loclist    1 if showing a location list
 ---   quickfix  1 if quickfix or location list window
 ---   terminal  1 if a terminal window
@@ -4926,7 +4928,7 @@ function vim.fn.jobstop(id) end
 ---
 --- @param jobs integer[]
 --- @param timeout? integer
---- @return any
+--- @return integer[]
 function vim.fn.jobwait(jobs, timeout) end
 
 --- Join the items in {list} together into one String.
@@ -7242,9 +7244,9 @@ function vim.fn.round(expr) end
 ---
 --- @param channel integer
 --- @param event string
---- @param args? any
+--- @param ... any
 --- @return any
-function vim.fn.rpcnotify(channel, event, args) end
+function vim.fn.rpcnotify(channel, event, ...) end
 
 --- Sends a request to {channel} to invoke {method} via
 --- |RPC| and blocks until a response is received.
@@ -7254,9 +7256,9 @@ function vim.fn.rpcnotify(channel, event, args) end
 ---
 --- @param channel integer
 --- @param method string
---- @param args? any
+--- @param ... any
 --- @return any
-function vim.fn.rpcrequest(channel, method, args) end
+function vim.fn.rpcrequest(channel, method, ...) end
 
 --- @deprecated
 --- Deprecated. Replace  >vim
@@ -9326,6 +9328,7 @@ function vim.fn.str2float(string, quoted) end
 --- and exists only for backwards-compatibility.
 --- With UTF-8 composing characters are handled properly: >vim
 ---   echo str2list("á")    " returns [97, 769]
+--- <
 ---
 --- @param string string
 --- @param utf8? boolean
@@ -10868,7 +10871,7 @@ function vim.fn.winheight(nr) end
 --- <
 ---
 --- @param tabnr? integer
---- @return any
+--- @return any[]
 function vim.fn.winlayout(tabnr) end
 
 --- The result is a Number, which is the screen line of the cursor

@@ -1530,9 +1530,9 @@ return {
         	    a match from the menu. Only works in combination with
         	    "menu" or "menuone". No effect if "longest" is present.
 
-           noselect Do not select a match in the menu, force the user to
-        	    select one from the menu. Only works in combination with
-        	    "menu" or "menuone".
+           noselect Same as "noinsert", except that no menu item is
+        	    pre-selected. If both "noinsert" and "noselect" are present,
+        	    "noselect" has precedence.
 
            fuzzy    Enable |fuzzy-matching| for completion candidates. This
         	    allows for more flexible and intuitive matching, where
@@ -8407,6 +8407,7 @@ return {
         All fields except the {item} are optional.  A single percent sign can
         be given as "%%".
 
+        						*stl-%!*
         When the option starts with "%!" then it is used as an expression,
         evaluated and the result is used as the option value.  Example: >vim
         	set statusline=%!MyStatusLine()
