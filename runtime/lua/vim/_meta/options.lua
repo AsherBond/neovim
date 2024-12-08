@@ -3016,7 +3016,7 @@ vim.go.hid = vim.go.hidden
 
 --- A history of ":" commands, and a history of previous search patterns
 --- is remembered.  This option decides how many entries may be stored in
---- each of these histories (see `cmdline-editing` and 'msghistory' for
+--- each of these histories (see `cmdline-editing` and 'messagesopt' for
 --- the number of messages to remember).
 --- The maximum value is 10000.
 ---
@@ -4084,6 +4084,31 @@ vim.o.mis = vim.o.menuitems
 vim.go.menuitems = vim.o.menuitems
 vim.go.mis = vim.go.menuitems
 
+--- Option settings for outputting messages.  It can consist of the
+--- following items.  Items must be separated by a comma.
+---
+--- hit-enter	Use a `hit-enter` prompt when the message is longer than
+--- 		'cmdheight' size.
+---
+--- wait:{n}	Instead of using a `hit-enter` prompt, simply wait for
+--- 		{n} milliseconds so that the user has a chance to read
+--- 		the message.  The maximum value of {n} is 10000.  Use
+--- 		0 to disable the wait (but then the user may miss an
+--- 		important message).
+--- 		This item is ignored when "hit-enter" is present, but
+--- 		required when "hit-enter" is not present.
+---
+--- history:{n}	Determines how many entries are remembered in the
+--- 		`:messages` history.  The maximum value is 10000.
+--- 		Setting it to zero clears the message history.
+--- 		This item must always be present.
+---
+--- @type string
+vim.o.messagesopt = "hit-enter,history:500"
+vim.o.mopt = vim.o.messagesopt
+vim.go.messagesopt = vim.o.messagesopt
+vim.go.mopt = vim.go.messagesopt
+
 --- Parameters for `:mkspell`.  This tunes when to start compressing the
 --- word tree.  Compression can be slow when there are many words, but
 --- it's needed to avoid running out of memory.  The amount of memory used
@@ -4378,16 +4403,6 @@ vim.o.mousetime = 500
 vim.o.mouset = vim.o.mousetime
 vim.go.mousetime = vim.o.mousetime
 vim.go.mouset = vim.go.mousetime
-
---- Determines how many entries are remembered in the `:messages` history.
---- The maximum value is 10000.
---- Setting it to zero clears the message history.
----
---- @type integer
-vim.o.msghistory = 500
-vim.o.mhi = vim.o.msghistory
-vim.go.msghistory = vim.o.msghistory
-vim.go.mhi = vim.go.msghistory
 
 --- This defines what bases Vim will consider for numbers when using the
 --- CTRL-A and CTRL-X commands for adding to and subtracting from a number
