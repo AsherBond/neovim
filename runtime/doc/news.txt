@@ -87,6 +87,11 @@ EVENTS
 • |vim.ui_attach()| callbacks for |ui-messages| `msg_show` events are executed in
   |api-fast| context.
 
+HIGHLIGHTS
+
+• |TermCursorNC| is removed and no longer supported. Unfocused terminals no
+  longer have a cursor.
+
 LSP
 
 • Improved rendering of LSP hover docs. |K-lsp-default|
@@ -110,6 +115,7 @@ LSP
 • |vim.lsp.util.make_position_params()|, |vim.lsp.util.make_range_params()|
   and |vim.lsp.util.make_given_range_params()| now require the `position_encoding`
   parameter.
+• `:checkhealth vim.lsp` displays the server version (if available).
 
 LUA
 
@@ -211,6 +217,7 @@ EDITOR
 • On Windows, filename arguments on the command-line prefixed with "~\" or
   "~/" are now expanded to the user's profile directory, not a relative path
   to a literal "~" directory.
+• |hl-ComplMatchIns| shows matched text of the currently inserted completion.
 • |hl-PmenuMatch| and |hl-PmenuMatchSel| show matched text in completion popup.
 
 EVENTS
@@ -281,6 +288,12 @@ TERMINAL
   'scrollback' are not reflown.
 • The |terminal| now supports OSC 8 escape sequences and will display
   hyperlinks in supporting host terminals.
+• The |terminal| now uses the actual cursor, rather than a "virtual" cursor.
+  This means that escape codes sent by applications running in a terminal
+  buffer can change the cursor shape and visibility. However, it also
+  means that the |TermCursorNC| highlight group is no longer supported: an
+  unfocused terminal window will have no cursor at all (so there is nothing to
+  highlight).
 
 TREESITTER
 
@@ -307,7 +320,7 @@ UI
   which controls the tool used to open the given path or URL. If you want to
   globally set this, you can override vim.ui.open using the same approach
   described at |vim.paste()|.
-- `vim.ui.open()` now supports
+• `vim.ui.open()` now supports
   [lemonade](https://github.com/lemonade-command/lemonade) as an option for
   opening urls/files. This is handy if you are in an ssh connection and use
   `lemonade`.
@@ -317,7 +330,6 @@ UI
   |hl-PmenuMatch|.
 • |vim.diagnostic.setqflist()| updates an existing quickfix list with the
   given title if found
-
 • |ui-messages| content chunks now also contain the highlight group ID.
 
 ==============================================================================
@@ -339,9 +351,9 @@ These existing features changed their behavior.
   more emoji characters than before, including those encoded with multiple
   emoji codepoints combined with ZWJ (zero width joiner) codepoints.
 
-• Text in the 'statusline', 'tabline', and 'winbar' now inherits highlights
-  from the respective |hl-StatusLine|, |hl-TabLine|, and |hl-WinBar| highlight
-  groups.
+• Custom highlights in 'rulerformat', 'statuscolumn', 'statusline', 'tabline',
+  'winbar' and the number column (through |:sign-define| `numhl`) now combine
+  with their respective highlight groups, as opposed to |hl-Normal|.
 
 • |vim.on_key()| callbacks won't be invoked recursively when a callback itself
   consumes input.
