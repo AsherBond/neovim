@@ -357,7 +357,7 @@ static void term_output_callback(const char *s, size_t len, void *user_data)
 
 /// Initializes terminal properties, and triggers TermOpen.
 ///
-/// The PTY process (TerminalOptions.data) was already started by termopen(),
+/// The PTY process (TerminalOptions.data) was already started by jobstart(),
 /// via ex_terminal() or the term:// BufReadCmd.
 ///
 /// @param buf Buffer used for presentation of the terminal.
@@ -1961,9 +1961,11 @@ static void refresh_cursor(Terminal *term)
     break;
   case VTERM_PROP_CURSORSHAPE_UNDERLINE:
     shape_table[SHAPE_IDX_TERM].shape = SHAPE_HOR;
+    shape_table[SHAPE_IDX_TERM].percentage = 20;
     break;
   case VTERM_PROP_CURSORSHAPE_BAR_LEFT:
     shape_table[SHAPE_IDX_TERM].shape = SHAPE_VER;
+    shape_table[SHAPE_IDX_TERM].percentage = 25;
     break;
   }
 

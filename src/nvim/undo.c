@@ -89,7 +89,6 @@
 #include "nvim/buffer_updates.h"
 #include "nvim/change.h"
 #include "nvim/cursor.h"
-#include "nvim/decoration.h"
 #include "nvim/drawscreen.h"
 #include "nvim/edit.h"
 #include "nvim/errors.h"
@@ -107,12 +106,10 @@
 #include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
-#include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/macros_defs.h"
 #include "nvim/mark.h"
 #include "nvim/mark_defs.h"
-#include "nvim/marktree_defs.h"
 #include "nvim/mbyte.h"
 #include "nvim/memline.h"
 #include "nvim/memline_defs.h"
@@ -2596,12 +2593,12 @@ static void u_undo_end(bool did_undo, bool absolute, bool quiet)
     check_pos(curbuf, &VIsual);
   }
 
-  smsg_hl_keep(0, _("%" PRId64 " %s; %s #%" PRId64 "  %s"),
-               u_oldcount < 0 ? (int64_t)-u_oldcount : (int64_t)u_oldcount,
-               _(msgstr),
-               did_undo ? _("before") : _("after"),
-               uhp == NULL ? 0 : (int64_t)uhp->uh_seq,
-               msgbuf);
+  smsg_keep(0, _("%" PRId64 " %s; %s #%" PRId64 "  %s"),
+            u_oldcount < 0 ? (int64_t)-u_oldcount : (int64_t)u_oldcount,
+            _(msgstr),
+            did_undo ? _("before") : _("after"),
+            uhp == NULL ? 0 : (int64_t)uhp->uh_seq,
+            msgbuf);
 }
 
 /// Put the timestamp of an undo header in "buf[buflen]" in a nice format.

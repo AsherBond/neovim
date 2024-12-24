@@ -42,7 +42,6 @@
 #include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
 #include "nvim/keycodes.h"
-#include "nvim/log.h"
 #include "nvim/lua/executor.h"
 #include "nvim/macros_defs.h"
 #include "nvim/mapping.h"
@@ -2001,6 +2000,7 @@ static const char *set_context_by_cmdname(const char *cmd, cmdidx_T cmdidx, expa
     FALLTHROUGH;
   case CMD_buffer:
   case CMD_sbuffer:
+  case CMD_pbuffer:
   case CMD_checktime:
     xp->xp_context = EXPAND_BUFFERS;
     xp->xp_pattern = (char *)arg;
