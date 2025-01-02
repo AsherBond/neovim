@@ -459,7 +459,6 @@ func s:GetFilenameChecks() abort
     \ 'mallard': ['file.page'],
     "\ 'man': ['file.man'],
     \ 'manconf': ['/etc/man.conf', 'man.config', 'any/etc/man.conf'],
-    \ 'map': ['file.map'],
     \ 'maple': ['file.mv', 'file.mpl', 'file.mws'],
     \ 'markdown': ['file.markdown', 'file.mdown', 'file.mkd', 'file.mkdn', 'file.mdwn', 'file.md'],
     \ 'masm': ['file.masm'],
@@ -886,7 +885,7 @@ func s:GetFilenameChecks() abort
     \ 'xml': ['/etc/blkid.tab', '/etc/blkid.tab.old', 'file.xmi', 'file.csproj', 'file.csproj.user', 'file.fsproj', 'file.fsproj.user', 'file.vbproj', 'file.vbproj.user', 'file.ui',
     \         'file.tpm', '/etc/xdg/menus/file.menu', 'fglrxrc', 'file.xlf', 'file.xliff', 'file.xul', 'file.wsdl', 'file.wpl', 'any/etc/blkid.tab', 'any/etc/blkid.tab.old',
     \         'any/etc/xdg/menus/file.menu', 'file.atom', 'file.rss', 'file.cdxml', 'file.psc1', 'file.mpd', 'fonts.conf', 'file.xcu', 'file.xlb', 'file.xlc', 'file.xba', 'file.xpr',
-    \         'file.xpfm', 'file.spfm', 'file.bxml', 'file.mmi'],
+    \         'file.xpfm', 'file.spfm', 'file.bxml', 'file.mmi', 'file.slnx', 'Directory.Packages.props', 'Directory.Build.targets', 'Directory.Build.props'],
     \ 'xmodmap': ['anyXmodmap', 'Xmodmap', 'some-Xmodmap', 'some-xmodmap', 'some-xmodmap-file', 'xmodmap', 'xmodmap-file'],
     \ 'xpm': ['file.xpm'],
     \ 'xpm2': ['file.xpm2'],
@@ -2301,6 +2300,27 @@ func Test_cls_file()
   filetype off
 endfunc
 
+func Test_cmd_file()
+  filetype on
+
+  call writefile(['--rom_model'], 'Xfile.cmd')
+  split Xfile.cmd
+  call assert_equal('lnk', &filetype)
+  bwipe!
+
+  call writefile(['/* comment */'], 'Xfile.cmd')
+  split Xfile.cmd
+  call assert_equal('rexx', &filetype)
+  bwipe!
+
+  call writefile(['REM comment'], 'Xfile.cmd')
+  split Xfile.cmd
+  call assert_equal('dosbatch', &filetype)
+  bwipe!
+
+  filetype off
+endfunc
+
 func Test_sig_file()
   filetype on
 
@@ -2760,6 +2780,24 @@ func Test_make_file()
   call writefile(['# get the list of tests', 'include testdir/Make_all.mak'], 'XMakefile.mak', 'D')
   split XMakefile.mak
   call assert_equal(0, get(b:, 'make_microsoft', 0))
+  bwipe!
+
+  filetype off
+endfunc
+
+func Test_map_file()
+  filetype on
+
+  " TI linker map file
+  call writefile(['******************************************************************************', '               TMS320C6x Linker Unix v7.4.24                   ', '******************************************************************************'], 'Xfile.map', 'D')
+  split Xfile.map
+  call assert_equal('lnkmap', &filetype)
+  bwipe!
+
+  " UMN mapserver config file
+  call writefile(['MAP', 'NAME "local-demo"', 'END'], 'Xfile.map', 'D')
+  split Xfile.map
+  call assert_equal('map', &filetype)
   bwipe!
 
   filetype off
