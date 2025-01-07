@@ -400,7 +400,7 @@ static bool do_incsearch_highlighting(int firstc, int *search_delim, incsearch_s
   parse_cmd_address(&ea, &dummy, true);
   if (ea.addr_count > 0) {
     // Allow for reverse match.
-    search_first_line = MIN(ea.line1, ea.line1);
+    search_first_line = MIN(ea.line2, ea.line1);
     search_last_line = MAX(ea.line2, ea.line1);
   } else if (cmd[0] == 's' && cmd[1] != 'o') {
     // :s defaults to the current line
@@ -2815,8 +2815,10 @@ char *getcmdline_prompt(const int firstc, const char *const prompt, const int hl
   ccline.one_key = one_key;
   ccline.mouse_used = mouse_used;
 
+  const bool cmd_silent_saved = cmd_silent;
   int msg_silent_saved = msg_silent;
   msg_silent = 0;
+  cmd_silent = false;  // Want to see the prompt.
 
   char *const ret = (char *)command_line_enter(firstc, 1, 0, false);
   ccline.redraw_state = kCmdRedrawNone;
@@ -2825,6 +2827,7 @@ char *getcmdline_prompt(const int firstc, const char *const prompt, const int hl
     restore_cmdline(&save_ccline);
   }
   msg_silent = msg_silent_saved;
+  cmd_silent = cmd_silent_saved;
   // Restore msg_col, the prompt from input() may have changed it.
   // But only if called recursively and the commandline is therefore being
   // restored to an old one; if not, the input() prompt stays on the screen,
@@ -4792,9 +4795,6 @@ void get_user_input(const typval_T *const argvars, typval_T *const rettv, const 
     }
   }
 
-  const bool cmd_silent_save = cmd_silent;
-
-  cmd_silent = false;  // Want to see the prompt.
   // Only the part of the message after the last NL is considered as
   // prompt for the command line, unlsess cmdline is externalized
   const char *p = prompt;
@@ -4829,5 +4829,4 @@ void get_user_input(const typval_T *const argvars, typval_T *const rettv, const 
   // Since the user typed this, no need to wait for return.
   need_wait_return = false;
   msg_didout = false;
-  cmd_silent = cmd_silent_save;
 }

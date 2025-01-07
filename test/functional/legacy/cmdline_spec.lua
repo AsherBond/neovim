@@ -159,6 +159,50 @@ describe('cmdline', function()
       endfunc
     ]])
 
+    feed(':resize -3<CR>')
+    screen:expect([[
+      ^                                                            |
+      {1:~                                                           }|*2
+      {3:[No Name]                                                   }|
+                                                                  |*4
+    ]])
+
+    -- :resize now also changes 'cmdheight' accordingly
+    feed(':set cmdheight+=1<CR>')
+    screen:expect([[
+      ^                                                            |
+      {1:~                                                           }|
+      {3:[No Name]                                                   }|
+                                                                  |*5
+    ]])
+
+    -- using more space moves the status line up
+    feed(':set cmdheight+=1<CR>')
+    screen:expect([[
+      ^                                                            |
+      {3:[No Name]                                                   }|
+                                                                  |*6
+    ]])
+
+    -- reducing cmdheight moves status line down
+    feed(':set cmdheight-=3<CR>')
+    screen:expect([[
+      ^                                                            |
+      {1:~                                                           }|*3
+      {3:[No Name]                                                   }|
+                                                                  |*3
+    ]])
+
+    -- reducing window size and then setting cmdheight
+    feed(':resize -1<CR>')
+    feed(':set cmdheight=1<CR>')
+    screen:expect([[
+      ^                                                            |
+      {1:~                                                           }|*5
+      {3:[No Name]                                                   }|
+                                                                  |
+    ]])
+
     -- setting 'cmdheight' works after outputting two messages
     feed(':call EchoTwo()')
     screen:expect([[
@@ -184,6 +228,16 @@ describe('cmdline', function()
       foo                                                         |
       bar                                                         |
       {6:Press ENTER or type command to continue}^                     |
+    ]])
+
+    -- window commands do not reduce 'cmdheight' to value lower than :set by user
+    feed('<CR>:wincmd _<CR>')
+    screen:expect([[
+      ^                                                            |
+      {1:~                                                           }|*4
+      {3:[No Name]                                                   }|
+      :wincmd _                                                   |
+                                                                  |
     ]])
   end)
 

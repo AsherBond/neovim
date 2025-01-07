@@ -2120,14 +2120,14 @@ static const char *did_set_laststatus(optset_T *args)
   // When switching to global statusline, decrease topframe height
   // Also clear the cmdline to remove the ruler if there is one
   if (value == 3 && old_value != 3) {
-    frame_new_height(topframe, topframe->fr_height - STATUS_HEIGHT, false, false);
+    frame_new_height(topframe, topframe->fr_height - STATUS_HEIGHT, false, false, false);
     win_comp_pos();
     clear_cmdline = true;
   }
   // When switching from global statusline, increase height of topframe by STATUS_HEIGHT
   // in order to to re-add the space that was previously taken by the global statusline
   if (old_value == 3 && value != 3) {
-    frame_new_height(topframe, topframe->fr_height + STATUS_HEIGHT, false, false);
+    frame_new_height(topframe, topframe->fr_height + STATUS_HEIGHT, false, false, false);
     win_comp_pos();
   }
 
@@ -2872,8 +2872,6 @@ static const char *validate_num_option(OptIndex opt_idx, OptInt *newval, char *e
   case kOptCmdheight:
     if (value < 0) {
       return e_positive;
-    } else {
-      p_ch_was_zero = value == 0;
     }
     break;
   case kOptHistory:
