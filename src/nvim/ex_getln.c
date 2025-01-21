@@ -163,6 +163,7 @@ typedef struct {
 typedef struct {
   buf_T *buf;
   OptInt save_b_p_ul;
+  int save_b_p_ma;
   int save_b_changed;
   pos_T save_b_op_start;
   pos_T save_b_op_end;
@@ -951,10 +952,9 @@ theend:
   kv_destroy(ccline.last_colors.colors);
 
   char *p = ccline.cmdbuff;
-  // Prevent show events triggered by a (vim.ui_attach) hide callback.
-  ccline.cmdbuff = NULL;
 
   if (ui_has(kUICmdline)) {
+    ccline.redraw_state = kCmdRedrawNone;
     ui_call_cmdline_hide(ccline.level, s->gotesc);
     msg_ext_clear_later();
   }
@@ -967,6 +967,8 @@ theend:
 
   if (did_save_ccline) {
     restore_cmdline(&save_ccline);
+  } else {
+    ccline.cmdbuff = NULL;
   }
 
   return (uint8_t *)p;
@@ -2418,6 +2420,7 @@ static void cmdpreview_prepare(CpInfo *cpinfo)
     if (!set_has(ptr_t, &saved_bufs, buf)) {
       CpBufInfo cp_bufinfo;
       cp_bufinfo.buf = buf;
+      cp_bufinfo.save_b_p_ma = buf->b_p_ma;
       cp_bufinfo.save_b_p_ul = buf->b_p_ul;
       cp_bufinfo.save_b_changed = buf->b_changed;
       cp_bufinfo.save_b_op_start = buf->b_op_start;
@@ -2508,6 +2511,7 @@ static void cmdpreview_restore_state(CpInfo *cpinfo)
     }
 
     buf->b_p_ul = cp_bufinfo.save_b_p_ul;        // Restore 'undolevels'
+    buf->b_p_ma = cp_bufinfo.save_b_p_ma;        // Restore 'modifiable'
   }
 
   for (size_t i = 0; i < cpinfo->win_info.size; i++) {
@@ -2703,7 +2707,6 @@ static int command_line_changed(CommandLineState *s)
       && current_sctx.sc_sid == 0    // only if interactive
       && *p_icm != NUL       // 'inccommand' is set
       && !exmode_active      // not in ex mode
-      && curbuf->b_p_ma      // buffer is modifiable
       && cmdline_star == 0   // not typing a password
       && !vpeekc_any()
       && cmdpreview_may_show(s)) {
@@ -3415,10 +3418,6 @@ static void draw_cmdline(int start, int len)
 
 static void ui_ext_cmdline_show(CmdlineInfo *line)
 {
-  if (line->cmdbuff == NULL) {
-    return;
-  }
-
   Arena arena = ARENA_EMPTY;
   Array content;
   if (cmdline_star) {

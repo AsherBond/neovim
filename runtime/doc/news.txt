@@ -26,6 +26,9 @@ LSP
 
 • `lsp/` runtimepath files should return a table instead of calling
   |vim.lsp.config()| (or assigning to `vim.lsp.config`). See |lsp-config|
+• `vim.lsp.buf.document_symbol()` uses the |location-list| by default. Use
+  `vim.lsp.buf.document_symbol({ loclist = false })` to use the |quickfix|
+  list.
 
 
 OPTIONS
@@ -70,7 +73,9 @@ DIAGNOSTICS
   the "severity_sort" option.
 • Diagnostics are filtered by severity before being passed to a diagnostic
   handler |diagnostic-handlers|.
-
+• The "virtual_text" handler is disabled by default. Enable with >lua
+    vim.diagnostic.config({ virtual_text = true })
+<
 EDITOR
 
 • The order in which signs are placed was changed. Higher priority signs will
@@ -314,6 +319,8 @@ PLUGINS
 
 • EditorConfig
   • spelling_language property is now supported.
+• 'inccommand' incremental preview can run on 'nomodifiable' buffers and
+  restores their 'modifiable' state
 
 STARTUP
 
@@ -341,6 +348,9 @@ TERMINAL
 • |jobstart()| gained the "term" flag.
 • The |terminal| will send theme update notifications when 'background' is
   changed and DEC mode 2031 is enabled.
+• The |terminal| has experimental support for the Kitty keyboard protocol
+  (sometimes called "CSI u" key encoding). Only the "Disambiguate escape
+  codes" mode is currently supported.
 
 TREESITTER
 
