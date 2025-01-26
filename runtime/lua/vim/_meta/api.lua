@@ -574,6 +574,9 @@ function vim.api.nvim_buf_line_count(buffer) end
 --- - hl_group : highlight group used for the text range. This and below
 ---     highlight groups can be supplied either as a string or as an integer,
 ---     the latter of which can be obtained using `nvim_get_hl_id_by_name()`.
+---
+---     Multiple highlight groups can be stacked by passing an array (highest
+---     priority last).
 --- - hl_eol : when true, for a multiline highlight covering the
 ---            EOL of a line, continue the highlight for the rest
 ---            of the screen line (just like for diff and
@@ -586,6 +589,15 @@ function vim.api.nvim_buf_line_count(buffer) end
 ---     (highest priority last).
 --- - virt_text_pos : position of virtual text. Possible values:
 ---   - "eol": right after eol character (default).
+---   - "eol_right_align": display right aligned in the window
+---                        unless the virtual text is longer than
+---                        the space available. If the virtual
+---                        text is too long, it is truncated to
+---                        fit in the window after the EOL
+---                        character. If the line is wrapped, the
+---                        virtual text is shown after the end of
+---                        the line rather than the previous
+---                        screen line.
 ---   - "overlay": display over the specified column, without
 ---                shifting the underlying text.
 ---   - "right_align": display right aligned in the window.
@@ -1128,7 +1140,9 @@ function vim.api.nvim_eval(expr) end
 ---               the "highlights" key in {opts} is true. Each element of the array is a
 ---               |Dict| with these keys:
 ---     - start: (number) Byte index (0-based) of first character that uses the highlight.
----     - group: (string) Name of highlight group.
+---     - group: (string) Name of highlight group. May be removed in the future, use
+---     `groups` instead.
+---     - groups: (array) Names of stacked highlight groups (highest priority last).
 function vim.api.nvim_eval_statusline(str, opts) end
 
 --- @deprecated

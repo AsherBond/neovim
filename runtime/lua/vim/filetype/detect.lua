@@ -1763,7 +1763,7 @@ function M.v(_, bufnr)
     return vim.g.filetype_v
   end
   local in_comment = 0
-  for _, line in ipairs(getlines(bufnr, 1, 200)) do
+  for _, line in ipairs(getlines(bufnr, 1, 500)) do
     if line:find('^%s*/%*') then
       in_comment = 1
     end
@@ -1777,7 +1777,7 @@ function M.v(_, bufnr)
         or line:find('%(%*') and not line:find('/[/*].*%(%*')
       then
         return 'coq'
-      elseif findany(line, { ';%s*$', ';%s*/[/*]' }) then
+      elseif findany(line, { ';%s*$', ';%s*/[/*]', '^%s*module%s+%w+%s*%(' }) then
         return 'verilog'
       end
     end
@@ -1877,6 +1877,7 @@ local patterns_hashbang = {
   ruby = 'ruby',
   ['node\\(js\\)\\=\\>\\|js\\>'] = { 'javascript', { vim_regex = true } },
   ['rhino\\>'] = { 'javascript', { vim_regex = true } },
+  just = 'just',
   -- BC calculator
   ['^bc\\>'] = { 'bc', { vim_regex = true } },
   ['sed\\>'] = { 'sed', { vim_regex = true } },
