@@ -309,6 +309,7 @@ LUA
 OPTIONS
 
 • 'completeopt' flag "fuzzy" enables |fuzzy-matching| during |ins-completion|.
+• 'completeopt' flag "preinsert" highlights text to be inserted.
 • 'messagesopt' configures |:messages| and |hit-enter| prompt.
 • 'tabclose' controls which tab page to focus when closing a tab page.
 
@@ -408,6 +409,11 @@ UI
 • |ui-messages| content chunks now also contain the highlight group ID.
 • |:checkhealth| can display in a floating window, controlled by the
   |g:health| variable.
+
+VIMSCRIPT
+
+• |getchar()| and |getcharstr()| have optional {opts} |Dict| argument to control:
+  cursor behavior, return type, and whether to simplify the returned key.
 
 ==============================================================================
 CHANGED FEATURES                                                 *news-changed*
