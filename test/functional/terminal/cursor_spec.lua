@@ -357,6 +357,57 @@ describe(':terminal cursor', function()
 
     eq(error_hl_id, screen._mode_info[terminal_mode_idx].hl_id)
   end)
+
+  it('restores visibility on TermLeave #32456', function()
+    skip(is_os('win'), '#31587')
+    feed([[<C-\><C-N>]]) -- Exit terminal mode
+    screen:expect([[
+      tty ready                                         |
+      ^                                                  |
+                                                        |*5
+    ]])
+
+    tt.hide_cursor()
+    -- :startinsert repros the issue more reliably than feed('i')
+    command('mode | startinsert')
+    screen:expect([[
+      tty ready                                         |
+                                                        |*5
+      {3:-- TERMINAL --}                                    |
+    ]])
+
+    feed([[<C-\><C-N>]]) -- Exit terminal mode
+    screen:expect([[
+      tty ready                                         |
+      ^                                                  |
+                                                        |*5
+    ]])
+
+    feed('i')
+    screen:expect([[
+      tty ready                                         |
+                                                        |*5
+      {3:-- TERMINAL --}                                    |
+    ]])
+
+    -- Cursor currently hidden; request to show it while in a TermLeave autocmd.
+    -- Process events (via :sleep) to handle the escape sequence immediately.
+    command([[autocmd TermLeave * ++once call chansend(b:terminal_job_id, "\e[?25h") | sleep 1m]])
+    feed([[<C-\><C-N>]]) -- Exit terminal mode
+    screen:expect([[
+      tty ready                                         |
+      ^                                                  |
+                                                        |*5
+    ]])
+
+    feed('i')
+    screen:expect([[
+      tty ready                                         |
+      ^                                                  |
+                                                        |*4
+      {3:-- TERMINAL --}                                    |
+    ]])
+  end)
 end)
 
 describe('buffer cursor position is correct in terminal without number column', function()

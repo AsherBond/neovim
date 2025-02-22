@@ -1928,7 +1928,8 @@ function vim.fn.expandcmd(string, options) end
 --- When {expr3} is omitted then "force" is assumed.
 ---
 --- {expr1} is changed when {expr2} is not empty.  If necessary
---- make a copy of {expr1} first.
+--- make a copy of {expr1} first or use |extendnew()| to return a
+--- new List/Dictionary.
 --- {expr2} remains unchanged.
 --- When {expr1} is locked and {expr2} is not empty the operation
 --- fails.
@@ -9349,6 +9350,14 @@ function vim.fn.stdioopen(opts) end
 ---
 --- @param what 'cache'|'config'|'config_dirs'|'data'|'data_dirs'|'log'|'run'|'state'
 --- @return string|string[]
+function vim.fn.stdpath(what) end
+
+--- @param what 'cache'|'config'|'data'|'log'|'run'|'state'
+--- @return string
+function vim.fn.stdpath(what) end
+
+--- @param what 'config_dirs'|'data_dirs'
+--- @return string[]
 function vim.fn.stdpath(what) end
 
 --- Convert String {string} to a Float.  This mostly works the
