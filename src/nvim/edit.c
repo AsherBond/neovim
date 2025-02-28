@@ -17,6 +17,7 @@
 #include "nvim/change.h"
 #include "nvim/charset.h"
 #include "nvim/cursor.h"
+#include "nvim/decoration.h"
 #include "nvim/digraph.h"
 #include "nvim/drawscreen.h"
 #include "nvim/edit.h"
@@ -338,7 +339,7 @@ static void insert_enter(InsertState *s)
   if (s->ptr == NULL) {
     new_insert_skip = 0;
   } else {
-    new_insert_skip = (int)strlen(s->ptr);
+    new_insert_skip = (int)get_inserted_len();
     xfree(s->ptr);
   }
 
@@ -1737,11 +1738,11 @@ void change_indent(int type, int amount, int round, bool call_changed_bytes)
     // the right screen column.
     if (vcol != (int)curwin->w_virtcol) {
       curwin->w_cursor.col = (colnr_T)new_cursor_col;
-      size_t i = (size_t)(curwin->w_virtcol - vcol);
-      char *ptr = xmallocz(i);
-      memset(ptr, ' ', i);
-      new_cursor_col += (int)i;
-      ins_str(ptr);
+      const size_t ptrlen = (size_t)(curwin->w_virtcol - vcol);
+      char *ptr = xmallocz(ptrlen);
+      memset(ptr, ' ', ptrlen);
+      new_cursor_col += (int)ptrlen;
+      ins_str(ptr, ptrlen);
       xfree(ptr);
     }
 
@@ -2014,7 +2015,7 @@ static void insert_special(int c, int allow_modmask, int ctrlv)
         return;
       }
       p[len - 1] = NUL;
-      ins_str(p);
+      ins_str(p, (size_t)(len - 1));
       AppendToRedobuffLit(p, -1);
       ctrlv = false;
     }
@@ -2195,7 +2196,7 @@ void insertchar(int c, int flags, int second_indent)
     do_digraph(-1);                     // clear digraphs
     do_digraph((uint8_t)buf[i - 1]);               // may be the start of a digraph
     buf[i] = NUL;
-    ins_str(buf);
+    ins_str(buf, (size_t)i);
     if (flags & INSCHAR_CTRLV) {
       redo_literal((uint8_t)(*buf));
       i = 1;
@@ -2341,7 +2342,7 @@ static void stop_insert(pos_T *end_insert_pos, int esc, int nomove)
   // Don't do it when "restart_edit" was set and nothing was inserted,
   // otherwise CTRL-O w and then <Left> will clear "last_insert".
   char *ptr = get_inserted();
-  int added = ptr == NULL ? 0 : (int)strlen(ptr) - new_insert_skip;
+  int added = ptr == NULL ? 0 : (int)get_inserted_len() - new_insert_skip;
   if (did_restart_edit == 0 || added > 0) {
     xfree(last_insert);
     last_insert = ptr;
@@ -2586,15 +2587,15 @@ int oneleft(void)
   return OK;
 }
 
-/// Move the cursor up "n" lines in window "wp".
-/// Takes care of closed folds.
-void cursor_up_inner(win_T *wp, linenr_T n)
+/// Move the cursor up "n" lines in window "wp". Takes care of closed folds.
+/// Skips over concealed lines when "skip_conceal" is true.
+void cursor_up_inner(win_T *wp, linenr_T n, bool skip_conceal)
 {
   linenr_T lnum = wp->w_cursor.lnum;
 
   if (n >= lnum) {
     lnum = 1;
-  } else if (hasAnyFolding(wp)) {
+  } else if (win_lines_concealed(wp)) {
     // Count each sequence of folded lines as one logical line.
 
     // go to the start of the current fold
@@ -2603,6 +2604,7 @@ void cursor_up_inner(win_T *wp, linenr_T n)
     while (n--) {
       // move up one line
       lnum--;
+      n += skip_conceal && decor_conceal_line(wp, lnum - 1, true);
       if (lnum <= 1) {
         break;
       }
@@ -2628,7 +2630,7 @@ int cursor_up(linenr_T n, bool upd_topline)
   if (n > 0 && curwin->w_cursor.lnum <= 1) {
     return FAIL;
   }
-  cursor_up_inner(curwin, n);
+  cursor_up_inner(curwin, n, false);
 
   // try to advance to the column we want to be at
   coladvance(curwin, curwin->w_curswant);
@@ -2640,16 +2642,16 @@ int cursor_up(linenr_T n, bool upd_topline)
   return OK;
 }
 
-/// Move the cursor down "n" lines in window "wp".
-/// Takes care of closed folds.
-void cursor_down_inner(win_T *wp, int n)
+/// Move the cursor down "n" lines in window "wp". Takes care of closed folds.
+/// Skips over concealed lines when "skip_conceal" is true.
+void cursor_down_inner(win_T *wp, int n, bool skip_conceal)
 {
   linenr_T lnum = wp->w_cursor.lnum;
   linenr_T line_count = wp->w_buffer->b_ml.ml_line_count;
 
   if (lnum + n >= line_count) {
     lnum = line_count;
-  } else if (hasAnyFolding(wp)) {
+  } else if (win_lines_concealed(wp)) {
     linenr_T last;
 
     // count each sequence of folded lines as one logical line
@@ -2659,6 +2661,7 @@ void cursor_down_inner(win_T *wp, int n)
       } else {
         lnum++;
       }
+      n += skip_conceal && decor_conceal_line(wp, lnum - 1, true);
       if (lnum >= line_count) {
         break;
       }
@@ -2680,7 +2683,7 @@ int cursor_down(int n, bool upd_topline)
   if (n > 0 && lnum >= curwin->w_buffer->b_ml.ml_line_count) {
     return FAIL;
   }
-  cursor_down_inner(curwin, n);
+  cursor_down_inner(curwin, n, false);
 
   // try to advance to the column we want to be at
   coladvance(curwin, curwin->w_curswant);
@@ -2769,8 +2772,8 @@ char *get_last_insert_save(void)
   if (last_insert == NULL) {
     return NULL;
   }
-  char *s = xstrdup(last_insert + last_insert_skip);
-  int len = (int)strlen(s);
+  size_t len = strlen(last_insert + last_insert_skip);
+  char *s = xmemdupz(last_insert + last_insert_skip, len);
   if (len > 0 && s[len - 1] == ESC) {         // remove trailing ESC
     s[len - 1] = NUL;
   }
@@ -3860,7 +3863,7 @@ static bool ins_bs(int c, int mode, int *inserted_space_p)
         if (State & VREPLACE_FLAG) {
           ins_char(' ');
         } else {
-          ins_str(" ");
+          ins_str(S_LEN(" "));
           if ((State & REPLACE_FLAG)) {
             replace_push_nul();
           }
@@ -4270,7 +4273,7 @@ static bool ins_tab(void)
     if (State & VREPLACE_FLAG) {
       ins_char(' ');
     } else {
-      ins_str(" ");
+      ins_str(S_LEN(" "));
       if (State & REPLACE_FLAG) {            // no char replaced
         replace_push_nul();
       }

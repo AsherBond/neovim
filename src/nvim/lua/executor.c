@@ -221,7 +221,7 @@ static int nlua_fast_cfpcall(lua_State *lstate, int nargs, int nresult, int flag
     const char *error = lua_tostring(lstate, -1);
 
     multiqueue_put(main_loop.events, nlua_luv_error_event,
-                   xstrdup(error), (void *)(intptr_t)kCallback);
+                   error != NULL ? xstrdup(error) : NULL, (void *)(intptr_t)kCallback);
     lua_pop(lstate, 1);  // error message
     retval = -status;
   } else {  // LUA_OK
@@ -2106,11 +2106,20 @@ bool nlua_execute_on_key(int c, char *typed_buf)
   return discard;
 }
 
-// Sets the editor "script context" during Lua execution. Used by :verbose.
-// @param[out] current
+/// Sets the editor "script context" during Lua execution. Used by :verbose.
+/// @param[out] current
 void nlua_set_sctx(sctx_T *current)
 {
-  if (p_verbose <= 0 || current->sc_sid != SID_LUA) {
+  if (!script_is_lua(current->sc_sid)) {
+    return;
+  }
+
+  // This function is called after adding SOURCING_LNUM to sc_lnum.
+  // SOURCING_LNUM can sometimes be non-zero (e.g. with ETYPE_UFUNC),
+  // but it's unrelated to the line number in Lua scripts.
+  current->sc_lnum = 0;
+
+  if (p_verbose <= 0) {
     return;
   }
   lua_State *const lstate = global_lstate;
@@ -2119,6 +2128,7 @@ void nlua_set_sctx(sctx_T *current)
   // Files where internal wrappers are defined so we can ignore them
   // like vim.o/opt etc are defined in _options.lua
   char *ignorelist[] = {
+    "vim/_editor.lua",
     "vim/_options.lua",
     "vim/keymap.lua",
   };
@@ -2153,7 +2163,8 @@ void nlua_set_sctx(sctx_T *current)
   if (sid > 0) {
     xfree(source_path);
   } else {
-    new_script_item(source_path, &sid);
+    scriptitem_T *si = new_script_item(source_path, &sid);
+    si->sn_lua = true;
   }
   current->sc_sid = sid;
   current->sc_seq = -1;
