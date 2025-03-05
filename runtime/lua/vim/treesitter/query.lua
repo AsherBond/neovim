@@ -59,7 +59,7 @@ function Query:_process_patterns()
       if is_directive(pred_name) then
         table.insert(directives, pattern)
         if vim.deep_equal(pattern, { 'set!', 'injection.combined' }) then
-          self._has_combined_injections = true
+          self.has_combined_injections = true
         end
         if vim.deep_equal(pattern, { 'set!', 'conceal_lines', '' }) then
           self.has_conceal_line = true
@@ -608,6 +608,7 @@ predicate_handlers['any-vim-match?'] = predicate_handlers['any-match?']
 ---@class vim.treesitter.query.TSMetadata
 ---@field range? Range
 ---@field conceal? string
+---@field bo.commentstring? string
 ---@field [integer]? vim.treesitter.query.TSMetadata
 ---@field [string]? integer|string
 
