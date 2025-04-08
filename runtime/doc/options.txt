@@ -1326,6 +1326,17 @@ A jump table for the options with a short description can be found at |Q_op|.
 	This option cannot be set from a |modeline| or in the |sandbox|, for
 	security reasons.
 
+						*'chistory'* *'chi'*
+'chistory' 'chi'	number	(default 10)
+			global
+	Number of quickfix lists that should be remembered for the quickfix
+	stack.  Must be between 1 and 100.  If the option is set to a value
+	that is lower than the amount of entries in the quickfix list stack,
+	entries will be removed starting from the oldest one.  If the current
+	quickfix list was removed, then the quickfix list at top of the stack
+	(the most recently created) will be used in its place.  For additional
+	info, see |quickfix-stack|.
+
 				*'cindent'* *'cin'* *'nocindent'* *'nocin'*
 'cindent' 'cin'		boolean	(default off)
 			local to buffer
@@ -2056,7 +2067,7 @@ A jump table for the options with a short description can be found at |Q_op|.
 	security reasons.
 
 						*'diffopt'* *'dip'*
-'diffopt' 'dip'		string	(default "internal,filler,closeoff,linematch:40")
+'diffopt' 'dip'		string	(default "internal,filler,closeoff,inline:simple,linematch:40")
 			global
 	Option settings for diff mode.  It can consist of the following items.
 	All are optional.  Items must be separated by a comma.
@@ -2118,6 +2129,24 @@ A jump table for the options with a short description can be found at |Q_op|.
 		indent-heuristic
 				Use the indent heuristic for the internal
 				diff library.
+
+		inline:{text}	Highlight inline differences within a change.
+				See |view-diffs|.  Supported values are:
+
+				none    Do not perform inline highlighting.
+				simple  Highlight from first different
+					character to the last one in each
+					line.  This is the default if no
+					`inline:` value is set.
+				char    Use internal diff to perform a
+					character-wise diff and highlight the
+					difference.
+				word    Use internal diff to perform a
+					|word|-wise diff and highlight the
+					difference.  Non-alphanumeric
+					multi-byte characters such as emoji
+					and CJK characters are considered
+					individual words.
 
 		internal	Use the internal diff library.  This is
 				ignored when 'diffexpr' is set.  *E960*
@@ -3762,6 +3791,17 @@ A jump table for the options with a short description can be found at |Q_op|.
 	temporarily when performing an operation where redrawing may cause
 	flickering or cause a slowdown.
 
+						*'lhistory'* *'lhi'*
+'lhistory' 'lhi'	number	(default 10)
+			local to window
+	Like 'chistory', but for the location list stack associated with the
+	current window.  If the option is changed in either the location list
+	window itself or the the window that is associated with the location
+	list stack, the new value will also be applied to the other one.  This
+	means this value will always be the same for a given location list
+	window and its corresponding window.  See |quickfix-stack| for
+	additional info.
+
 			*'linebreak'* *'lbr'* *'nolinebreak'* *'nolbr'*
 'linebreak' 'lbr'	boolean	(default off)
 			local to window
@@ -4607,6 +4647,14 @@ A jump table for the options with a short description can be found at |Q_op|.
 			global
 	Maximum number of items to show in the popup menu
 	(|ins-completion-menu|). Zero means "use available screen space".
+
+						*'pummaxwidth'* *'pmw'*
+'pummaxwidth' 'pmw'	number	(default 0)
+			global
+	Maximum width for the popup menu (|ins-completion-menu|).  When zero,
+	there is no maximum width limit, otherwise the popup menu will never be
+	wider than this value.  Truncated text will be indicated by "..." at the
+	end.  Takes precedence over 'pumwidth'.
 
 						*'pumwidth'* *'pw'*
 'pumwidth' 'pw'		number	(default 15)
@@ -5732,11 +5780,10 @@ A jump table for the options with a short description can be found at |Q_op|.
 	It may also be a comma-separated list of names.  A count before the
 	|zg| and |zw| commands can be used to access each.  This allows using
 	a personal word list file and a project word list file.
-	When a word is added while this option is empty Vim will set it for
-	you: Using the first directory in 'runtimepath' that is writable.  If
-	there is no "spell" directory yet it will be created.  For the file
-	name the first language name that appears in 'spelllang' is used,
-	ignoring the region.
+	When a word is added while this option is empty Nvim will use
+	(and auto-create) `stdpath('data')/spell/`. For the file name the
+	first language name that appears in 'spelllang' is used, ignoring the
+	region.
 	The resulting ".spl" file will be used for spell checking, it does not
 	have to appear in 'spelllang'.
 	Normally one file is used for all regions, but you can add the region
@@ -7179,12 +7226,13 @@ A jump table for the options with a short description can be found at |Q_op|.
 			global
 	Defines the default border style of floating windows. The default value
 	is empty, which is equivalent to "none". Valid values include:
+	- "bold": Bold line box.
+	- "double": Double-line box.
 	- "none": No border.
-	- "single": A single line box.
-	- "double": A double line box.
 	- "rounded": Like "single", but with rounded corners ("╭" etc.).
+	- "shadow": Drop shadow effect, by blending with the background.
+	- "single": Single-line box.
 	- "solid": Adds padding by a single whitespace cell.
-	- "shadow": A drop shadow effect by blending with the background.
 
 							*'window'* *'wi'*
 'window' 'wi'		number	(default screen height - 1)

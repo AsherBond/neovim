@@ -240,6 +240,7 @@ static void changed_common(buf_T *buf, linenr_T lnum, colnr_T col, linenr_T lnum
   FOR_ALL_WINDOWS_IN_TAB(win, curtab) {
     if (win->w_buffer == buf && win->w_p_diff && diff_internal()) {
       curtab->tp_diff_update = true;
+      diff_update_line(lnum);
     }
   }
 
@@ -798,7 +799,7 @@ void ins_char_bytes(char *buf, size_t charlen)
 
   if (!p_ri || (State & REPLACE_FLAG)) {
     // Normal insert: move cursor right
-    curwin->w_cursor.col += (int)charlen;
+    curwin->w_cursor.col += (colnr_T)charlen;
   }
   // TODO(Bram): should try to update w_row here, to avoid recomputing it later.
 }
@@ -828,7 +829,7 @@ void ins_str(char *s, size_t slen)
   memmove(newp + col + slen, oldp + col, (size_t)bytes);
   ml_replace(lnum, newp, false);
   inserted_bytes(lnum, col, 0, (int)slen);
-  curwin->w_cursor.col += (int)slen;
+  curwin->w_cursor.col += (colnr_T)slen;
 }
 
 // Delete one character under the cursor.

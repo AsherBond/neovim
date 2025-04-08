@@ -213,6 +213,7 @@ func s:GetFilenameChecks() abort
     \ 'dafny': ['file.dfy'],
     \ 'dart': ['file.dart', 'file.drt'],
     \ 'datascript': ['file.ds'],
+    \ 'dax': ['file.dax'],
     \ 'dcd': ['file.dcd'],
     \ 'deb822sources': ['/etc/apt/sources.list.d/file.sources', 'any/etc/apt/sources.list.d/file.sources'],
     \ 'debchangelog': ['changelog.Debian', 'changelog.dch', 'NEWS.Debian', 'NEWS.dch', '/debian/changelog'],
@@ -605,6 +606,7 @@ func s:GetFilenameChecks() abort
     \ 'povini': ['.povrayrc'],
     \ 'ppd': ['file.ppd'],
     \ 'ppwiz': ['file.it', 'file.ih'],
+    \ 'pq': ['file.pq'],
     \ 'prisma': ['file.prisma'],
     \ 'privoxy': ['file.action'],
     \ 'proc': ['file.pc'],
@@ -1628,20 +1630,36 @@ func Test_haredoc_file()
 endfunc
 
 func Test_help_file()
+  func! s:Check_help_with_iskeyword(fname)
+    exe 'split' a:fname
+    call assert_equal('help', &filetype)
+    bwipe!
+    set iskeyword+=:
+    exe 'split' a:fname
+    call assert_equal('help', &filetype)
+    bwipe!
+    set iskeyword&
+  endfunc
+
   set nomodeline
   filetype on
   call assert_true(mkdir('doc', 'pR'))
 
   call writefile(['some text', 'vim:ft=help:'], 'doc/help.txt', 'D')
-  split doc/help.txt
-  call assert_equal('help', &filetype)
-  bwipe!
+  call s:Check_help_with_iskeyword('doc/help.txt')
 
   call writefile(['some text', 'Copyright: |manual-copyright| vim:ft=help:'],
         \ 'doc/help1.txt', 'D')
-  split doc/help1.txt
-  call assert_equal('help', &filetype)
-  bwipe!
+  call s:Check_help_with_iskeyword('doc/help1.txt')
+
+  call writefile(['some text', 'vim:noet:ft=help:'], 'doc/help2.txt', 'D')
+  call s:Check_help_with_iskeyword('doc/help2.txt')
+
+  call writefile(['some text', 'vim: noet ft=help'], 'doc/help3.txt', 'D')
+  call s:Check_help_with_iskeyword('doc/help3.txt')
+
+  call writefile(['some text', 'vim: ft=help noet'], 'doc/help4.txt', 'D')
+  call s:Check_help_with_iskeyword('doc/help4.txt')
 
   call writefile(['some text'], 'doc/nothelp.txt', 'D')
   split doc/nothelp.txt

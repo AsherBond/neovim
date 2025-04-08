@@ -296,49 +296,64 @@ end
 --- root_dir matches.
 --- @field reuse_client? fun(client: vim.lsp.Client, config: vim.lsp.ClientConfig): boolean
 
---- Update the configuration for an LSP client.
+--- Sets the default configuration for an LSP client (or _all_ clients if the special name "*" is
+--- used).
 ---
---- Use name '*' to set default configuration for all clients.
----
---- Can also be table-assigned to redefine the configuration for a client.
+--- Can also be accessed by table-indexing (`vim.lsp.config[…]`) to get the resolved config, or
+--- redefine the config (instead of "merging" with the config chain).
 ---
 --- Examples:
 ---
---- - Add a root marker for all clients:
+--- - Add root markers for ALL clients:
 ---   ```lua
----      vim.lsp.config('*', {
----          root_markers = { '.git' },
----        })
----        ```
---- - Add additional capabilities to all clients:
+---   vim.lsp.config('*', {
+---       root_markers = { '.git', '.hg' },
+---     })
+---   ```
+--- - Add capabilities to ALL clients:
 ---   ```lua
----      vim.lsp.config('*', {
----          capabilities = {
----            textDocument = {
----              semanticTokens = {
----                multilineTokenSupport = true,
----              }
----            }
----          }
----        })
----        ```
---- - (Re-)define the configuration for clangd:
+---   vim.lsp.config('*', {
+---     capabilities = {
+---       textDocument = {
+---         semanticTokens = {
+---           multilineTokenSupport = true,
+---         }
+---       }
+---     }
+---   })
+---   ```
+--- - Add root markers and capabilities for "clangd":
 ---   ```lua
----      vim.lsp.config.clangd = {
----          cmd = {
----            'clangd',
----            '--clang-tidy',
----            '--background-index',
----            '--offset-encoding=utf-8',
----          },
----          root_markers = { '.clangd', 'compile_commands.json' },
----          filetypes = { 'c', 'cpp' },
----        }
----        ```
---- - Get configuration for luals:
+---   vim.lsp.config('clangd', {
+---     root_markers = { '.clang-format', 'compile_commands.json' },
+---     capabilities = {
+---       textDocument = {
+---         completion = {
+---           completionItem = {
+---             snippetSupport = true,
+---           }
+---         }
+---       }
+---     }
+---   })
+---   ```
+--- - (Re-)define the "clangd" configuration (overrides the resolved chain):
 ---   ```lua
----      local cfg = vim.lsp.config.luals
----        ```
+---   vim.lsp.config.clangd = {
+---     cmd = {
+---       'clangd',
+---       '--clang-tidy',
+---       '--background-index',
+---       '--offset-encoding=utf-8',
+---     },
+---     root_markers = { '.clangd', 'compile_commands.json' },
+---     filetypes = { 'c', 'cpp' },
+---   }
+---   ```
+--- - Get the resolved configuration for "luals":
+---   ```lua
+---   local cfg = vim.lsp.config.luals
+---   ```
 ---
 --- @param name string
 --- @param cfg vim.lsp.Config
@@ -362,6 +377,19 @@ local function invalidate_enabled_config(name)
   end
 end
 
+--- @param name any
+local function validate_config_name(name)
+  validate('name', name, function(value)
+    if type(value) ~= 'string' then
+      return false
+    end
+    if value ~= '*' and value:match('%*') then
+      return false, 'LSP config name cannot contain wildcard ("*")'
+    end
+    return true
+  end, 'non-wildcard string')
+end
+
 --- @nodoc
 --- @class vim.lsp.config
 --- @field [string] vim.lsp.Config
@@ -371,11 +399,16 @@ lsp.config = setmetatable({ _configs = {} }, {
   --- @param name string
   --- @return vim.lsp.Config
   __index = function(self, name)
-    validate('name', name, 'string')
+    validate_config_name(name)
 
     local rconfig = lsp._enabled_configs[name] or {}
 
     if not rconfig.resolved_config then
+      if name == '*' then
+        rconfig.resolved_config = lsp.config._configs['*'] or {}
+        return rconfig.resolved_config
+      end
+
       -- Resolve configs from lsp/*.lua
       -- Calls to vim.lsp.config in lsp/* have a lower precedence than calls from other sites.
       local rtp_config --- @type vim.lsp.Config?
@@ -385,12 +418,12 @@ lsp.config = setmetatable({ _configs = {} }, {
           --- @type vim.lsp.Config?
           rtp_config = vim.tbl_deep_extend('force', rtp_config or {}, config)
         else
-          log.warn(string.format('%s does not return a table, ignoring', v))
+          log.warn(('%s does not return a table, ignoring'):format(v))
         end
       end
 
       if not rtp_config and not self._configs[name] then
-        log.warn(string.format('%s does not have a configuration', name))
+        log.warn(('%s does not have a configuration'):format(name))
         return
       end
 
@@ -410,7 +443,7 @@ lsp.config = setmetatable({ _configs = {} }, {
   --- @param name string
   --- @param cfg vim.lsp.Config
   __newindex = function(self, name, cfg)
-    validate('name', name, 'string')
+    validate_config_name(name)
     validate('cfg', cfg, 'table')
     invalidate_enabled_config(name)
     self._configs[name] = cfg
@@ -420,7 +453,7 @@ lsp.config = setmetatable({ _configs = {} }, {
   --- @param name string
   --- @param cfg vim.lsp.Config
   __call = function(self, name, cfg)
-    validate('name', name, 'string')
+    validate_config_name(name)
     validate('cfg', cfg, 'table')
     invalidate_enabled_config(name)
     self[name] = vim.tbl_deep_extend('force', self._configs[name] or {}, cfg)
@@ -613,6 +646,17 @@ function lsp.start(config, opts)
   if not config.root_dir and opts._root_markers then
     config = vim.deepcopy(config)
     config.root_dir = vim.fs.root(bufnr, opts._root_markers)
+  end
+
+  if
+    not config.root_dir
+    and (not config.workspace_folders or #config.workspace_folders == 0)
+    and config.workspace_required
+  then
+    log.info(
+      ('skipping config "%s": workspace_required=true, no workspace found'):format(config.name)
+    )
+    return
   end
 
   for _, client in pairs(all_clients) do
@@ -1230,7 +1274,9 @@ end
 ---
 ---@param bufnr integer Buffer handle, or 0 for current.
 ---@param method string LSP method name
----@param params table? Parameters to send to the server
+---@param params? table|(fun(client: vim.lsp.Client, bufnr: integer): table?) Parameters to send to the server.
+---               Can also be passed as a function that returns the params table for cases where
+---               parameters are specific to the client.
 ---@param timeout_ms integer? Maximum time in milliseconds to wait for a result.
 ---                           (default: `1000`)
 ---@return table<integer, {error: lsp.ResponseError?, result: any}>? result Map of client_id:request_result.
@@ -1422,11 +1468,13 @@ function lsp.foldtext()
   return vim.lsp._folding_range.foldtext()
 end
 
+---@deprecated Use |vim.lsp.get_client_by_id()| instead.
 ---Checks whether a client is stopped.
 ---
 ---@param client_id (integer)
 ---@return boolean stopped true if client is stopped, false otherwise.
 function lsp.client_is_stopped(client_id)
+  vim.deprecate('vim.lsp.client_is_stopped()', 'vim.lsp.get_client_by_id()', '0.14')
   assert(client_id, 'missing client_id param')
   return not all_clients[client_id]
 end
@@ -1511,25 +1559,39 @@ function lsp.with(handler, override_config)
   end
 end
 
---- Registry for client side commands.
---- This is an extension point for plugins to handle custom commands which are
---- not part of the core language server protocol specification.
+--- Registry (a table) for client-side handlers, for custom server-commands that are not in the LSP
+--- specification.
 ---
---- The registry is a table where the key is a unique command name,
---- and the value is a function which is called if any LSP action
---- (code action, code lenses, ...) triggers the command.
+--- If an LSP response contains a command which is not found in `vim.lsp.commands`, the command will
+--- be executed via the LSP server using `workspace/executeCommand`.
 ---
---- If an LSP response contains a command for which no matching entry is
---- available in this registry, the command will be executed via the LSP server
---- using `workspace/executeCommand`.
+--- Each key in the table is a unique command name, and each value is a function which is called
+--- when an LSP action (code action, code lenses, …) triggers the command.
 ---
---- The first argument to the function will be the `Command`:
+--- - Argument 1 is the `Command`:
+---   ```
 ---   Command
 ---     title: String
 ---     command: String
 ---     arguments?: any[]
+---   ```
+--- - Argument 2 is the |lsp-handler| `ctx`.
 ---
---- The second argument is the `ctx` of |lsp-handler|
+--- Example:
+---
+--- ```lua
+--- vim.lsp.commands['java.action.generateToStringPrompt'] = function(_, ctx)
+---   require("jdtls.async").run(function()
+---     local _, result = request(ctx.bufnr, 'java/checkToStringStatus', ctx.params)
+---     local fields = ui.pick_many(result.fields, 'Include item in toString?', function(x)
+---       return string.format('%s: %s', x.name, x.type)
+---     end)
+---     local _, edit = request(ctx.bufnr, 'java/generateToString', { context = ctx.params; fields = fields; })
+---     vim.lsp.util.apply_workspace_edit(edit, offset_encoding)
+---   end)
+--- end
+--- ```
+---
 --- @type table<string,function>
 lsp.commands = setmetatable({}, {
   __newindex = function(tbl, key, value)

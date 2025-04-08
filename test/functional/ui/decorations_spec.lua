@@ -811,6 +811,53 @@ describe('decorations providers', function()
                                               |
     ]])
   end)
+
+  it('inline virt_text does not result in wrong cursor column #33153', function()
+    insert("line1 with a lot of text\nline2 with a lot of text")
+    setup_provider([[
+      _G.do_win = false
+      vim.keymap.set('n', 'f', function()
+        _G.do_win = true
+        vim.cmd('redraw!')
+      end)
+      vim.o.concealcursor = 'n'
+      function on_do(event)
+        if event == 'win' and _G.do_win then
+          vim.api.nvim_buf_set_extmark(0, ns1, 1, 0, {
+            virt_text = { { 'virt_text ' } },
+            virt_text_pos = 'inline'
+          })
+        end
+      end
+    ]])
+    feed('f')
+    screen:expect([[
+      line1 with a lot of text                |
+      virt_text line2 with a lot of tex^t      |
+      {1:~                                       }|*5
+                                              |
+    ]])
+  end)
+
+  it('decor provider is enabled again for next redraw after on_win disabled it', function()
+    exec_lua(function()
+      vim.api.nvim_set_decoration_provider(vim.api.nvim_create_namespace(''), {
+        on_win = function()
+          return false
+        end,
+        on_buf = function()
+          _G.did_buf = (_G.did_buf or 0) + 1
+        end,
+      })
+    end)
+    api.nvim_buf_set_lines(0, 0, -1, false, { 'foo' })
+    screen:expect([[
+      ^foo                                     |
+      {1:~                                       }|*6
+                                              |
+    ]])
+    eq(1, exec_lua('return _G.did_buf'))
+  end)
 end)
 
 describe('decoration_providers', function()
@@ -2956,6 +3003,35 @@ describe('extmark decorations', function()
       {1:~                                                 }|*3
                                                         |
     ]])
+    -- No scrolling for concealed topline #33033
+    api.nvim_buf_clear_namespace(0, ns, 0, -1)
+    api.nvim_buf_set_extmark(0, ns, 1, 0, { virt_lines_above = true, virt_lines = { { { "virt_above 2" } } } })
+    api.nvim_buf_set_extmark(0, ns, 0, 0, { conceal_lines = "" })
+    feed('ggjj')
+    screen:expect([[
+      {2:    }virt_above 2                                  |
+      {2:  2 }    local text, hl_id_cell, count = unpack(ite|
+      {2:    }m)                                            |
+      {2:  3 }^    if hl_id_cell ~= nil then                 |
+      {2:  4 }        hl_id = hl_id_cell                    |
+      {2:  5 }conceal text                                  |
+      {2:  6 }    for _ = 1, (count or 1) do                |
+      {2:  7 }        local cell = line[colpos]             |
+      {2:  8 }        cell.text = text                      |
+      {2:  9 }        cell.hl_id = hl_id                    |
+      {2: 10 }        colpos = colpos+1                     |
+      {2: 11 }    end                                       |
+      {2: 12 }end                                           |
+      {1:~                                                 }|
+                                                        |
+    ]])
+    -- No asymmetric topline for <C-E><C-Y> #33182
+    feed('4<C-E>')
+    exec('set concealcursor=n')
+    api.nvim_buf_set_extmark(0, ns, 4, 0, { conceal_lines = "" })
+    eq(5, n.fn.line('w0'))
+    feed('<C-E><C-Y>')
+    eq(5, n.fn.line('w0'))
   end)
 end)
 

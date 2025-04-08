@@ -229,11 +229,11 @@ describe('ui/ext_messages', function()
         {
           content = {
             { '\n@character     ' },
-            { 'xxx', 26, 155 },
+            { 'xxx', 26, 156 },
             { ' ' },
             { 'links to', 18, 5 },
             { ' Character\n@character.special ' },
-            { 'xxx', 16, 156 },
+            { 'xxx', 16, 157 },
             { ' ' },
             { 'links to', 18, 5 },
             { ' SpecialChar' },
@@ -300,7 +300,7 @@ describe('ui/ext_messages', function()
       cmdline = { { abort = false } },
       messages = {
         {
-          content = { { 'Error', 9, 6 }, { 'Message', 16, 99 } },
+          content = { { 'Error', 9, 6 }, { 'Message', 16, 100 } },
           history = true,
           kind = 'echoerr',
         },
@@ -372,6 +372,50 @@ describe('ui/ext_messages', function()
     })
 
     feed('<CR>')
+    exec([[
+      set verbose=9
+      augroup verbose
+        autocmd BufEnter * echoh "BufEnter"
+        autocmd BufWinEnter * bdelete
+      augroup END
+    ]])
+    feed(':edit! foo<CR>')
+    screen:expect({
+      grid = s2,
+      cmdline = { { abort = false } },
+      messages = {
+        {
+          content = { { 'Executing BufEnter Autocommands for "*"' } },
+          history = true,
+          kind = 'verbose',
+        },
+        {
+          content = { { 'autocommand echoh "BufEnter"\n' } },
+          history = true,
+          kind = 'verbose',
+        },
+        {
+          content = { { 'Executing BufWinEnter Autocommands for "*"' } },
+          history = true,
+          kind = 'verbose',
+        },
+        {
+          content = { { 'autocommand bdelete\n' } },
+          history = true,
+          kind = 'verbose',
+        },
+        {
+          content = { { 'Press ENTER or type command to continue', 6, 18 } },
+          history = false,
+          kind = 'return_prompt',
+        },
+      },
+    })
+    feed('<CR>')
+    command('autocmd! verbose')
+    command('augroup! verbose')
+    command('set verbose=0')
+
     n.add_builddir_to_rtp()
     feed(':help<CR>:tselect<CR>')
     screen:expect({
@@ -406,7 +450,7 @@ describe('ui/ext_messages', function()
         screen.messages = {}
       end,
     })
-    feed('<CR>:bd<CR>')
+    feed('<CR>:bdelete<CR>$')
 
     -- kind=shell for :!cmd messages
     local cmd = t.is_os('win') and 'echo stdout& echo stderr>&2& exit 3'
@@ -940,7 +984,7 @@ describe('ui/ext_messages', function()
         ^                         |
         {1:~                        }|*4
       ]],
-      ruler = { { '0,0-1   All', 9, 61 } },
+      ruler = { { '0,0-1   All', 9, 62 } },
     })
     command('hi clear MsgArea')
     feed('i')
