@@ -24,6 +24,7 @@ local border_size = {
   rounded = { 2, 2 },
   solid = { 2, 2 },
   shadow = { 1, 1 },
+  bold = { 2, 2 },
 }
 
 --- Check the border given by opts or the default border for the additional
@@ -2163,7 +2164,7 @@ end
 ---@class (private) vim.lsp.util._cancel_requests.Filter
 ---@field bufnr? integer
 ---@field clients? vim.lsp.Client[]
----@field method? string
+---@field method? vim.lsp.protocol.Method.ClientToServer.Request
 ---@field type? string
 
 ---@private

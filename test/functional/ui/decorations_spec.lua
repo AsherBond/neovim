@@ -2905,11 +2905,13 @@ describe('extmark decorations', function()
       {2:  1 }for _,item in ipairs(items) do                |
       {2:    }line 1 below                                  |
       {2:  6 }^    for _ = 1, (count or 1) do                |
+      {2:  7 }        local cell = line[colpos]             |
+      {2:  8 }        cell.text = text                      |
       {2:  9 }        cell.hl_id = hl_id                    |
       {2: 10 }        colpos = colpos+1                     |
       {2: 11 }    end                                       |
       {2: 12 }end                                           |
-      {1:~                                                 }|*7
+      {1:~                                                 }|*5
                                                         |
     ]])
     -- w_lines.wl_lastlnum values are valid
@@ -3032,6 +3034,21 @@ describe('extmark decorations', function()
     eq(5, n.fn.line('w0'))
     feed('<C-E><C-Y>')
     eq(5, n.fn.line('w0'))
+  end)
+
+  it('redraws the line from which a left gravity mark has moved #27369', function()
+    fn.setline(1, {'aaa', 'bbb', 'ccc', 'ddd' })
+    api.nvim_buf_set_extmark(0, ns, 1, 0, { virt_text = {{'foo'}}, right_gravity = false })
+    feed('yyp')
+    screen:expect([[
+      aaa                                               |
+      ^aaa foo                                           |
+      bbb                                               |
+      ccc                                               |
+      ddd                                               |
+      {1:~                                                 }|*9
+                                                        |
+    ]])
   end)
 end)
 
@@ -4756,6 +4773,67 @@ describe('decorations: inline virtual text', function()
       {1:~                                                 }|*3
                                                         |
     ]])
+  end)
+
+  it('is redrawn correctly after delete or redo #27370', function()
+    screen:try_resize(50, 12)
+    exec([[
+      call setline(1, ['aaa', 'bbb', 'ccc', 'ddd', 'eee', 'fff'])
+      call setline(3, repeat('c', winwidth(0) - 1))
+    ]])
+    api.nvim_buf_set_extmark(0, ns, 1, 0, { virt_text = { { '!!!' } }, virt_text_pos = 'inline' })
+    feed('j')
+    local before_delete = [[
+      aaa                                               |
+      !!!^bbb                                            |
+      ccccccccccccccccccccccccccccccccccccccccccccccccc |
+      ddd                                               |
+      eee                                               |
+      fff                                               |
+      {1:~                                                 }|*5
+                                                        |
+    ]]
+    screen:expect(before_delete)
+    feed('dd')
+    local after_delete = [[
+      aaa                                               |
+      !!!^ccccccccccccccccccccccccccccccccccccccccccccccc|
+      cc                                                |
+      ddd                                               |
+      eee                                               |
+      fff                                               |
+      {1:~                                                 }|*5
+                                                        |
+    ]]
+    screen:expect(after_delete)
+    command('silent undo')
+    screen:expect(before_delete)
+    command('silent redo')
+    screen:expect(after_delete)
+    command('silent undo')
+    screen:expect(before_delete)
+    command('set report=100')
+    feed('yypk2P')
+    before_delete = [[
+      aaa                                               |
+      ^bbb                                               |
+      bbb                                               |
+      !!!bbb                                            |
+      bbb                                               |
+      ccccccccccccccccccccccccccccccccccccccccccccccccc |
+      ddd                                               |
+      eee                                               |
+      fff                                               |
+      {1:~                                                 }|*2
+                                                        |
+    ]]
+    screen:expect(before_delete)
+    feed('4dd')
+    screen:expect(after_delete)
+    command('silent undo')
+    screen:expect(before_delete)
+    command('silent redo')
+    screen:expect(after_delete)
   end)
 
   it('cursor position is correct with invalidated inline virt text', function()

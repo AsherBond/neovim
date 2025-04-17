@@ -1021,16 +1021,46 @@ end
 
 --- Check if it is a Microsoft Makefile
 --- @type vim.filetype.mapfn
-function M.make(_, bufnr)
-  vim.b.make_microsoft = nil
+function M.make(path, bufnr)
+  vim.b.make_flavor = nil
+
+  -- 1. filename
+  local file_name = fn.fnamemodify(path, ':t')
+  if file_name == 'BSDmakefile' then
+    vim.b.make_flavor = 'bsd'
+    return 'make'
+  elseif file_name == 'GNUmakefile' then
+    vim.b.make_flavor = 'gnu'
+    return 'make'
+  end
+
+  -- 2. user's setting
+  if vim.g.make_flavor ~= nil then
+    vim.b.make_flavor = vim.g.make_flavor
+    return 'make'
+  elseif vim.g.make_microsoft ~= nil then
+    vim._truncated_echo_once(
+      "make_microsoft is deprecated; try g:make_flavor = 'microsoft' instead"
+    )
+    vim.b.make_flavor = 'microsoft'
+    return 'make'
+  end
+
+  -- 3. try to detect a flavor from file content
   for _, line in ipairs(getlines(bufnr, 1, 1000)) do
     if matchregex(line, [[\c^\s*!\s*\(ifn\=\(def\)\=\|include\|message\|error\)\>]]) then
-      vim.b.make_microsoft = 1
+      vim.b.make_flavor = 'microsoft'
       break
     elseif
-      matchregex(line, [[^ *ifn\=\(eq\|def\)\>]])
-      or findany(line, { '^ *[-s]?%s', '^ *%w+%s*[!?:+]=' })
+      matchregex(line, [[^\.\%(export\|error\|for\|if\%(n\=\%(def\|make\)\)\=\|info\|warning\)\>]])
     then
+      vim.b.make_flavor = 'bsd'
+      break
+    elseif
+      matchregex(line, [[^ *\%(ifn\=\%(eq\|def\)\|define\|override\)\>]])
+      or line:find('%$[({][a-z-]+%s+%S+') -- a function call, e.g. $(shell pwd)
+    then
+      vim.b.make_flavor = 'gnu'
       break
     end
   end
@@ -1502,33 +1532,36 @@ local function sh(path, contents, name)
 
   -- Get the name from the first line if not specified
   name = name or contents[1]
-  if matchregex(name, [[\<csh\>]]) then
+  if name:find('^csh$') or matchregex(name, [[^#!.\{-2,}\<csh\>]]) then
     -- Some .sh scripts contain #!/bin/csh.
     return M.shell(path, contents, 'csh')
+  elseif name:find('^tcsh$') or matchregex(name, [[^#!.\{-2,}\<tcsh\>]]) then
     -- Some .sh scripts contain #!/bin/tcsh.
-  elseif matchregex(name, [[\<tcsh\>]]) then
     return M.shell(path, contents, 'tcsh')
+  elseif name:find('^zsh$') or matchregex(name, [[^#!.\{-2,}\<zsh\>]]) then
     -- Some .sh scripts contain #!/bin/zsh.
-  elseif matchregex(name, [[\<zsh\>]]) then
     return M.shell(path, contents, 'zsh')
   end
 
   local on_detect --- @type fun(b: integer)?
 
-  if matchregex(name, [[\<ksh\>]]) then
+  if name:find('^ksh$') or matchregex(name, [[^#!.\{-2,}\<ksh\>]]) then
     on_detect = function(b)
       vim.b[b].is_kornshell = 1
       vim.b[b].is_bash = nil
       vim.b[b].is_sh = nil
     end
-  elseif vim.g.bash_is_sh or matchregex(name, [[\<\(bash\|bash2\)\>]]) then
+  elseif
+    vim.g.bash_is_sh
+    or name:find('^bash2?$')
+    or matchregex(name, [[^#!.\{-2,}\<bash2\=\>]])
+  then
     on_detect = function(b)
       vim.b[b].is_bash = 1
       vim.b[b].is_kornshell = nil
       vim.b[b].is_sh = nil
     end
-    -- Ubuntu links sh to dash
-  elseif matchregex(name, [[\<\(sh\|dash\)\>]]) then
+  elseif findany(name, { '^sh$', '^dash$' }) or matchregex(name, [[^#!.\{-2,}\<\%(da\)\=sh\>]]) then -- Ubuntu links "sh" to "dash"
     on_detect = function(b)
       vim.b[b].is_sh = 1
       vim.b[b].is_kornshell = nil

@@ -762,6 +762,7 @@ local extension = {
   dm3 = 'maxima',
   dmt = 'maxima',
   wxm = 'maxima',
+  mbsyncrc = 'mbsync',
   mw = 'mediawiki',
   wiki = 'mediawiki',
   mel = 'mel',
@@ -1502,7 +1503,6 @@ local filename = {
   ['.chktexrc'] = 'conf',
   ['.ripgreprc'] = 'conf',
   ripgreprc = 'conf',
-  ['.mbsyncrc'] = 'conf',
   ['configure.in'] = 'config',
   ['configure.ac'] = 'config',
   crontab = 'crontab',
@@ -1705,6 +1705,7 @@ local filename = {
   ['/etc/man.conf'] = 'manconf',
   ['man.config'] = 'manconf',
   ['maxima-init.mac'] = 'maxima',
+  isyncrc = 'mbsync',
   ['meson.build'] = 'meson',
   ['meson.options'] = 'meson',
   ['meson_options.txt'] = 'meson',
@@ -1730,7 +1731,6 @@ local filename = {
   ['.ondirrc'] = 'ondir',
   opam = 'opam',
   ['opam.locked'] = 'opam',
-  ['pacman.log'] = 'pacmanlog',
   ['/etc/pam.conf'] = 'pamconf',
   ['pam_env.conf'] = 'pamenv',
   ['.pam_environment'] = 'pamenv',
@@ -2290,7 +2290,7 @@ local pattern = {
     ['^Containerfile%.'] = starsetf('dockerfile'),
     ['^Dockerfile%.'] = starsetf('dockerfile'),
     ['[mM]akefile$'] = detect.make,
-    ['^[mM]akefile'] = starsetf('make'),
+    ['^[mM]akefile'] = starsetf(detect.make),
     ['^[rR]akefile'] = starsetf('ruby'),
     ['^%.profile'] = detect.sh,
   },
@@ -2480,6 +2480,9 @@ local pattern = {
     ['/octave/history$'] = 'octave',
     ['%.opam%.locked$'] = 'opam',
     ['%.opam%.template$'] = 'opam',
+    ['^pacman%.log'] = starsetf(function(path, bufnr)
+      return vim.uv.fs_stat(path) and 'pacmanlog' or nil
+    end),
     ['printcap'] = starsetf(function(path, bufnr)
       return require('vim.filetype.detect').printcap('print')
     end),
