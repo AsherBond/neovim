@@ -142,6 +142,8 @@ typedef struct {
   expand_T xpc;
   OptInt *b_im_ptr;
   buf_T *b_im_ptr_buf;  ///< buffer where b_im_ptr is valid
+  int cmdline_type;
+  bool event_cmdlineleavepre_triggered;
 } CommandLineState;
 
 typedef struct {
@@ -745,6 +747,7 @@ static uint8_t *command_line_enter(int firstc, int count, int indent, bool clear
 
   ExpandInit(&s->xpc);
   ccline.xpc = &s->xpc;
+  clear_cmdline_orig();
 
   cmdmsg_rl = (curwin->w_p_rl && *curwin->w_p_rlc == 's'
                && (s->firstc == '/' || s->firstc == '?'));
@@ -792,11 +795,11 @@ static uint8_t *command_line_enter(int firstc, int count, int indent, bool clear
   }
 
   setmouse();
-  setcursor();
 
+  s->cmdline_type = firstc > 0 ? firstc : '-';
   Error err = ERROR_INIT;
   char firstcbuf[2];
-  firstcbuf[0] = (char)(firstc > 0 ? firstc : '-');
+  firstcbuf[0] = (char)s->cmdline_type;
   firstcbuf[1] = 0;
 
   if (has_event(EVENT_CMDLINEENTER)) {
@@ -867,6 +870,11 @@ static uint8_t *command_line_enter(int firstc, int count, int indent, bool clear
 
   state_enter(&s->state);
 
+  // Trigger CmdlineLeavePre autocommands if not already triggered.
+  if (!s->event_cmdlineleavepre_triggered) {
+    trigger_cmd_autocmd(s->cmdline_type, EVENT_CMDLINELEAVEPRE);
+  }
+
   if (has_event(EVENT_CMDLINELEAVE)) {
     save_v_event_T save_v_event;
     dict_T *dict = get_v_event(&save_v_event);
@@ -901,6 +909,7 @@ static uint8_t *command_line_enter(int firstc, int count, int indent, bool clear
 
   ExpandCleanup(&s->xpc);
   ccline.xpc = NULL;
+  clear_cmdline_orig();
 
   finish_incsearch_highlighting(s->gotesc, &s->is_state, false);
 
@@ -1299,6 +1308,13 @@ static int command_line_execute(VimState *state, int key)
       wild_type = (s->c == Ctrl_E) ? WILD_CANCEL : WILD_APPLY;
       nextwild(&s->xpc, wild_type, WILD_NO_BEEP, s->firstc != '@');
     }
+  }
+
+  // Trigger CmdlineLeavePre autocommand
+  if ((KeyTyped && (s->c == '\n' || s->c == '\r' || s->c == K_KENTER || s->c == ESC))
+      || s->c == Ctrl_C) {
+    trigger_cmd_autocmd(s->cmdline_type, EVENT_CMDLINELEAVEPRE);
+    s->event_cmdlineleavepre_triggered = true;
   }
 
   // The wildmenu is cleared if the pressed key is not used for
@@ -2226,7 +2242,7 @@ end:
 static void may_trigger_cursormovedc(CommandLineState *s)
 {
   if (ccline.cmdpos != s->prev_cmdpos) {
-    trigger_cmd_autocmd(get_cmdline_type(), EVENT_CURSORMOVEDC);
+    trigger_cmd_autocmd(s->cmdline_type, EVENT_CURSORMOVEDC);
     s->prev_cmdpos = ccline.cmdpos;
     ccline.redraw_state = MAX(ccline.redraw_state, kCmdRedrawPos);
   }
@@ -2991,10 +3007,9 @@ static int cmd_startcol(void)
 int cmd_screencol(int bytepos)
 {
   int m;  // maximum column
-
   int col = cmd_startcol();
   if (KeyTyped) {
-    m = Columns * Rows;
+    m = cmdline_win ? cmdline_win->w_view_width * cmdline_win->w_view_height : Columns * Rows;
     if (m < 0) {        // overflow, Columns or Rows at weird value
       m = MAXCOL;
     }

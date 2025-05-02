@@ -1580,8 +1580,10 @@ local options = {
         	    Useful when there is additional information about the
         	    match, e.g., what file it comes from.
 
-           nearest  Matches are presented in order of proximity to the cursor
-        	    position.  This applies only to matches from the current
+           nearest  Matches are listed based on their proximity to the cursor
+        	    position, unlike the default behavior, which only
+        	    considers proximity for matches appearing below the
+        	    cursor.  This applies only to matches from the current
         	    buffer.  No effect if "fuzzy" is present.
 
            noinsert Do not insert any text for a match until the user selects
@@ -2751,6 +2753,12 @@ local options = {
         - 'exrc' can execute any code; editorconfig only specifies settings.
         - 'exrc' is Nvim-specific; editorconfig works in other editors.
 
+        To achieve project-local LSP configuration:
+        1. Enable 'exrc'.
+        2. Place LSP configs at ".nvim/lsp/*.lua" in your project root.
+        3. Create ".nvim.lua" in your project root directory with this line: >lua
+             vim.cmd[[set runtimepath+=.nvim]]
+        <
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
       ]=],
@@ -3062,7 +3070,7 @@ local options = {
           lastline	'@'		'display' contains lastline/truncate
           trunc		'>'		truncated text in the
         				|ins-completion-menu|.
-          truncrl	'<'		same as "trunc' in 'rightleft' mode
+          truncrl	'<'		same as "trunc" in 'rightleft' mode
 
         Any one that is omitted will fall back to the default.
 
@@ -4460,7 +4468,7 @@ local options = {
         <
         Also used for the |gf| command if an unmodified file name can't be
         found.  Allows doing "gf" on the name after an 'include' statement.
-        Also used for |<cfile>|.
+        Note: Not used for |<cfile>|.
 
         If the expression starts with s: or |<SID>|, then it is replaced with
         the script ID (|local-function|). Example: >vim
@@ -4625,6 +4633,33 @@ local options = {
       short_desc = N_('No description'),
       type = 'boolean',
       immutable = true,
+    },
+    {
+      abbreviation = 'ise',
+      cb = 'did_set_isexpand',
+      defaults = '',
+      deny_duplicates = true,
+      desc = [=[
+        Defines characters and patterns for completion in insert mode.  Used
+        by the |complete_match()| function to determine the starting position
+        for completion.  This is a comma-separated list of triggers.  Each
+        trigger can be:
+        - A single character like "." or "/"
+        - A sequence of characters like "->", "/*", or "/**"
+
+        Note: Use "\\," to add a literal comma as trigger character, see
+        |option-backslash|.
+
+        Examples: >vim
+            set isexpand=.,->,/*,\\,
+        <
+      ]=],
+      full_name = 'isexpand',
+      list = 'onecomma',
+      scope = { 'global', 'buf' },
+      short_desc = N_('Defines characters and patterns for completion in insert mode'),
+      type = 'string',
+      varname = 'p_ise',
     },
     {
       abbreviation = 'isf',
@@ -7294,8 +7329,8 @@ local options = {
         '	Maximum number of previously edited files for which the marks
         	are remembered.  This parameter must always be included when
         	'shada' is non-empty.
-        	Including this item also means that the |jumplist| and the
-        	|changelist| are stored in the shada file.
+        	If non-zero, then the |jumplist| and the |changelist| are also
+        	stored in the shada file.
         						*shada-/*
         /	Maximum number of items in the search pattern history to be
         	saved.  If non-zero, then the previous search and substitute
@@ -8216,7 +8251,7 @@ local options = {
         |zg| and |zw| commands can be used to access each.  This allows using
         a personal word list file and a project word list file.
         When a word is added while this option is empty Nvim will use
-        (and auto-create) `stdpath('data')/spell/`. For the file name the
+        (and auto-create) `stdpath('data')/site/spell/`. For the file name the
         first language name that appears in 'spelllang' is used, ignoring the
         region.
         The resulting ".spl" file will be used for spell checking, it does not
@@ -8539,10 +8574,16 @@ local options = {
     {
       abbreviation = 'stl',
       cb = 'did_set_statusline',
-      defaults = '',
+      defaults = table.concat({
+        '%<',
+        '%f %h%w%m%r ',
+        '%=',
+        "%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}",
+        "%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}",
+        "%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}",
+      }),
       desc = [=[
-        When non-empty, this option determines the content of the status line.
-        Also see |status-line|.
+        Sets the |status-line|.
 
         The option consists of printf style '%' items interspersed with
         normal text.  Each status line item is of the form:
@@ -9141,7 +9182,8 @@ local options = {
       cb = 'did_set_tagfunc',
       defaults = '',
       desc = [=[
-        This option specifies a function to be used to perform tag searches.
+        This option specifies a function to be used to perform tag searches
+        (including |taglist()|).
         The function gets the tag pattern and should return a List of matching
         tags.  See |tag-function| for an explanation of how to write the
         function and an example.  The value can be the name of a function, a
@@ -10204,8 +10246,8 @@ local options = {
         <	First press: longest common substring
         Second press: list all matches >vim
         	set wildmode=noselect:full
-        <	Show 'wildmenu' without completing or selecting on first press
-        Cycle full matches on second press >vim
+        <	First press: show 'wildmenu' without completing or selecting
+        Second press: cycle full matches >vim
         	set wildmode=noselect:lastused,full
         <	Same as above, but buffer matches are sorted by time last used
         More info here: |cmdline-completion|.

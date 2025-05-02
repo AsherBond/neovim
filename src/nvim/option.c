@@ -439,7 +439,7 @@ void set_init_1(bool clean_arg)
 /// @param  opt_flags  Option flags (can be OPT_LOCAL, OPT_GLOBAL or a combination).
 ///
 /// @return Default value of option for the scope specified in opt_flags.
-static OptVal get_option_default(const OptIndex opt_idx, int opt_flags)
+OptVal get_option_default(const OptIndex opt_idx, int opt_flags)
 {
   vimoption_T *opt = &options[opt_idx];
   bool is_global_local_option = option_is_global_local(opt_idx);
@@ -1282,10 +1282,10 @@ static void do_one_set_option(int opt_flags, char **argp, bool *did_show, char *
     if (*did_show) {
       msg_putchar('\n');                // cursor below last one
     } else {
+      msg_ext_set_kind("list_cmd");
       gotocmdline(true);                // cursor at status line
       *did_show = true;                 // remember that we did a line
     }
-    msg_ext_set_kind("list_cmd");
     showoneopt(&options[opt_idx], opt_flags);
 
     if (p_verbose > 0) {
@@ -2807,7 +2807,7 @@ static const char *check_num_option_bounds(OptIndex opt_idx, OptInt *newval, cha
     }
     break;
   case kOptScroll:
-    if ((*newval <= 0 || (*newval > curwin->w_height_inner && curwin->w_height_inner > 0))
+    if ((*newval <= 0 || (*newval > curwin->w_view_height && curwin->w_view_height > 0))
         && full_screen) {
       if (*newval != 0) {
         errmsg = e_scroll;
@@ -3468,7 +3468,7 @@ static const char *did_set_option(OptIndex opt_idx, void *varp, OptVal old_value
     .os_errbuf = errbuf,
     .os_errbuflen = errbuflen,
     .os_buf = curbuf,
-    .os_win = curwin
+    .os_win = curwin,
   };
 
   if (direct) {
@@ -4462,6 +4462,8 @@ void *get_varp_scope_from(vimoption_T *p, int opt_flags, buf_T *buf, win_T *win)
       return &(buf->b_p_inc);
     case kOptCompleteopt:
       return &(buf->b_p_cot);
+    case kOptIsexpand:
+      return &(buf->b_p_ise);
     case kOptDictionary:
       return &(buf->b_p_dict);
     case kOptThesaurus:
@@ -4547,6 +4549,8 @@ void *get_varp_from(vimoption_T *p, buf_T *buf, win_T *win)
     return *buf->b_p_inc != NUL ? &(buf->b_p_inc) : p->var;
   case kOptCompleteopt:
     return *buf->b_p_cot != NUL ? &(buf->b_p_cot) : p->var;
+  case kOptIsexpand:
+    return *buf->b_p_ise != NUL ? &(buf->b_p_ise) : p->var;
   case kOptDictionary:
     return *buf->b_p_dict != NUL ? &(buf->b_p_dict) : p->var;
   case kOptThesaurus:
@@ -5238,6 +5242,7 @@ void buf_copy_options(buf_T *buf, int flags)
       buf->b_cot_flags = 0;
       buf->b_p_dict = empty_string_option;
       buf->b_p_tsr = empty_string_option;
+      buf->b_p_ise = empty_string_option;
       buf->b_p_tsrfu = empty_string_option;
       buf->b_p_qe = xstrdup(p_qe);
       COPY_OPT_SCTX(buf, kBufOptQuoteescape);

@@ -919,6 +919,28 @@ function vim.fn.cindent(lnum) end
 --- @param win? integer
 function vim.fn.clearmatches(win) end
 
+--- Returns a |Dictionary| with information about cmdline
+--- completion.  See |cmdline-completion|.
+--- The items are:
+---    cmdline_orig  The original command-line string before
+---     completion began.
+---    pum_visible  |TRUE| if popup menu is visible.
+---     See |pumvisible()|.
+---    matches  List of all completion candidates. Each item
+---     is a string.
+---    selected  Selected item index.  First index is zero.
+---     Index is -1 if no item is selected (showing
+---     typed text only, or the last completion after
+---     no item is selected when using the <Up> or
+---     <Down> keys)
+---
+--- Returns an empty |Dictionary| if no completion was attempted,
+--- if there was only one candidate and it was fully completed, or
+--- if an error occurred.
+---
+--- @return table<string,any>
+function vim.fn.cmdcomplete_info() end
+
 --- The result is a Number, which is the byte index of the column
 --- position given with {expr}.
 --- For accepted positions see |getpos()|.
@@ -1086,6 +1108,53 @@ function vim.fn.complete_check() end
 --- @param what? any[]
 --- @return table
 function vim.fn.complete_info(what) end
+
+--- Searches backward from the given position and returns a List
+--- of matches according to the 'isexpand' option. When no
+--- arguments are provided, uses the current cursor position.
+---
+--- Each match is represented as a List containing
+--- [startcol, trigger_text] where:
+--- - startcol: column position where completion should start,
+---   or -1 if no trigger position is found. For multi-character
+---   triggers, returns the column of the first character.
+--- - trigger_text: the matching trigger string from 'isexpand',
+---   or empty string if no match was found or when using the
+---   default 'iskeyword' pattern.
+---
+--- When 'isexpand' is empty, uses the 'iskeyword' pattern
+--- "\k\+$" to find the start of the current keyword.
+---
+--- Examples: >vim
+---   set isexpand=.,->,/,/*,abc
+---   func CustomComplete()
+---     let res = complete_match()
+---     if res->len() == 0 | return | endif
+---     let [col, trigger] = res[0]
+---     let items = []
+---     if trigger == '/*'
+---       let items = ['/** */']
+---     elseif trigger == '/'
+---       let items = ['/*! */', '// TODO:', '// fixme:']
+---     elseif trigger == '.'
+---       let items = ['length()']
+---     elseif trigger =~ '^\->'
+---       let items = ['map()', 'reduce()']
+---     elseif trigger =~ '^\abc'
+---       let items = ['def', 'ghk']
+---     endif
+---     if items->len() > 0
+---       let startcol = trigger =~ '^/' ? col : col + len(trigger)
+---       call complete(startcol, items)
+---     endif
+---   endfunc
+---   inoremap <Tab> <Cmd>call CustomComplete()<CR>
+--- <
+---
+--- @param lnum? integer
+--- @param col? integer
+--- @return table
+function vim.fn.complete_match(lnum, col) end
 
 --- confirm() offers the user a dialog, from which a choice can be
 --- made.  It returns the number of the choice.  For the first
@@ -3026,6 +3095,7 @@ function vim.fn.getcmdwintype() end
 --- file    file and directory names
 --- file_in_path  file and directory names in |'path'|
 --- filetype  filetype names |'filetype'|
+--- filetypecmd  |:filetype| suboptions
 --- function  function name
 --- help    help subjects
 --- highlight  highlight groups
@@ -6720,7 +6790,8 @@ function vim.fn.prevnonblank(lnum) end
 --- <      1.41
 ---
 --- You will get an overflow error |E1510|, when the field-width
---- or precision will result in a string longer than 6400 chars.
+--- or precision will result in a string longer than 1 MB
+--- (1024*1024 = 1048576) chars.
 ---
 ---           *E1500*
 --- You cannot mix positional and non-positional arguments: >vim

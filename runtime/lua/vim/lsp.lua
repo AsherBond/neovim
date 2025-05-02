@@ -12,6 +12,7 @@ local lsp = vim._defer_require('vim.lsp', {
   codelens = ..., --- @module 'vim.lsp.codelens'
   completion = ..., --- @module 'vim.lsp.completion'
   diagnostic = ..., --- @module 'vim.lsp.diagnostic'
+  document_color = ..., --- @module 'vim.lsp.document_color'
   handlers = ..., --- @module 'vim.lsp.handlers'
   inlay_hint = ..., --- @module 'vim.lsp.inlay_hint'
   log = ..., --- @module 'vim.lsp.log'
@@ -43,7 +44,7 @@ lsp._resolve_to_request = {
 ---@private
 --- Called by the client when trying to call a method that's not
 --- supported in any of the servers registered for the current buffer.
----@param method (string) name of the method
+---@param method (vim.lsp.protocol.Method.ClientToServer) name of the method
 function lsp._unsupported_method(method)
   local msg = string.format(
     'method %s is not supported by any of the servers registered for the current buffer',
@@ -277,24 +278,52 @@ end
 --- See `cmd` in [vim.lsp.ClientConfig].
 --- @field cmd? string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers): vim.lsp.rpc.PublicClient
 ---
---- Filetypes the client will attach to, if activated by `vim.lsp.enable()`.
---- If not provided, then the client will attach to all filetypes.
+--- Filetypes the client will attach to, if activated by `vim.lsp.enable()`. If not provided, the
+--- client will attach to all filetypes.
 --- @field filetypes? string[]
+---
+--- Predicate which decides if a client should be re-used. Used on all running clients. The default
+--- implementation re-uses a client if name and root_dir matches.
+--- @field reuse_client? fun(client: vim.lsp.Client, config: vim.lsp.ClientConfig): boolean
+---
+--- [lsp-root_dir()]() Directory where the LSP server will base its workspaceFolders, rootUri, and
+--- rootPath on initialization. The function form receives a buffer number and `on_dir` callback
+--- which it must call to provide root_dir, or LSP will not be activated for the buffer. Thus
+--- a `root_dir()` function can dynamically decide per-buffer whether to activate (or skip) LSP. See
+--- example at |vim.lsp.enable()|.
+--- @field root_dir? string|fun(bufnr: integer, on_dir:fun(root_dir?:string))
 ---
 --- Directory markers (.e.g. '.git/') where the LSP server will base its workspaceFolders,
 --- rootUri, and rootPath on initialization. Unused if `root_dir` is provided.
---- @field root_markers? string[]
 ---
---- Directory where the LSP server will base its workspaceFolders, rootUri, and
---- rootPath on initialization. If a function, it is passed the buffer number
---- and a callback argument which must be called with the value of root_dir to
---- use. The LSP server will not be started until the callback is called.
---- @field root_dir? string|fun(bufnr: integer, cb:fun(root_dir?:string))
+--- The list order decides the priority. To indicate "equal priority", specify names in a nested list (`{ { 'a', 'b' }, ... }`)
+--- Each entry in this list is a set of one or more markers. For each set, Nvim
+--- will search upwards for each marker contained in the set. If a marker is
+--- found, the directory which contains that marker is used as the root
+--- directory. If no markers from the set are found, the process is repeated
+--- with the next set in the list.
 ---
---- Predicate used to decide if a client should be re-used. Used on all
---- running clients. The default implementation re-uses a client if name and
---- root_dir matches.
---- @field reuse_client? fun(client: vim.lsp.Client, config: vim.lsp.ClientConfig): boolean
+--- Example:
+---
+--- ```lua
+---   root_markers = { 'stylua.toml', '.git' }
+--- ```
+---
+--- Find the first parent directory containing the file `stylua.toml`. If not
+--- found, find the first parent directory containing the file or directory
+--- `.git`.
+---
+--- Example:
+---
+--- ```lua
+---   root_markers = { { 'stylua.toml', '.luarc.json' }, '.git' }
+--- ```
+---
+--- Find the first parent directory containing EITHER `stylua.toml` or
+--- `.luarc.json`. If not found, find the first parent directory containing the
+--- file or directory `.git`.
+---
+--- @field root_markers? (string|string[])[]
 
 --- Sets the default configuration for an LSP client (or _all_ clients if the special name "*" is
 --- used).
@@ -537,16 +566,27 @@ local function lsp_enable_callback(bufnr)
   end
 end
 
---- Enable an LSP server to automatically start when opening a buffer.
----
---- Uses configuration defined with `vim.lsp.config`.
+--- Auto-starts LSP when a buffer is opened, based on the |lsp-config| `filetypes`, `root_markers`,
+--- and `root_dir` fields.
 ---
 --- Examples:
 ---
 --- ```lua
----   vim.lsp.enable('clangd')
+--- vim.lsp.enable('clangd')
+--- vim.lsp.enable({'luals', 'pyright'})
+--- ```
 ---
----   vim.lsp.enable({'luals', 'pyright'})
+--- Example: To _dynamically_ decide whether LSP is activated, define a |lsp-root_dir()| function
+--- which calls `on_dir()` only when you want that config to activate:
+---
+--- ```lua
+--- vim.lsp.config('lua_ls', {
+---   root_dir = function(bufnr, on_dir)
+---     if not vim.fn.bufname(bufnr):match('%.txt$') then
+---       on_dir(vim.fn.getcwd())
+---     end
+---   end
+--- })
 --- ```
 ---
 ---@since 13
@@ -565,21 +605,32 @@ function lsp.enable(name, enable)
   end
 
   if not next(lsp._enabled_configs) then
+    -- If there are no remaining LSPs enabled, remove the enable autocmd.
     if lsp_enable_autocmd_id then
       api.nvim_del_autocmd(lsp_enable_autocmd_id)
       lsp_enable_autocmd_id = nil
     end
-    return
+  else
+    -- Only ever create autocmd once to reuse computation of config merging.
+    lsp_enable_autocmd_id = lsp_enable_autocmd_id
+      or api.nvim_create_autocmd('FileType', {
+        group = api.nvim_create_augroup('nvim.lsp.enable', {}),
+        callback = function(args)
+          lsp_enable_callback(args.buf)
+        end,
+      })
   end
 
-  -- Only ever create autocmd once to reuse computation of config merging.
-  lsp_enable_autocmd_id = lsp_enable_autocmd_id
-    or api.nvim_create_autocmd('FileType', {
-      group = api.nvim_create_augroup('nvim.lsp.enable', {}),
-      callback = function(args)
-        lsp_enable_callback(args.buf)
-      end,
-    })
+  -- Ensure any pre-existing buffers start/stop their LSP clients.
+  if enable ~= false then
+    vim.api.nvim_command('doautoall nvim.lsp.enable FileType')
+  else
+    for _, nm in ipairs(names) do
+      for _, client in ipairs(lsp.get_clients({ name = nm })) do
+        client:stop()
+      end
+    end
+  end
 end
 
 --- @class vim.lsp.start.Opts
@@ -601,7 +652,7 @@ end
 --- Suppress error reporting if the LSP server fails to start (default false).
 --- @field silent? boolean
 ---
---- @field package _root_markers? string[]
+--- @field package _root_markers? (string|string[])[]
 
 --- Create a new LSP client and start a language server or reuses an already
 --- running client if one is found matching `name` and `root_dir`.
@@ -650,8 +701,16 @@ function lsp.start(config, opts)
   local bufnr = vim._resolve_bufnr(opts.bufnr)
 
   if not config.root_dir and opts._root_markers then
+    validate('root_markers', opts._root_markers, 'table')
     config = vim.deepcopy(config)
-    config.root_dir = vim.fs.root(bufnr, opts._root_markers)
+
+    for _, marker in ipairs(opts._root_markers) do
+      local root = vim.fs.root(bufnr, marker)
+      if root ~= nil then
+        config.root_dir = root
+        break
+      end
+    end
   end
 
   if
@@ -1183,7 +1242,7 @@ api.nvim_create_autocmd('VimLeavePre', {
 --- buffer.
 ---
 ---@param bufnr (integer) Buffer handle, or 0 for current.
----@param method (string) LSP method name
+---@param method (vim.lsp.protocol.Method.ClientToServer.Request) LSP method name
 ---@param params? table|(fun(client: vim.lsp.Client, bufnr: integer): table?) Parameters to send to the server
 ---@param handler? lsp.Handler See |lsp-handler|
 ---       If nil, follows resolution strategy defined in |lsp-handler-configuration|
@@ -1246,7 +1305,7 @@ end
 ---@since 7
 ---
 ---@param bufnr (integer) Buffer handle, or 0 for current.
----@param method (string) LSP method name
+---@param method (vim.lsp.protocol.Method.ClientToServer.Request) LSP method name
 ---@param params? table|(fun(client: vim.lsp.Client, bufnr: integer): table?) Parameters to send to the server.
 ---               Can also be passed as a function that returns the params table for cases where
 ---               parameters are specific to the client.
@@ -1317,7 +1376,7 @@ end
 ---@since 7
 ---
 ---@param bufnr (integer|nil) The number of the buffer
----@param method (string) Name of the request method
+---@param method (vim.lsp.protocol.Method.ClientToServer.Notification) Name of the request method
 ---@param params (any) Arguments to send to the server
 ---
 ---@return boolean success true if any client returns true; false otherwise

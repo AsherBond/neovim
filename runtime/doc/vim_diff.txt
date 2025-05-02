@@ -79,7 +79,7 @@ Defaults                                            *defaults* *nvim-defaults*
 - 'showcmd' is enabled
 - 'sidescroll' defaults to 1
 - 'smarttab' is enabled
-- 'spellfile' defaults to `stdpath("data").."/spell/"`
+- 'spellfile' defaults to `stdpath("data").."/site/spell/"`
 - 'startofline' is disabled
 - 'switchbuf' defaults to "uselast"
 - 'tabpagemax' defaults to 50
@@ -384,6 +384,7 @@ Options:
 - 'showcmdloc'  cannot be set to empty.
 - 'signcolumn'  can show multiple signs (dynamic or fixed columns)
 - 'statuscolumn' full control of columns using 'statusline' format
+- 'statusline' default is exposed as a statusline expression.
 - 'splitkeep'   cannot be set to empty.
 - 'tabline'     middle-click on tabpage label closes tabpage,
                 and %@Func@foo%X can call any function on mouse-click
