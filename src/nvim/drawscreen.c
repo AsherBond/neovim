@@ -1118,20 +1118,7 @@ int showmode(void)
     clear_showcmd();
   }
 
-  // If the current or last window has no status line and global statusline is disabled,
-  // the ruler is after the mode message and must be redrawn
-  win_T *ruler_win = curwin->w_status_height == 0 ? curwin : lastwin_nofloating();
-  if (redrawing() && ruler_win->w_status_height == 0 && global_stl_height() == 0
-      && !(p_ch == 0 && !ui_has(kUIMessages))) {
-    if (!ui_has(kUIMessages)) {
-      grid_line_start(&msg_grid_adj, Rows - 1);
-    }
-    win_redr_ruler(ruler_win);
-    if (!ui_has(kUIMessages)) {
-      grid_line_flush();
-    }
-  }
-
+  redraw_ruler();      // check if ruler should be redrawn
   redraw_cmdline = false;
   redraw_mode = false;
   clear_cmdline = false;
@@ -2540,21 +2527,26 @@ void win_scroll_lines(win_T *wp, int row, int line_count)
     return;
   }
 
-  // No lines are being moved, just draw over the entire area
-  if (row + abs(line_count) >= wp->w_view_height) {
-    return;
-  }
-
   int col = 0;
   int row_off = 0;
   ScreenGrid *grid = grid_adjust(&wp->w_grid, &row_off, &col);
 
+  // TODO(bfredl): this is due to the call in curs_columns(). We really don't want to
+  // fiddle with the screen outside of update_screen() like this.
+  int checked_width = MIN(grid->cols - col, wp->w_view_width);
+  int checked_height = MIN(grid->rows - row_off, wp->w_view_height);
+
+  // No lines are being moved, just draw over the entire area
+  if (row + abs(line_count) >= checked_height) {
+    return;
+  }
+
   if (line_count < 0) {
     grid_del_lines(grid, row + row_off, -line_count,
-                   wp->w_view_height + row_off, col, wp->w_view_width);
+                   checked_height + row_off, col, checked_width);
   } else {
     grid_ins_lines(grid, row + row_off, line_count,
-                   wp->w_view_height + row_off, col, wp->w_view_width);
+                   checked_height + row_off, col, checked_width);
   }
 }
 

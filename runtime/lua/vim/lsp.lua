@@ -148,7 +148,7 @@ end
 --- @param config vim.lsp.ClientConfig
 --- @return boolean
 local function reuse_client_default(client, config)
-  if client.name ~= config.name then
+  if client.name ~= config.name or client:is_stopped() then
     return false
   end
 
@@ -475,7 +475,8 @@ lsp.config = setmetatable({ _configs = {} }, {
   --- @param cfg vim.lsp.Config
   __newindex = function(self, name, cfg)
     validate_config_name(name)
-    validate('cfg', cfg, 'table')
+    local msg = ('table (hint: to resolve a config, use vim.lsp.config["%s"])'):format(name)
+    validate('cfg', cfg, 'table', msg)
     invalidate_enabled_config(name)
     self._configs[name] = cfg
   end,
@@ -485,7 +486,8 @@ lsp.config = setmetatable({ _configs = {} }, {
   --- @param cfg vim.lsp.Config
   __call = function(self, name, cfg)
     validate_config_name(name)
-    validate('cfg', cfg, 'table')
+    local msg = ('table (hint: to resolve a config, use vim.lsp.config["%s"])'):format(name)
+    validate('cfg', cfg, 'table', msg)
     invalidate_enabled_config(name)
     self[name] = vim.tbl_deep_extend('force', self._configs[name] or {}, cfg)
   end,
@@ -544,6 +546,15 @@ local function lsp_enable_callback(bufnr)
     return
   end
 
+  -- Stop any clients that no longer apply to this buffer.
+  local clients = lsp.get_clients({ bufnr = bufnr, _uninitialized = true })
+  for _, client in ipairs(clients) do
+    if lsp.config[client.name] and not can_start(bufnr, client.name, lsp.config[client.name]) then
+      lsp.buf_detach_client(bufnr, client.id)
+    end
+  end
+
+  -- Start any clients that apply to this buffer.
   for name in vim.spairs(lsp._enabled_configs) do
     local config = lsp.config[name]
     if config and can_start(bufnr, name, config) then
@@ -623,7 +634,9 @@ function lsp.enable(name, enable)
 
   -- Ensure any pre-existing buffers start/stop their LSP clients.
   if enable ~= false then
-    vim.api.nvim_command('doautoall nvim.lsp.enable FileType')
+    if vim.v.vim_did_enter == 1 then
+      vim.cmd.doautoall('nvim.lsp.enable FileType')
+    end
   else
     for _, nm in ipairs(names) do
       for _, client in ipairs(lsp.get_clients({ name = nm })) do
@@ -631,6 +644,14 @@ function lsp.enable(name, enable)
       end
     end
   end
+end
+
+--- Checks if the given LSP config is enabled (globally, not per-buffer).
+---
+--- @param name string Config name
+--- @return boolean
+function lsp.is_enabled(name)
+  return lsp._enabled_configs[name] ~= nil
 end
 
 --- @class vim.lsp.start.Opts

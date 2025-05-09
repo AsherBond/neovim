@@ -218,6 +218,25 @@ describe('LSP', function()
         )
       end)
     end)
+
+    it('does not reuse an already-stopping client #33616', function()
+      -- we immediately try to start a second client with the same name/root
+      -- before the first one has finished shutting down; we must get a new id.
+      local clients = exec_lua([[
+        local client1 = vim.lsp.start({
+          name = 'dup-test',
+          cmd = { vim.v.progpath, '-l', fake_lsp_code, 'basic_init' },
+        }, { attach = false })
+        vim.lsp.get_client_by_id(client1):stop()
+        local client2 = vim.lsp.start({
+          name = 'dup-test',
+          cmd = { vim.v.progpath, '-l', fake_lsp_code, 'basic_init' },
+        }, { attach = false })
+        return { client1, client2 }
+        ]])
+      local c1, c2 = clients[1], clients[2]
+      eq(false, c1 == c2, 'Expected a fresh client while the old one is stopping')
+    end)
   end)
 
   describe('basic_init test', function()
@@ -491,7 +510,7 @@ describe('LSP', function()
               vim._with({ buf = _G.BUFFER }, function()
                 keymap = vim.fn.maparg('K', 'n', false, false)
               end)
-              return keymap:match('<Lua %d+: .+/runtime/lua/vim/lsp%.lua:%d+>') ~= nil
+              return keymap:match('<Lua %d+: .*runtime/lua/vim/lsp%.lua:%d+>') ~= nil
             end)
           )
         end,
@@ -499,6 +518,9 @@ describe('LSP', function()
     end)
 
     it('should overwrite options set by ftplugins', function()
+      if t.is_zig_build() then
+        return pending('TODO: broken with zig build')
+      end
       local client --- @type vim.lsp.Client
       local BUFFER_1 --- @type integer
       local BUFFER_2 --- @type integer
@@ -6291,7 +6313,7 @@ describe('LSP', function()
   end)
 
   describe('vim.lsp.config() and vim.lsp.enable()', function()
-    it('can merge settings from "*"', function()
+    it('merges settings from "*"', function()
       eq(
         {
           name = 'foo',
@@ -6303,6 +6325,15 @@ describe('LSP', function()
           vim.lsp.config('foo', { cmd = { 'foo' } })
 
           return vim.lsp.config['foo']
+        end)
+      )
+    end)
+
+    it('config("bogus") shows a hint', function()
+      matches(
+        'hint%: to resolve a config',
+        pcall_err(exec_lua, function()
+          vim.print(vim.lsp.config('non-existent-config'))
         end)
       )
     end)
@@ -6501,6 +6532,58 @@ describe('LSP', function()
       end)
     end)
 
+    it('starts correct LSP and stops incorrect LSP when filetype changes', function()
+      exec_lua(create_server_definition)
+
+      local tmp1 = t.tmpname(true)
+
+      exec_lua(function()
+        local server = _G._create_server({
+          handlers = {
+            initialize = function(_, _, callback)
+              callback(nil, { capabilities = {} })
+            end,
+          },
+        })
+
+        vim.lsp.config('foo', {
+          cmd = server.cmd,
+          filetypes = { 'foo' },
+          root_markers = { '.foorc' },
+        })
+
+        vim.lsp.config('bar', {
+          cmd = server.cmd,
+          filetypes = { 'bar' },
+          root_markers = { '.foorc' },
+        })
+
+        vim.lsp.enable('foo')
+        vim.lsp.enable('bar')
+
+        vim.cmd.edit(tmp1)
+      end)
+
+      local count_clients = function()
+        return exec_lua(function()
+          local foos = vim.lsp.get_clients({ name = 'foo', bufnr = 0 })
+          local bars = vim.lsp.get_clients({ name = 'bar', bufnr = 0 })
+          return { #foos, 'foo', #bars, 'bar' }
+        end)
+      end
+
+      -- No filetype on the buffer yet, so no LSPs.
+      eq({ 0, 'foo', 0, 'bar' }, count_clients())
+
+      -- Set the filetype to 'foo', confirm a LSP starts.
+      exec_lua([[vim.bo.filetype = 'foo']])
+      eq({ 1, 'foo', 0, 'bar' }, count_clients())
+
+      -- Set the filetype to 'bar', confirm a new LSP starts, and the old one goes away.
+      exec_lua([[vim.bo.filetype = 'bar']])
+      eq({ 0, 'foo', 1, 'bar' }, count_clients())
+    end)
+
     it('validates config on attach', function()
       local tmp1 = t.tmpname(true)
       exec_lua(function()
@@ -6576,21 +6659,18 @@ describe('LSP', function()
           local _ = vim.lsp.config['foo*']
         end)
       )
-
       matches(
         err,
         pcall_err(exec_lua, function()
           vim.lsp.config['foo*'] = {}
         end)
       )
-
       matches(
         err,
         pcall_err(exec_lua, function()
           vim.lsp.config('foo*', {})
         end)
       )
-
       -- Exception for '*'
       pcall(exec_lua, function()
         vim.lsp.config('*', {})
@@ -6675,6 +6755,28 @@ describe('LSP', function()
       markers_resolve_to({ { 'marker_b', 'marker_a' }, 'marker_d' }, dir_a)
       markers_resolve_to({ 'marker_a', { 'marker_b', 'marker_d' } }, tmp_root)
       markers_resolve_to({ 'foo', { 'bar', 'baz' }, 'marker_d' }, dir_b)
+    end)
+  end)
+
+  describe('vim.lsp.is_enabled()', function()
+    it('works', function()
+      exec_lua(function()
+        vim.lsp.config('foo', {
+          cmd = { 'foo' },
+          root_markers = { '.foorc' },
+        })
+      end)
+
+      -- LSP config defaults to disabled.
+      eq(false, exec_lua([[return vim.lsp.is_enabled('foo')]]))
+
+      -- Confirm we can enable it.
+      exec_lua([[vim.lsp.enable('foo')]])
+      eq(true, exec_lua([[return vim.lsp.is_enabled('foo')]]))
+
+      -- And finally, disable it again.
+      exec_lua([[vim.lsp.enable('foo', false)]])
+      eq(false, exec_lua([[return vim.lsp.is_enabled('foo')]]))
     end)
   end)
 end)

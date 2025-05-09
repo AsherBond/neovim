@@ -3317,7 +3317,7 @@ getcharsearch()                                                *getcharsearch()*
                 Return: ~
                   (`table`)
 
-getcharstr([{expr}])                                              *getcharstr()*
+getcharstr([{expr} [, {opts}]])                                   *getcharstr()*
 		The same as |getchar()|, except that this always returns a
 		String, and "number" isn't allowed in {opts}.
 
@@ -12106,7 +12106,7 @@ winlayout([{tabnr}])                                               *winlayout()*
                   • {tabnr} (`integer?`)
 
                 Return: ~
-                  (`any[]`)
+                  (`vim.fn.winlayout.ret`)
 
 winline()                                                            *winline()*
 		The result is a Number, which is the screen line of the cursor
