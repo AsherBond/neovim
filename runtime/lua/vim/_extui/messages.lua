@@ -254,7 +254,7 @@ function M.show_msg(tar, content, replace_last, more)
 
   if tar == 'box' then
     api.nvim_win_set_width(ext.wins[ext.tab].box, width)
-    local h = api.nvim_win_text_height(ext.wins[ext.tab].box, {})
+    local h = api.nvim_win_text_height(ext.wins[ext.tab].box, { start_row = start_row })
     if h.all > (more and 1 or math.ceil(o.lines * 0.5)) then
       api.nvim_buf_set_lines(ext.bufs.box, start_row, -1, false, {})
       api.nvim_win_set_width(ext.wins[ext.tab].box, M.box.width)
@@ -311,14 +311,10 @@ local replace_bufwrite = false
 ---@alias MsgContent MsgChunk[]
 ---@param content MsgContent
 function M.msg_show(kind, content)
-  if kind == 'search_cmd' then
-    -- Set the entered search command in the cmdline.
-    api.nvim_buf_set_lines(ext.bufs.cmd, 0, -1, false, { content[1][2] })
-    M.virt.msg = ext.cfg.msg.pos == 'cmd' and { {}, {} } or M.virt.msg
-    M.prev_msg = ext.cfg.msg.pos == 'cmd' and '' or M.prev_msg
-  elseif kind == 'search_count' then
+  if kind == 'search_count' then
     -- Extract only the search_count, not the entered search command.
     -- Match any of search.c:cmdline_search_stat():' [(x | >x | ?)/(y | >y | ??)]'
+    content = { content[#content] }
     content[1][2] = content[1][2]:match('W? %[>?%d*%??/>?%d*%?*%]') .. '  '
     M.virt.last[M.virt.idx.search] = content
     M.virt.last[M.virt.idx.cmd] = { { 0, (' '):rep(11) } }
@@ -336,7 +332,12 @@ function M.msg_show(kind, content)
     M.show_msg('prompt', content, true)
     M.set_pos('prompt')
   else
-    local tar = ext.cfg.msg.pos
+    -- Set the entered search command in the cmdline (if available).
+    local tar = kind == 'search_cmd' and 'cmd' or ext.cfg.msg.pos
+    if tar == 'cmd' and ext.cmdheight == 0 then
+      return
+    end
+
     if tar == 'cmd' then
       if ext.cmd.level > 0 then
         return -- Do not overwrite an active cmdline.
@@ -352,6 +353,10 @@ function M.msg_show(kind, content)
     M.show_msg(tar, content, replace_bufwrite, more)
     -- Replace message for every second bufwrite message.
     replace_bufwrite = not replace_bufwrite and kind == 'bufwrite'
+    -- Don't remember search_cmd message as actual message.
+    if kind == 'search_cmd' then
+      M.cmd.lines, M.cmd.count, M.prev_msg = 0, 0, ''
+    end
   end
 end
 
