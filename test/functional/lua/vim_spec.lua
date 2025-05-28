@@ -719,10 +719,12 @@ describe('lua stdlib', function()
       { ' b  ', 'b' },
       { '\tc', 'c' },
       { 'r\n', 'r' },
+      { '', '' },
+      { ' \t \n', '' },
     }
 
     for _, q in ipairs(trims) do
-      assert(q[2], trim(q[1]))
+      eq(q[2], trim(q[1]))
     end
 
     -- Validates args.
@@ -3954,6 +3956,17 @@ stack traceback:
         return val
       ]]
       )
+    end)
+
+    it('can get Visual selection in current buffer #34162', function()
+      insert('foo bar baz')
+      feed('gg0fbvtb')
+      local text = exec_lua([[
+        return vim.api.nvim_buf_call(0, function()
+          return vim.fn.getregion(vim.fn.getpos('.'), vim.fn.getpos('v'))
+        end)
+      ]])
+      eq({ 'bar ' }, text)
     end)
   end)
 

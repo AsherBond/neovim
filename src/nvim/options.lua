@@ -3030,7 +3030,8 @@ local options = {
         one dot may appear.
         This option is not copied to another buffer, independent of the 's' or
         'S' flag in 'cpoptions'.
-        Only alphanumeric characters, '-' and '_' can be used.
+        Only alphanumeric characters, '-' and '_' can be used (and a '.' is
+        allowed as delimiter when combining different filetypes).
       ]=],
       full_name = 'filetype',
       noglob = true,
@@ -4314,7 +4315,8 @@ local options = {
       defaults = false,
       desc = [=[
         Ignore case in search patterns, |cmdline-completion|, when
-        searching in the tags file, and |expr-==|.
+        searching in the tags file, |expr-==| and for Insert-mode completion
+        |ins-completion|.
         Also see 'smartcase' and 'tagcase'.
         Can be overruled by using "\c" or "\C" in the pattern, see
         |/ignorecase|.

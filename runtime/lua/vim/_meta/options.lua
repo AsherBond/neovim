@@ -2313,7 +2313,8 @@ vim.go.fic = vim.go.fileignorecase
 --- one dot may appear.
 --- This option is not copied to another buffer, independent of the 's' or
 --- 'S' flag in 'cpoptions'.
---- Only alphanumeric characters, '-' and '_' can be used.
+--- Only alphanumeric characters, '-' and '_' can be used (and a '.' is
+--- allowed as delimiter when combining different filetypes).
 ---
 --- @type string
 vim.o.filetype = ""
@@ -3185,7 +3186,8 @@ vim.o.iconstring = ""
 vim.go.iconstring = vim.o.iconstring
 
 --- Ignore case in search patterns, `cmdline-completion`, when
---- searching in the tags file, and `expr-==`.
+--- searching in the tags file, `expr-==` and for Insert-mode completion
+--- `ins-completion`.
 --- Also see 'smartcase' and 'tagcase'.
 --- Can be overruled by using "\c" or "\C" in the pattern, see
 --- `/ignorecase`.

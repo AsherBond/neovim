@@ -111,6 +111,7 @@ API
   actually trusted.
 • Added |vim.lsp.is_enabled()| to check if a given LSP config has been enabled
   by |vim.lsp.enable()|.
+• |nvim_echo()| can set the |ui-messages| kind with which to emit the message.
 
 BUILD
 
@@ -141,6 +142,7 @@ EDITOR
 EVENTS
 
 • |CmdlineLeavePre| triggered before preparing to leave the command line.
+• New `append` paremeter for |ui-messages| `msg_show` event.
 
 HIGHLIGHTS
 
@@ -226,6 +228,7 @@ These existing features changed their behavior.
 • 'spellfile' location defaults to `stdpath("data").."/site/spell/"` instead of
   the first writable directory in 'runtimepath'.
 • |vim.version.range()| doesn't exclude `to` if it is equal to `from`.
+• |searchcount()|'s maximal value is raised from 99 to 999.
 
 ==============================================================================
 REMOVED FEATURES                                                 *news-removed*

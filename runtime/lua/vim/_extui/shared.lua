@@ -41,13 +41,14 @@ function M.tab_check_wins()
   for _, type in ipairs({ 'box', 'cmd', 'more', 'prompt' }) do
     if not api.nvim_buf_is_valid(M.bufs[type]) then
       M.bufs[type] = api.nvim_create_buf(false, true)
+      api.nvim_buf_set_name(M.bufs[type], 'vim._extui.' .. type)
       if type == 'cmd' then
         -- Attach highlighter to the cmdline buffer.
         local parser = assert(vim.treesitter.get_parser(M.bufs.cmd, 'vim', {}))
         M.cmd.highlighter = vim.treesitter.highlighter.new(parser)
       elseif type == 'more' then
         -- Close more window with `q`, same as `checkhealth`
-        api.nvim_buf_set_keymap(M.bufs.more, 'n', 'q', '<C-w>c', {})
+        api.nvim_buf_set_keymap(M.bufs.more, 'n', 'q', '<Cmd>wincmd c<CR>', {})
       end
     end
 

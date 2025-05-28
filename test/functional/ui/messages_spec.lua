@@ -60,7 +60,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { '\ntest\n', 6, 10 } },
-          history = false,
           kind = 'confirm',
         },
       },
@@ -92,7 +91,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { '\ntest\n', 6, 10 } },
-          history = false,
           kind = 'confirm',
         },
       },
@@ -104,17 +102,14 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { '\ntest\n', 6, 10 } },
-          history = false,
           kind = 'confirm',
         },
         {
           content = { { '1' } },
-          history = false,
           kind = 'echo',
         },
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -214,7 +209,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { '?line ' } },
-          history = false,
           kind = 'search_cmd',
         },
       },
@@ -238,7 +232,6 @@ describe('ui/ext_messages', function()
             { 'links to', 18, 5 },
             { ' SpecialChar' },
           },
-          history = false,
           kind = 'list_cmd',
         },
       },
@@ -285,7 +278,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { 'The only match' } },
-          history = false,
           kind = 'completion',
         },
       },
@@ -321,6 +313,23 @@ describe('ui/ext_messages', function()
       },
     })
 
+    feed(':call nvim_echo([["Foo"]], 1, #{ kind:"list_cmd" })<CR>')
+    screen:expect({
+      grid = [[
+        line 1                   |
+        line^                     |
+        {1:~                        }|*3
+      ]],
+      cmdline = { { abort = false } },
+      messages = {
+        {
+          content = { { 'Foo' } },
+          history = true,
+          kind = 'list_cmd',
+        },
+      },
+    })
+
     -- kind=verbose for :verbose messages
     feed(':1verbose filter Diff[AC] hi<CR>')
     screen:expect({
@@ -337,12 +346,10 @@ describe('ui/ext_messages', function()
             { 'guibg=', 18, 5 },
             { 'LightBlue' },
           },
-          history = false,
           kind = 'list_cmd',
         },
         {
           content = { { '\n\tLast set from Lua (run Nvim with -V1 for more details)' } },
-          history = false,
           kind = 'verbose',
         },
         {
@@ -355,17 +362,14 @@ describe('ui/ext_messages', function()
             { 'guibg=', 18, 5 },
             { 'LightMagenta' },
           },
-          history = false,
           kind = 'list_cmd',
         },
         {
           content = { { '\n\tLast set from Lua (run Nvim with -V1 for more details)' } },
-          history = false,
           kind = 'verbose',
         },
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -406,7 +410,6 @@ describe('ui/ext_messages', function()
         },
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -462,27 +465,22 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { (':!%s\r\n[No write since last change]\n'):format(cmd) } },
-          history = false,
           kind = 'shell_cmd',
         },
         {
           content = { { ('stdout%s\n'):format(t.is_os('win') and '\r' or '') } },
-          history = false,
           kind = 'shell_out',
         },
         {
           content = { { ('stderr%s\n'):format(t.is_os('win') and '\r' or ''), 9, 71 } },
-          history = false,
           kind = 'shell_err',
         },
         {
           content = { { '\nshell returned 3\n\n' } },
-          history = false,
           kind = 'shell_ret',
         },
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -497,7 +495,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { '\nType Name Content', 101, 23 }, { '\n  c  ".   ' } },
-          history = false,
           kind = 'list_cmd',
         },
       },
@@ -517,7 +514,6 @@ describe('ui/ext_messages', function()
             { 'ChanInfo', 101, 23 },
             { '\n*foo' },
           },
-          history = false,
           kind = 'list_cmd',
         },
       },
@@ -534,7 +530,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { 'line 1\nline ' } },
-          history = false,
           kind = 'list_cmd',
         },
       },
@@ -592,7 +587,6 @@ describe('ui/ext_messages', function()
         },
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -623,7 +617,6 @@ describe('ui/ext_messages', function()
         },
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -688,7 +681,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -731,7 +723,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -757,7 +748,7 @@ describe('ui/ext_messages', function()
     ]],
       cmdline = { { abort = false } },
       messages = {
-        { content = { { '/line      W [1/2]' } }, kind = 'search_count', history = false },
+        { content = { { '/line        W [1/2]' } }, kind = 'search_count' },
       },
     }
 
@@ -769,7 +760,7 @@ describe('ui/ext_messages', function()
       {1:~                        }|*3
     ]],
       messages = {
-        { content = { { '/line        [2/2]' } }, kind = 'search_count', history = false },
+        { content = { { '/line          [2/2]' } }, kind = 'search_count' },
       },
     }
   end)
@@ -784,11 +775,10 @@ describe('ui/ext_messages', function()
     ]],
       cmdline = { { abort = false } },
       messages = {
-        { content = { { 'x                     #1' } }, kind = 'list_cmd', history = false },
-        { content = { { 'y                     #2' } }, kind = 'list_cmd', history = false },
+        { content = { { 'x                     #1' } }, kind = 'list_cmd' },
+        { content = { { 'y                     #2' } }, kind = 'list_cmd' },
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -825,7 +815,7 @@ describe('ui/ext_messages', function()
       ^                         |
       {1:~                        }|*2
     ]],
-      showmode = { { '-- ^X mode (^]^D^E^F^I^K^L^N^O^Ps^U^V^Y)', 5, 11 } },
+      showmode = { { '-- ^X mode (^]^D^E^F^I^K^L^N^O^P^Rs^U^V^Y)', 5, 11 } },
     }
 
     feed('<c-p>')
@@ -908,7 +898,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -1156,7 +1145,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { 'xyz' } },
-          history = false,
           kind = 'echo',
         },
       },
@@ -1194,7 +1182,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -1326,7 +1313,6 @@ stack traceback:
             { '*', 18, 1 },
             { ' k' },
           },
-          history = false,
           kind = 'list_cmd',
         },
       },
@@ -1347,7 +1333,6 @@ stack traceback:
       messages = {
         {
           content = { { 'wildmenu  wildmode\n' } },
-          history = false,
           kind = 'wildlist',
         },
       },
@@ -1382,7 +1367,6 @@ stack traceback:
       messages = {
         {
           content = { { 'Change "helllo" to:\n 1 "Hello"\n 2 "Hallo"\n 3 "Hullo"' } },
-          history = false,
           kind = 'confirm',
         },
       },
@@ -1405,7 +1389,6 @@ stack traceback:
       messages = {
         {
           content = { { 'Change "helllo" to:\n 1 "Hello"\n 2 "Hallo"\n 3 "Hullo"' } },
-          history = false,
           kind = 'confirm',
         },
       },
@@ -1437,7 +1420,6 @@ stack traceback:
       messages = {
         {
           content = { { 'input0\ninput1' } },
-          history = false,
           kind = 'confirm',
         },
       },
@@ -1487,7 +1469,6 @@ stack traceback:
         {
           content = { { '\n  1 %a   "[No Name]"                    line 1' } },
           kind = 'list_cmd',
-          history = false,
         },
       },
     }
@@ -1502,7 +1483,6 @@ stack traceback:
       messages = {
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -1631,11 +1611,7 @@ stack traceback:
         {1:~                        }|*4
       ]],
       messages = {
-        {
-          content = { { 'bar' } },
-          history = false,
-          kind = 'echo',
-        },
+        { content = { { 'bar' } }, kind = 'echo' },
       },
     })
     feed('g<lt>')
@@ -1647,7 +1623,6 @@ stack traceback:
       messages = {
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -1685,7 +1660,6 @@ stack traceback:
       messages = {
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -1708,7 +1682,6 @@ stack traceback:
       messages = {
         {
           content = { { '  shiftwidth=8\n  tabstop=8\n  softtabstop=0' } },
-          history = false,
           kind = 'list_cmd',
         },
       },
@@ -1729,6 +1702,25 @@ stack traceback:
       ^                         |
       {1:~                        }|*4
     ]])
+  end)
+
+  it(':echon sets append', function()
+    command('echo "foo" | echon " bar" | echon " baz"')
+    screen:expect({
+      grid = [[
+        ^                         |
+        {1:~                        }|*4
+      ]],
+      messages = {
+        { content = { { 'foo' } }, kind = 'echo' },
+        { content = { { ' bar' } }, kind = 'echo', append = true },
+        { content = { { ' baz' } }, kind = 'echo', append = true },
+        {
+          content = { { 'Press ENTER or type command to continue', 6, 18 } },
+          kind = 'return_prompt',
+        },
+      },
+    })
   end)
 end)
 
@@ -2394,7 +2386,6 @@ describe('ui/ext_messages', function()
       messages = {
         {
           content = { { 'Press ENTER or type command to continue', 6, 18 } },
-          history = false,
           kind = 'return_prompt',
         },
       },
@@ -2476,7 +2467,7 @@ describe('ui/ext_messages', function()
     ]],
       cmdline = { { abort = false } },
       messages = {
-        { content = { { '  cmdheight=0' } }, kind = 'list_cmd', history = false },
+        { content = { { '  cmdheight=0' } }, kind = 'list_cmd' },
       },
     })
 
@@ -2493,7 +2484,7 @@ describe('ui/ext_messages', function()
     ]],
       cmdline = { { abort = false } },
       messages = {
-        { content = { { '  laststatus=3' } }, kind = 'list_cmd', history = false },
+        { content = { { '  laststatus=3' } }, kind = 'list_cmd' },
       },
     })
 
@@ -2514,7 +2505,7 @@ describe('ui/ext_messages', function()
     ]],
       cmdline = { { abort = false } },
       messages = {
-        { content = { { '  cmdheight=0' } }, kind = 'list_cmd', history = false },
+        { content = { { '  cmdheight=0' } }, kind = 'list_cmd' },
       },
     })
   end)
