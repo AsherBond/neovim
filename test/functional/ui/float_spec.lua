@@ -369,6 +369,25 @@ describe('float window', function()
     )
   end)
 
+  it('no error message when reconfig relative field on closed win', function()
+    command('split')
+    local winid = api.nvim_open_win(0, false, {
+      relative = 'win',
+      width = 1,
+      height = 1,
+      col = 1,
+      row = 1,
+    })
+    eq(1001, api.nvim_win_get_config(winid).win)
+    -- But unrelated config doesn't clear parent win #34286
+    api.nvim_win_set_config(winid, { title = 'foo' })
+    eq(1001, api.nvim_win_get_config(winid).win)
+    command('close')
+    api.nvim_win_set_config(winid, { title = 'bar' })
+    api.nvim_win_set_config(winid, { relative = 'editor', row = 1, col = 1 })
+    eq(nil, api.nvim_win_get_config(winid).win)
+  end)
+
   it('is not operated on by windo when non-focusable #15374', function()
     command([[
       let winids = []
@@ -1090,6 +1109,17 @@ describe('float window', function()
     ]])
   end)
 
+  it('non-visible/focusable are not assigned a window number', function()
+    local win = api.nvim_open_win(0, false, { relative = 'editor', width = 2, height = 2, row = 2, col = 2, focusable = false })
+    api.nvim_open_win(0, false, { relative = 'editor', width = 2, height = 2, row = 2, col = 2, hide = true })
+    api.nvim_open_win(0, false, { relative = 'editor', width = 2, height = 2, row = 2, col = 2 })
+    eq(2, fn.winnr('$'))
+    eq(0, fn.win_id2win(win))
+    -- Unless it is the current window.
+    api.nvim_set_current_win(win)
+    eq({ 3, 3 }, { fn.winnr(), fn.win_id2win(win) })
+  end)
+
   local function with_ext_multigrid(multigrid)
     local screen, attrs
     before_each(function()
@@ -1406,6 +1436,7 @@ describe('float window', function()
       local win = api.nvim_open_win(buf, false, { relative = 'editor', width = 20, height = 2, row = 3, col = 5, zindex = 60 })
       local expected = {
         anchor = 'NW',
+        border = 'none',
         col = 5,
         external = false,
         focusable = true,
@@ -1443,7 +1474,7 @@ describe('float window', function()
       if multigrid then
         api.nvim_win_set_config(win, { external = true, width = 10, height = 1 })
         eq(
-          { external = true, focusable = true, mouse = true, width = 10, height = 1, relative = '', hide = false },
+          { external = true, focusable = true, mouse = true, width = 10, height = 1, relative = '', hide = false, border = 'none' },
           api.nvim_win_get_config(win)
         )
       end
@@ -1893,7 +1924,7 @@ describe('float window', function()
       end
 
       api.nvim_win_set_config(win, { border = 'none' })
-      eq(nil, api.nvim_win_get_config(win).border)
+      eq('none', api.nvim_win_get_config(win).border)
 
       api.nvim_win_set_config(win, { border = { '', '', '', '>', '', '', '', '<' } })
       eq({ '', '', '', '>', '', '', '', '<' }, api.nvim_win_get_config(win).border)
@@ -4630,6 +4661,7 @@ describe('float window', function()
         height = 1,
         bufpos = { 1, 32 },
         anchor = 'NW',
+        border = 'none',
         hide = false,
         external = false,
         col = 0,
@@ -6417,32 +6449,32 @@ describe('float window', function()
         api.nvim_open_win(0, false, { relative = 'editor', width = 1, height = 1, row = 0, col = 0, focusable = true })
         api.nvim_open_win(0, false, { relative = 'editor', width = 1, height = 1, row = 0, col = 0, focusable = false })
         local nr_focusable = {}
-        for nr = 1, fn.winnr('$') do
-          table.insert(nr_focusable, api.nvim_win_get_config(fn.win_getid(nr)).focusable)
+        for _, winid in ipairs(api.nvim_tabpage_list_wins(0)) do
+          table.insert(nr_focusable, api.nvim_win_get_config(winid).focusable)
         end
         eq({ true, false, true, false, false, true, false }, nr_focusable)
 
         command('1wincmd w')
-        eq(1, fn.winnr())
+        eq({ 1, 1000 }, { fn.winnr(), fn.win_getid() })
         command('2wincmd w')
-        eq(3, fn.winnr())
+        eq({ 2, 1005 }, { fn.winnr(), fn.win_getid() })
         command('3wincmd w')
-        eq(3, fn.winnr())
+        eq({ 2, 1005 }, { fn.winnr(), fn.win_getid() })
         command('4wincmd w')
-        eq(6, fn.winnr())
+        eq({ 3, 1002 }, { fn.winnr(), fn.win_getid() })
         command('5wincmd w')
-        eq(6, fn.winnr())
+        eq({ 3, 1002 }, { fn.winnr(), fn.win_getid() })
         command('6wincmd w')
-        eq(6, fn.winnr())
+        eq({ 3, 1002 }, { fn.winnr(), fn.win_getid() })
         command('7wincmd w')
-        eq(6, fn.winnr())
+        eq({ 3, 1002 }, { fn.winnr(), fn.win_getid() })
 
         feed('1<c-w>w')
-        eq(1, fn.winnr())
+        eq({ 1, 1000 }, { fn.winnr(), fn.win_getid() })
         feed('2<c-w>w')
-        eq(3, fn.winnr())
+        eq({ 2, 1005 }, { fn.winnr(), fn.win_getid() })
         feed('999<c-w>w')
-        eq(6, fn.winnr())
+        eq({ 3, 1002 }, { fn.winnr(), fn.win_getid() })
       end)
 
       it('W', function()
@@ -11413,7 +11445,7 @@ describe('float window', function()
 
       command('set winborder=none')
       winid = api.nvim_open_win(buf, true, config)
-      eq(nil, api.nvim_win_get_config(winid).border)
+      eq('none', api.nvim_win_get_config(winid).border)
       command('fclose!')
 
       -- respect config.border
