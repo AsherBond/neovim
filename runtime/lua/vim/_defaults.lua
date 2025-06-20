@@ -209,6 +209,14 @@ do
       vim.lsp.buf.implementation()
     end, { desc = 'vim.lsp.buf.implementation()' })
 
+    vim.keymap.set('x', 'an', function()
+      vim.lsp.buf.selection_range(vim.v.count1)
+    end, { desc = 'vim.lsp.buf.selection_range(vim.v.count1)' })
+
+    vim.keymap.set('x', 'in', function()
+      vim.lsp.buf.selection_range(-vim.v.count1)
+    end, { desc = 'vim.lsp.buf.selection_range(-vim.v.count1)' })
+
     vim.keymap.set('n', 'gO', function()
       vim.lsp.buf.document_symbol()
     end, { desc = 'vim.lsp.buf.document_symbol()' })
@@ -927,7 +935,7 @@ do
   end
 
   vim.api.nvim_create_autocmd('VimEnter', {
-    group = vim.api.nvim_create_augroup('nvim.find_exrc', {}),
+    group = vim.api.nvim_create_augroup('nvim.exrc', {}),
     desc = 'Find exrc files in parent directories',
     callback = function()
       if not vim.o.exrc then
