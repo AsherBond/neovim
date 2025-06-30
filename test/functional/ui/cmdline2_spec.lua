@@ -43,4 +43,49 @@ describe('cmdline2', function()
     ]])
     n.assert_alive()
   end)
+
+  it("redraw does not clear 'incsearch' highlight with conceal", function()
+    exec('call setline(1, ["foo", "foobar"]) | set conceallevel=1 concealcursor=c')
+    feed('/foo')
+    screen:expect([[
+      {10:foo}                                                  |
+      {2:foo}bar                                               |
+      {1:~                                                    }|*11
+      /foo^                                                 |
+    ]])
+  end)
+
+  it('block mode', function()
+    feed(':if 1<CR>')
+    screen:expect([[
+                                                           |
+      {1:~                                                    }|*11
+      {16::}{15:if} {26:1}                                                |
+      {16::}  ^                                                  |
+    ]])
+    feed('echo "foo"<CR>')
+    screen:expect([[
+                                                           |
+      {1:~                                                    }|*9
+      {16::}{15:if} {26:1}                                                |
+      {16::}  {15:echo} {26:"foo"}                                        |
+      {15:foo}                                                  |
+      {16::}  ^                                                  |
+    ]])
+    feed('endif')
+    screen:expect([[
+                                                           |
+      {1:~                                                    }|*9
+      {16::}{15:if} {26:1}                                                |
+      {16::}  {15:echo} {26:"foo"}                                        |
+      {15:foo}                                                  |
+      {16::}  {15:endif}^                                             |
+    ]])
+    feed('<CR>')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*12
+                                                           |
+    ]])
+  end)
 end)
