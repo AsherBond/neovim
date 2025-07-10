@@ -951,6 +951,21 @@ local options = {
       varname = 'p_bt',
     },
     {
+      defaults = 0,
+      desc = [=[
+        Sets a buffer "busy" status. Indicated in the default statusline.
+        When busy status is larger then 0 busy flag is shown in statusline.
+        The semantics of "busy" are arbitrary, typically decided by the plugin that owns the buffer.
+      ]=],
+      full_name = 'busy',
+      redraw = { 'statuslines' },
+      noglob = true,
+      scope = { 'buf' },
+      short_desc = N_('buffer is busy'),
+      type = 'number',
+      varname = 'p_busy',
+    },
+    {
       abbreviation = 'cmp',
       defaults = 'internal,keepascii',
       values = { 'internal', 'keepascii' },
@@ -1444,15 +1459,12 @@ local options = {
         	name of a function or a |Funcref|.  For |Funcref| values,
         	spaces must be escaped with a backslash ('\'), and commas with
         	double backslashes ('\\') (see |option-backslash|).
+        	Unlike other sources, functions can provide completions starting
+        	from a non-keyword character before the cursor, and their
+        	start position for replacing text may differ from other sources.
         	If the Dict returned by the {func} includes {"refresh": "always"},
         	the function will be invoked again whenever the leading text
         	changes.
-        	Completion matches are always inserted at the keyword
-        	boundary, regardless of the column returned by {func} when
-        	a:findstart is 1.  This ensures compatibility with other
-        	completion sources.
-        	To make further modifications to the inserted text, {func}
-        	can make use of |CompleteDonePre|.
         	If generating matches is potentially slow, |complete_check()|
         	should be used to avoid blocking and preserve editor
         	responsiveness.
@@ -2002,6 +2014,13 @@ local options = {
         		character, the cursor won't move. When not included,
         		the cursor would skip over it and jump to the
         		following occurrence.
+        							*cpo-~*
+        	~	When included, don't resolve symbolic links when
+        		changing directory with |:cd|, |:lcd|, or |:tcd|.
+        		This preserves the symbolic link path in buffer names
+        		and when displaying the current directory.  When
+        		excluded (default), symbolic links are resolved to
+        		their target paths.
         							*cpo-_*
         	_	When using |cw| on a word, do not include the
         		whitespace following the word in the motion.
@@ -8636,6 +8655,7 @@ local options = {
         '%=',
         "%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}",
         "%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}",
+        "%{% &busy > 0 ? '◐ ' : '' %}",
         "%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}",
       }),
       desc = [=[
@@ -10094,7 +10114,10 @@ local options = {
         	:set wc=X
         	:set wc=^I
         	set wc=<Tab>
-        <
+        <	'wildchar' also enables completion in search pattern contexts such as
+        |/|, |?|, |:s|, |:g|, |:v|, and |:vim|.  To insert a literal <Tab>
+        instead of triggering completion, type <C-V><Tab> or "\t".
+        See also |'wildoptions'|.
       ]=],
       full_name = 'wildchar',
       scope = { 'global' },
@@ -10289,12 +10312,26 @@ local options = {
     {
       abbreviation = 'wop',
       defaults = 'pum,tagfile',
-      values = { 'fuzzy', 'tagfile', 'pum' },
+      values = { 'fuzzy', 'tagfile', 'pum', 'exacttext' },
       flags = true,
       deny_duplicates = true,
       desc = [=[
         A list of words that change how |cmdline-completion| is done.
         The following values are supported:
+          exacttext	When this flag is present, search pattern completion
+        		(e.g., in |/|, |?|, |:s|, |:g|, |:v|, and |:vim|)
+        		shows exact buffer text as menu items, without
+        		preserving regex artifacts like position
+        		anchors (e.g., |/\\<|).  This provides more intuitive
+        		menu items that match the actual buffer text.
+        		However, searches may be less accurate since the
+        		pattern is not preserved exactly.
+        		By default, Vim preserves the typed pattern (with
+        		anchors) and appends the matched word.  This preserves
+        		search correctness, especially when using regular
+        		expressions or with 'smartcase' enabled.  However, the
+        		case of the appended matched word may not exactly
+        		match the case of the word in the buffer.
           fuzzy		Use |fuzzy-matching| to find completion matches. When
         		this value is specified, wildcard expansion will not
         		be used for completion.  The matches will be sorted by
@@ -10394,6 +10431,9 @@ local options = {
       type = 'number',
     },
     {
+      full_name = 'winborder',
+      scope = { 'global' },
+      cb = 'did_set_winborder',
       defaults = { if_true = '' },
       values = { '', 'double', 'single', 'shadow', 'rounded', 'solid', 'bold', 'none' },
       desc = [=[
@@ -10406,11 +10446,14 @@ local options = {
         - "shadow": Drop shadow effect, by blending with the background.
         - "single": Single-line box.
         - "solid": Adds padding by a single whitespace cell.
+        - custom: comma-separated list of exactly 8 characters in clockwise
+          order starting from topleft. Example: >lua
+             vim.o.winborder='+,-,+,|,+,-,+,|'
+        <
       ]=],
-      full_name = 'winborder',
-      scope = { 'global' },
       short_desc = N_('border of floating window'),
       type = 'string',
+      list = 'onecomma',
       varname = 'p_winborder',
     },
     {

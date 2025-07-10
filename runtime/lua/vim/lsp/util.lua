@@ -1422,10 +1422,17 @@ local function close_preview_autocmd(events, winnr, bufnrs)
 
   -- close the preview window when entered a buffer that is not
   -- the floating window buffer or the buffer that spawned it
-  api.nvim_create_autocmd('BufEnter', {
+  api.nvim_create_autocmd('BufLeave', {
     group = augroup,
+    buffer = bufnrs[1],
     callback = function()
-      close_preview_window(winnr, bufnrs)
+      vim.schedule(function()
+        -- When jumping to the quickfix window from the preview window,
+        -- do not close the preview window.
+        if api.nvim_get_option_value('filetype', { buf = 0 }) ~= 'qf' then
+          close_preview_window(winnr, bufnrs)
+        end
+      end)
     end,
   })
 
@@ -1892,6 +1899,11 @@ function M.symbols_to_items(symbols, bufnr, position_encoding)
       local end_lnum = range['end'].line + 1
       local end_col = get_line_byte_from_position(bufnr, range['end'], position_encoding) + 1
 
+      local is_deprecated = symbol.deprecated
+        or (symbol.tags and vim.tbl_contains(symbol.tags, protocol.SymbolTag.Deprecated))
+      local text =
+        string.format('[%s] %s%s', kind, symbol.name, is_deprecated and ' (deprecated)' or '')
+
       items[#items + 1] = {
         filename = filename,
         lnum = lnum,
@@ -1899,7 +1911,7 @@ function M.symbols_to_items(symbols, bufnr, position_encoding)
         end_lnum = end_lnum,
         end_col = end_col,
         kind = kind,
-        text = '[' .. kind .. '] ' .. symbol.name,
+        text = text,
       }
     end
 

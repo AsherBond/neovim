@@ -664,6 +664,14 @@ vim.o.bt = vim.o.buftype
 vim.bo.buftype = vim.o.buftype
 vim.bo.bt = vim.bo.buftype
 
+--- Sets a buffer "busy" status. Indicated in the default statusline.
+--- When busy status is larger then 0 busy flag is shown in statusline.
+--- The semantics of "busy" are arbitrary, typically decided by the plugin that owns the buffer.
+---
+--- @type integer
+vim.o.busy = 0
+vim.bo.busy = vim.o.busy
+
 --- Specifies details about changing the case of letters.  It may contain
 --- these words, separated by a comma:
 --- internal	Use internal case mapping functions, the current
@@ -1033,15 +1041,12 @@ vim.bo.cms = vim.bo.commentstring
 --- 	name of a function or a `Funcref`.  For `Funcref` values,
 --- 	spaces must be escaped with a backslash ('\'), and commas with
 --- 	double backslashes ('\\') (see `option-backslash`).
+--- 	Unlike other sources, functions can provide completions starting
+--- 	from a non-keyword character before the cursor, and their
+--- 	start position for replacing text may differ from other sources.
 --- 	If the Dict returned by the {func} includes {"refresh": "always"},
 --- 	the function will be invoked again whenever the leading text
 --- 	changes.
---- 	Completion matches are always inserted at the keyword
---- 	boundary, regardless of the column returned by {func} when
---- 	a:findstart is 1.  This ensures compatibility with other
---- 	completion sources.
---- 	To make further modifications to the inserted text, {func}
---- 	can make use of `CompleteDonePre`.
 --- 	If generating matches is potentially slow, `complete_check()`
 --- 	should be used to avoid blocking and preserve editor
 --- 	responsiveness.
@@ -1515,6 +1520,13 @@ vim.bo.ci = vim.bo.copyindent
 --- 		character, the cursor won't move. When not included,
 --- 		the cursor would skip over it and jump to the
 --- 		following occurrence.
+--- 							*cpo-~*
+--- 	~	When included, don't resolve symbolic links when
+--- 		changing directory with `:cd`, `:lcd`, or `:tcd`.
+--- 		This preserves the symbolic link path in buffer names
+--- 		and when displaying the current directory.  When
+--- 		excluded (default), symbolic links are resolved to
+--- 		their target paths.
 --- 							*cpo-_*
 --- 	_	When using `cw` on a word, do not include the
 --- 		whitespace following the word in the motion.
@@ -2130,6 +2142,8 @@ vim.go.ei = vim.go.eventignore
 --- 	`MenuPopup`,
 --- 	`ModeChanged`,
 --- 	`OptionSet`,
+--- 	`PackChanged`,
+--- 	`PackChangedPre`,
 --- 	`QuickFixCmdPost`,
 --- 	`QuickFixCmdPre`,
 --- 	`QuitPre`,
@@ -6847,7 +6861,7 @@ vim.wo.stc = vim.wo.statuscolumn
 ---
 ---
 --- @type string
-vim.o.statusline = "%<%f %h%w%m%r %=%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}"
+vim.o.statusline = "%<%f %h%w%m%r %=%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}%{% &busy > 0 ? '◐ ' : '' %}%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}"
 vim.o.stl = vim.o.statusline
 vim.wo.statusline = vim.o.statusline
 vim.wo.stl = vim.wo.statusline
@@ -7801,7 +7815,10 @@ vim.go.ww = vim.go.whichwrap
 --- 	:set wc=^I
 --- 	set wc=<Tab>
 --- ```
----
+--- 'wildchar' also enables completion in search pattern contexts such as
+--- `/`, `?`, `:s`, `:g`, `:v`, and `:vim`.  To insert a literal <Tab>
+--- instead of triggering completion, type <C-V><Tab> or "\t".
+--- See also `'wildoptions'`.
 ---
 --- @type integer
 vim.o.wildchar = 9
@@ -7996,6 +8013,20 @@ vim.go.wim = vim.go.wildmode
 
 --- A list of words that change how `cmdline-completion` is done.
 --- The following values are supported:
+---   exacttext	When this flag is present, search pattern completion
+--- 		(e.g., in `/`, `?`, `:s`, `:g`, `:v`, and `:vim`)
+--- 		shows exact buffer text as menu items, without
+--- 		preserving regex artifacts like position
+--- 		anchors (e.g., `/\\<`).  This provides more intuitive
+--- 		menu items that match the actual buffer text.
+--- 		However, searches may be less accurate since the
+--- 		pattern is not preserved exactly.
+--- 		By default, Vim preserves the typed pattern (with
+--- 		anchors) and appends the matched word.  This preserves
+--- 		search correctness, especially when using regular
+--- 		expressions or with 'smartcase' enabled.  However, the
+--- 		case of the appended matched word may not exactly
+--- 		match the case of the word in the buffer.
 ---   fuzzy		Use `fuzzy-matching` to find completion matches. When
 --- 		this value is specified, wildcard expansion will not
 --- 		be used for completion.  The matches will be sorted by
@@ -8086,8 +8117,15 @@ vim.wo.winbl = vim.wo.winblend
 --- - "shadow": Drop shadow effect, by blending with the background.
 --- - "single": Single-line box.
 --- - "solid": Adds padding by a single whitespace cell.
+--- - custom: comma-separated list of exactly 8 characters in clockwise
+---   order starting from topleft. Example:
 ---
---- @type ''|'double'|'single'|'shadow'|'rounded'|'solid'|'bold'|'none'
+--- ```lua
+---      vim.o.winborder='+,-,+,`,+,-,+,`'
+--- ```
+---
+---
+--- @type string
 vim.o.winborder = ""
 vim.go.winborder = vim.o.winborder
 
