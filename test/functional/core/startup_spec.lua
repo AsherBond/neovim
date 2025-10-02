@@ -534,6 +534,50 @@ describe('startup', function()
     )
   end)
 
+  it('if stdin is empty and - is last: selects buffer 1, deletes buffer 3 #35269', function()
+    eq(
+      '\r\n  1 %a   "file1"                        line 0\r\n  2      "file2"                        line 0',
+      fn.system({
+        nvim_prog,
+        '-n',
+        '-u',
+        'NONE',
+        '-i',
+        'NONE',
+        '--headless',
+        '+ls!',
+        '+qall!',
+        'file1',
+        'file2',
+        '-',
+      }, { '' })
+    )
+  end)
+
+  it("empty stdin with terminal split doesn't crash #35681", function()
+    eq(
+      'nocrash',
+      fn.system({
+        nvim_prog,
+        '-n',
+        '-u',
+        'NONE',
+        '-i',
+        'NONE',
+        '--headless',
+        '--cmd',
+        'term',
+        '+split',
+        '+quit!',
+        '+bw!',
+        '+bw!',
+        '+echo "nocrash"',
+        "+call timer_start(1, { -> execute('qa') })", -- need to let event handling happen
+        '-',
+      }, { '' })
+    )
+  end)
+
   it('stdin with -es/-Es #7679', function()
     local input = { 'append', 'line1', 'line2', '.', '%print', '' }
     local inputstr = table.concat(input, '\n')
@@ -812,6 +856,42 @@ describe('startup', function()
       {3:Xfloat.vim                             }{2:<}|
                                               |
     ]])
+  end)
+
+  it("default 'diffopt' is applied with -d", function()
+    clear({
+      args = {
+        '-d',
+        'test/functional/fixtures/diff/startup_old.txt',
+        'test/functional/fixtures/diff/startup_new.txt',
+        '--cmd',
+        'set laststatus=0',
+      },
+    })
+    local screen = Screen.new(80, 24)
+    screen:expect([[
+      {7:+ }{13:^+-- 15 lines: package main············}│{7:+ }{13:+-- 15 lines: package main···········}|
+      {7:  }                                      │{7:  }                                     |
+      {7:  }func printCharacters(str string) strin│{7:  }func printCharacters(str string) stri|
+      {7:  }        return str                    │{7:  }        return str                   |
+      {7:  }}                                     │{7:  }}                                    |
+      {7:  }                                      │{7:  }                                     |
+      {7:  }func main() {                         │{7:  }func main() {                        |
+      {7:  }{23:--------------------------------------}│{7:  }{22:        hello := "Hello, World!"     }|
+      {7:  }{23:--------------------------------------}│{7:  }{22:                                     }|
+      {7:  }{4:        fmt.Print}{27:Ln}{4:(compressString("aa}│{7:  }{4:        fmt.Print(compressString("aaa}|
+      {7:  }{4:        fmt.Print}{27:Ln}{4:(compressString("go}│{7:  }{4:        fmt.Print(compressString("gol}|
+      {7:  }{4:        fmt.Print}{27:Ln}{4:(removeDuplicate("a}│{7:  }{4:        fmt.Print(removeDuplicate("aa}|
+      {7:  }{4:        fmt.Print}{27:Ln}{4:(reverseAndDouble("}│{7:  }{4:        fmt.Print(reverseAndDouble("a}|
+      {7:  }{4:        fmt.Print}{27:Ln}{4:(printCharacters("g}│{7:  }{4:        fmt.Print(printCharacters("go}|
+      {7:  }{23:--------------------------------------}│{7:  }{22:                                     }|
+      {7:  }{23:--------------------------------------}│{7:  }{22:        fmt.Println(hello)           }|
+      {7:  }}                                     │{7:  }}                                    |
+      {1:~                                       }│{1:~                                      }|*6
+                                                                                      |
+    ]])
+    command('let &diffopt = &diffopt')
+    screen:expect_unchanged()
   end)
 
   it('does not crash if --embed is given twice', function()
@@ -1200,9 +1280,11 @@ describe('user config init', function()
             VIMRUNTIME = os.getenv('VIMRUNTIME'),
           },
         })
-        screen:expect({ any = pesc('[i]gnore, (v)iew, (d)eny, (a)llow:') })
-        -- `i` to enter Terminal mode, `a` to allow
-        feed('ia')
+        screen:expect({ any = pesc('[i]gnore, (v)iew, (d)eny:') })
+        -- `i` to enter Terminal mode, `v` to view then `:trust`
+        feed('iv')
+        feed(':trust<CR>')
+        feed(':q<CR>')
         screen:expect([[
           ^                                                  |
           ~                                                 |*4
@@ -1219,8 +1301,8 @@ describe('user config init', function()
           %s%s|
           -- TERMINAL --                                    |
         ]],
-          filename,
-          string.rep(' ', 50 - #filename)
+          '---',
+          string.rep(' ', 50 - #'---')
         ))
 
         clear { args_rm = { '-u' }, env = xstateenv }
@@ -1239,7 +1321,8 @@ describe('user config init', function()
       setup_exrc_file('.nvim.lua')
       setup_exrc_file('../.exrc')
       clear { args_rm = { '-u' }, env = xstateenv }
-      local screen = Screen.new(50, 8)
+      -- use a screen wide width to avoid wrapping the word `.exrc`, `.nvim.lua` below.
+      local screen = Screen.new(500, 8)
       screen._default_attr_ids = nil
       fn.jobstart({ nvim_prog }, {
         term = true,
@@ -1249,13 +1332,36 @@ describe('user config init', function()
       })
       -- current directory exrc is found first
       screen:expect({ any = '.nvim.lua' })
-      screen:expect({ any = pesc('[i]gnore, (v)iew, (d)eny, (a)llow:'), unchanged = true })
-      feed('ia')
+      screen:expect({ any = pesc('[i]gnore, (v)iew, (d)eny:'), unchanged = true })
+      feed('iv')
 
       -- after that the exrc in the parent directory
-      screen:expect({ any = '.exrc' })
-      screen:expect({ any = pesc('[i]gnore, (v)iew, (d)eny, (a)llow:'), unchanged = true })
-      feed('a')
+      screen:expect({ any = '.exrc', unchanged = true })
+      screen:expect({ any = pesc('[i]gnore, (v)iew, (d)eny:'), unchanged = true })
+      feed('v')
+
+      -- trust .exrc
+      feed(':trust<CR>')
+      screen:expect({ any = 'Allowed in trust database: ".*' .. pathsep .. '%.exrc"' })
+      feed(':q<CR>')
+      -- trust .nvim.lua
+      feed(':trust<CR>')
+      screen:expect({ any = 'Allowed in trust database: ".*' .. pathsep .. '%.nvim%.lua"' })
+      feed(':q<CR>')
+      -- no exrc file is executed
+      feed(':echo g:exrc_count<CR>')
+      screen:expect({ any = 'E121: Undefined variable: g:exrc_count' })
+
+      -- restart nvim
+      feed(':restart<CR>')
+      screen:expect([[
+        ^{MATCH: +}|
+        ~{MATCH: +}|*4
+        [No Name]{MATCH: +}0,0-1{MATCH: +}All|
+        {MATCH: +}|
+        -- TERMINAL --{MATCH: +}|
+      ]])
+
       -- a total of 2 exrc files are executed
       feed(':echo g:exrc_count<CR>')
       screen:expect({ any = '2' })

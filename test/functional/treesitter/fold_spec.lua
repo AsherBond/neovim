@@ -14,8 +14,6 @@ local poke_eventloop = n.poke_eventloop
 before_each(clear)
 
 describe('treesitter foldexpr', function()
-  clear()
-
   before_each(function()
     -- open folds to avoid deleting entire folded region
     exec_lua([[vim.opt.foldlevel = 9]])
@@ -728,9 +726,8 @@ t2]])
     ]],
     }
 
-    feed('<Esc>u')
     -- TODO(tomtomjhj): `u` spuriously opens the fold (#26499).
-    feed('zMggzo')
+    feed('<Esc>uzMggzo')
 
     feed('dd')
     poke_eventloop()
@@ -832,5 +829,17 @@ t2]])
 
     command('set ft=c')
     eq(foldlevels, get_fold_levels())
+  end)
+
+  it('no error when deleting lines at end of buffer with fml=0', function()
+    local screen = Screen.new(40, 2)
+    insert('hello')
+    parse('markdown')
+    command('set foldmethod=expr foldexpr=v:lua.vim.treesitter.foldexpr() foldminlines=0')
+    feed('o<Esc>dd')
+    screen:expect([[
+      ^hello                                   |
+                                              |
+    ]])
   end)
 end)

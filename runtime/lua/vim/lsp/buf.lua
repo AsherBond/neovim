@@ -61,19 +61,49 @@ function M.hover(config)
 
     -- Filter errors from results
     local results1 = {} --- @type table<integer,lsp.Hover>
+    local empty_response = false
 
     for client_id, resp in pairs(results) do
       local err, result = resp.err, resp.result
       if err then
         lsp.log.error(err.code, err.message)
-      elseif result then
-        results1[client_id] = result
+      elseif result and result.contents then
+        -- Make sure the response is not empty
+        -- Five response shapes:
+        -- - MarkupContent: { kind="markdown", value="doc" }
+        -- - MarkedString-string: "doc"
+        -- - MarkedString-pair: { language="c", value="doc" }
+        -- - MarkedString[]-string: { "doc1", ... }
+        -- - MarkedString[]-pair: { { language="c", value="doc1" }, ... }
+        if
+          (
+            type(result.contents) == 'table'
+            and #(
+                vim.tbl_get(result.contents, 'value') -- MarkupContent or MarkedString-pair
+                or vim.tbl_get(result.contents, 1, 'value') -- MarkedString[]-pair
+                or result.contents[1] -- MarkedString[]-string
+                or ''
+              )
+              > 0
+          )
+          or (
+            type(result.contents) == 'string' and #result.contents > 0 -- MarkedString-string
+          )
+        then
+          results1[client_id] = result
+        else
+          empty_response = true
+        end
       end
     end
 
     if vim.tbl_isempty(results1) then
       if config.silent ~= true then
-        vim.notify('No information available', vim.log.levels.INFO)
+        if empty_response then
+          vim.notify('Empty hover response', vim.log.levels.INFO)
+        else
+          vim.notify('No information available', vim.log.levels.INFO)
+        end
       end
       return
     end
@@ -317,8 +347,8 @@ local function process_signature_help_results(results)
       )
       api.nvim_command('redraw')
     else
-      local result = r.result --- @type lsp.SignatureHelp
-      if result and result.signatures and result.signatures[1] then
+      local result = r.result
+      if result and result.signatures then
         for i, sig in ipairs(result.signatures) do
           sig.activeParameter = sig.activeParameter or result.activeParameter
           local idx = #signatures + 1
@@ -357,6 +387,7 @@ function M.signature_help(config)
 
   config = config and vim.deepcopy(config) or {}
   config.focus_id = method
+  local user_title = config.title
 
   lsp.buf_request_all(0, method, client_positional_params(), function(results, ctx)
     if api.nvim_get_current_buf() ~= ctx.bufnr then
@@ -391,17 +422,19 @@ function M.signature_help(config)
         return
       end
 
-      local sfx = total > 1
-          and string.format(' (%d/%d)%s', idx, total, can_cycle and ' (<C-s> to cycle)' or '')
-        or ''
-      local title = string.format('Signature Help: %s%s', client.name, sfx)
-      if config.border then
-        config.title = title
-      else
-        table.insert(lines, 1, '# ' .. title)
-        if hl then
-          hl[1] = hl[1] + 1
-          hl[3] = hl[3] + 1
+      -- Show title only if there are multiple clients or multiple signatures.
+      if total > 1 then
+        local sfx = total > 1
+            and string.format(' (%d/%d)%s', idx, total, can_cycle and ' (<C-s> to cycle)' or '')
+          or ''
+        config.title = user_title or string.format('Signature Help: %s%s', client.name, sfx)
+        -- If no border is set, render title inside the window.
+        if not (config.border or vim.o.winborder ~= '') then
+          table.insert(lines, 1, '# ' .. config.title)
+          if hl then
+            hl[1] = hl[1] + 1
+            hl[3] = hl[3] + 1
+          end
         end
       end
 
@@ -410,7 +443,7 @@ function M.signature_help(config)
       local buf, win = util.open_floating_preview(lines, 'markdown', config)
 
       if hl then
-        vim.api.nvim_buf_clear_namespace(buf, sig_help_ns, 0, -1)
+        api.nvim_buf_clear_namespace(buf, sig_help_ns, 0, -1)
         vim.hl.range(
           buf,
           sig_help_ns,
@@ -501,7 +534,7 @@ end
 --- Can be used to specify FormattingOptions. Some unspecified options will be
 --- automatically derived from the current Nvim options.
 --- See https://microsoft.github.io/language-server-protocol/specification/#formattingOptions
---- @field formatting_options? table
+--- @field formatting_options? lsp.FormattingOptions
 ---
 --- Time in milliseconds to block for formatting requests. No effect if async=true.
 --- (default: `1000`)
@@ -798,7 +831,7 @@ function M.references(context, opts)
 
     for client_id, res in pairs(results) do
       local client = assert(lsp.get_client_by_id(client_id))
-      local items = util.locations_to_items(res.result, client.offset_encoding)
+      local items = util.locations_to_items(res.result or {}, client.offset_encoding)
       vim.list_extend(all_items, items)
     end
 
@@ -1039,7 +1072,7 @@ end
 --- @param opts? vim.lsp.WorkspaceDiagnosticsOpts
 --- @see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#workspace_dagnostics
 function M.workspace_diagnostics(opts)
-  vim.validate('opts', opts, 'table', true)
+  validate('opts', opts, 'table', true)
 
   lsp.diagnostic._workspace_diagnostics(opts or {})
 end
@@ -1402,7 +1435,7 @@ function M.selection_range(direction)
 
   lsp.buf_request(
     0,
-    ms.textDocument_selectionRange,
+    method,
     params,
     ---@param response lsp.SelectionRange[]?
     function(err, response)
@@ -1413,7 +1446,7 @@ function M.selection_range(direction)
       if not response then
         return
       end
-      -- We only requested one range, thus we get the first and only reponse here.
+      -- We only requested one range, thus we get the first and only response here.
       response = response[1]
       local ranges = {} ---@type lsp.Range[]
       local lines = api.nvim_buf_get_lines(0, 0, -1, false)

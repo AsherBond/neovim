@@ -484,7 +484,177 @@ describe('cmdline', function()
       /the^                                                        |
     ]])
 
+    -- 'incsearch' highlight is restored after dismissing popup (Ctrl_E)
     feed('<esc>')
+    command('set wop=pum is nohls')
+    feed('gg/th<tab><c-e>')
+    screen:expect([[
+      the                                                         |
+      {2:th}ese                                                       |
+      the                                                         |
+      foobar                                                      |
+      thethe                                                      |
+      thethere                                                    |
+      {1:~                                                           }|*3
+      /th^                                                         |
+    ]])
+
+    feed('<esc>')
+  end)
+
+  -- oldtest: Test_search_wildmenu_iminsert()
+  it('search wildmenu pum with iminsert=1', function()
+    local screen = Screen.new(65, 12)
+    exec([[
+      set wop=pum imi=1
+      setlocal iskeyword=!-~,192-255
+      call setline(1, [
+            \ "global toggle global-local global/local glyphs toggles English",
+            \ "accordingly. toggled accordingly single-byte",
+            \ ])
+      call cursor(2, 42)
+    ]])
+    feed('/gl<Tab>')
+    screen:expect([[
+      {12: global         }obal-local global/local glyphs toggles English   |
+      {4: gle            }gled accordingly single-byte                     |
+      {4: global-local   }{1:                                                 }|
+      {4: global/local   }{1:                                                 }|
+      {4: glyphs         }{1:                                                 }|
+      {4: gles           }{1:                                                 }|
+      {4: glish          }{1:                                                 }|
+      {4: gly.           }{1:                                                 }|
+      {4: gled           }{1:                                                 }|
+      {4: gly            }{1:                                                 }|
+      {4: gle-byte       }{1:                                                 }|
+      /global^                                                          |
+    ]])
+  end)
+
+  -- oldtest: Test_wildtrigger_update_screen()
+  it('pum by wildtrigger() avoids flicker', function()
+    local screen = Screen.new(40, 10)
+    exec([[
+      command! -nargs=* -complete=customlist,TestFn TestCmd echo
+      func TestFn(cmdarg, b, c)
+        if a:cmdarg == 'ax'
+          return []
+        else
+          return map(range(1, 5), 'printf("abc%d", v:val)')
+        endif
+      endfunc
+      set wildmode=noselect,full
+      set wildoptions=pum
+      set wildmenu
+      cnoremap <F8> <C-R>=wildtrigger()[-1]<CR>
+    ]])
+
+    feed(':TestCmd a<F8>')
+    screen:expect([[
+                                              |
+      {1:~                                       }|*3
+      {1:~       }{4: abc1           }{1:                }|
+      {1:~       }{4: abc2           }{1:                }|
+      {1:~       }{4: abc3           }{1:                }|
+      {1:~       }{4: abc4           }{1:                }|
+      {1:~       }{4: abc5           }{1:                }|
+      :TestCmd a^                              |
+    ]])
+
+    -- Typing a character when pum is open does not close the pum window
+    -- This is needed to prevent pum window from flickering during
+    -- ':h cmdline-autocompletion'.
+    feed('x')
+    screen:expect([[
+                                              |
+      {1:~                                       }|*3
+      {1:~       }{4: abc1           }{1:                }|
+      {1:~       }{4: abc2           }{1:                }|
+      {1:~       }{4: abc3           }{1:                }|
+      {1:~       }{4: abc4           }{1:                }|
+      {1:~       }{4: abc5           }{1:                }|
+      :TestCmd ax^                             |
+    ]])
+
+    -- pum window is closed when no completion candidates are available
+    feed('<F8>')
+    screen:expect([[
+                                              |
+      {1:~                                       }|*8
+      :TestCmd ax^                             |
+    ]])
+
+    feed('<esc>')
+  end)
+
+  -- oldtest: Test_long_line_noselect()
+  it("long line is shown properly with noselect in 'wildmode'", function()
+    local screen = Screen.new(60, 8)
+    exec([[
+      set wildmenu wildoptions=pum wildmode=noselect,full
+      command -nargs=1 -complete=custom,Entries DoubleEntry echo
+      func Entries(a, b, c)
+        return 'loooooooooooooooong quite loooooooooooong, really loooooooooooong, probably too looooooooooooooooooooooooooong entry'
+      endfunc
+    ]])
+
+    feed(':DoubleEntry <Tab>')
+    screen:expect([[
+                                                                  |
+      {1:~                                                           }|*5
+      {1:~           }{4: loooooooooooooooong quite loooooooooooong, real}|
+      :DoubleEntry ^                                               |
+    ]])
+
+    feed('<C-N>')
+    screen:expect([[
+                                                                  |
+      {1:~                                                           }|*3
+      {3:                                                            }|
+      :DoubleEntry loooooooooooooooong quite loooooooooooong, real|
+      ly loooooooo{12: loooooooooooooooong quite loooooooooooong, real}|
+      ong entry^                                                   |
+    ]])
+
+    feed('<C-N>')
+    screen:expect([[
+                                                                  |
+      {1:~                                                           }|*3
+      {3:            }{4: loooooooooooooooong quite loooooooooooong, real}|
+      :DoubleEntry ^                                               |
+                                                                  |*2
+    ]])
+
+    feed('<Esc>')
+  end)
+
+  -- oldtest: Test_update_screen_after_wildtrigger()
+  it('pum is dismissed after wildtrigger() and whitespace', function()
+    local screen = Screen.new(40, 10)
+    exec([[
+      set wildmode=noselect:lastused,full wildmenu wildoptions=pum
+      autocmd CmdlineChanged : if getcmdcompltype() != 'shellcmd' | call wildtrigger() | endif
+    ]])
+
+    feed(':term')
+    screen:expect([[
+                                              |
+      {1:~                                       }|*7
+      {4: terminal       }{1:                        }|
+      :term^                                   |
+    ]])
+    feed(' ')
+    screen:expect([[
+                                              |
+      {1:~                                       }|*8
+      :term ^                                  |
+    ]])
+    feed('foo')
+    screen:expect([[
+                                              |
+      {1:~                                       }|*8
+      :term foo^                               |
+    ]])
   end)
 end)
 

@@ -130,6 +130,10 @@ describe('prompt buffer', function()
       {1:~                        }|*3
       {5:-- INSERT --}             |
     ]])
+
+    -- :edit doesn't apply on prompt buffer
+    eq('Vim(edit):cannot :edit a prompt buffer', t.pcall_err(api.nvim_command, 'edit'))
+
     feed('<C-U>exit\n')
     screen:expect([[
       ^other buffer             |
@@ -268,7 +272,7 @@ describe('prompt buffer', function()
     eq('line 1\nline 2\nline 3', fn('prompt_getinput', buf))
 
     feed('<cr>')
-    -- submiting multiline text works
+    -- submitting multiline text works
     screen:expect([[
       Result: "line 1          |
       line 2                   |
@@ -296,6 +300,47 @@ describe('prompt buffer', function()
       line2^                    |
       {1:~                        }|*6
       {5:-- INSERT --}             |
+    ]])
+
+    -- ensure cursor gets adjusted to end of user-text to prompt when insert mode
+    -- is entered from readonly region of prompt buffer
+    local prompt_pos = api.nvim_buf_get_mark(0, ':')
+    feed('<esc>')
+    -- works before prompt
+    api.nvim_win_set_cursor(0, { prompt_pos[1] - 1, 0 })
+    screen:expect([[
+      ^other buffer             |
+      % line1                  |
+      line2                    |
+      {1:~                        }|*6
+                               |
+    ]])
+    feed('a')
+    feed('<esc>')
+    screen:expect([[
+      other buffer             |
+      % line1                  |
+      line^2                    |
+      {1:~                        }|*6
+                               |
+    ]])
+    -- works on prompt
+    api.nvim_win_set_cursor(0, { prompt_pos[1], 0 })
+    screen:expect([[
+      other buffer             |
+      ^% line1                  |
+      line2                    |
+      {1:~                        }|*6
+                               |
+    ]])
+    feed('a')
+    feed('<esc>')
+    screen:expect([[
+      other buffer             |
+      % line1                  |
+      line^2                    |
+      {1:~                        }|*6
+                               |
     ]])
   end)
 
@@ -351,7 +396,7 @@ describe('prompt buffer', function()
     source_script()
     local buf = api.nvim_get_current_buf()
 
-    -- text editiing alowed in current prompt
+    -- text editing allowed in current prompt
     feed('tests-initial<esc>')
     feed('bimiddle-<esc>')
     screen:expect([[
@@ -565,7 +610,15 @@ describe('prompt buffer', function()
   end)
 
   it("sets the ': mark", function()
-    source_script()
+    api.nvim_set_option_value('buftype', 'prompt', { buf = 0 })
+    exec_lua(function()
+      local buf = vim.api.nvim_get_current_buf()
+      vim.fn.prompt_setcallback(buf, function(str)
+        local last_line = vim.api.nvim_buf_line_count(buf)
+        vim.api.nvim_buf_set_lines(buf, last_line - 1, last_line - 1, true, vim.split(str, '\n'))
+      end)
+    end)
+
     feed('asdf')
     eq({ 1, 1 }, api.nvim_buf_get_mark(0, ':'))
     feed('<cr>')
@@ -575,8 +628,15 @@ describe('prompt buffer', function()
     eq({ 11, 1 }, api.nvim_buf_get_mark(0, ':'))
 
     -- ': mark is only available in prompt buffer.
-    source('set buftype=')
+    api.nvim_set_option_value('buftype', '', { buf = 0 })
     eq("Invalid mark name: ':'", t.pcall_err(api.nvim_buf_get_mark, 0, ':'))
+
+    -- mark can be moved
+    api.nvim_set_option_value('buftype', 'prompt', { buf = 0 })
+    local last_line = api.nvim_buf_line_count(0)
+    eq({ last_line, 1 }, api.nvim_buf_get_mark(0, ':'))
+    eq(true, api.nvim_buf_set_mark(0, ':', 1, 1, {}))
+    eq({ 1, 1 }, api.nvim_buf_get_mark(0, ':'))
   end)
 
   describe('prompt_getinput', function()

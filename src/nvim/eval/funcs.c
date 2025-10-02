@@ -114,6 +114,7 @@
 #include "nvim/profile.h"
 #include "nvim/regexp.h"
 #include "nvim/regexp_defs.h"
+#include "nvim/register.h"
 #include "nvim/runtime.h"
 #include "nvim/runtime_defs.h"
 #include "nvim/search.h"
@@ -141,23 +142,21 @@ typedef enum {
   kSomeMatchStrPos,  ///< Data for matchstrpos().
 } SomeMatchType;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "eval/funcs.c.generated.h"
+#include "eval/funcs.c.generated.h"
 
-# ifdef _MSC_VER
+#ifdef _MSC_VER
 // This prevents MSVC from replacing the functions with intrinsics,
 // and causing errors when trying to get their addresses in funcs.generated.h
-#  pragma function(ceil)
-#  pragma function(floor)
-# endif
+# pragma function(ceil)
+# pragma function(floor)
+#endif
 
 PRAGMA_DIAG_PUSH_IGNORE_MISSING_PROTOTYPES
 PRAGMA_DIAG_PUSH_IGNORE_IMPLICIT_FALLTHROUGH
-# include "funcs.generated.h"
+#include "funcs.generated.h"
 
 PRAGMA_DIAG_POP
 PRAGMA_DIAG_POP
-#endif
 
 static const char *e_listblobarg = N_("E899: Argument of %s must be a List or Blob");
 static const char *e_invalwindow = N_("E957: Invalid window number");
@@ -775,20 +774,6 @@ static void get_col(typval_T *argvars, typval_T *rettv, bool charcol)
 static void f_charcol(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 {
   get_col(argvars, rettv, true);
-}
-
-/// "cindent(lnum)" function
-static void f_cindent(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
-{
-  pos_T pos = curwin->w_cursor;
-  linenr_T lnum = tv_get_lnum(argvars);
-  if (lnum >= 1 && lnum <= curbuf->b_ml.ml_line_count) {
-    curwin->w_cursor.lnum = lnum;
-    rettv->vval.v_number = get_c_indent();
-    curwin->w_cursor = pos;
-  } else {
-    rettv->vval.v_number = -1;
-  }
 }
 
 win_T *get_optional_window(typval_T *argvars, int idx)
@@ -3246,17 +3231,6 @@ static void f_hostname(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   rettv->vval.v_string = xstrdup(hostname);
 }
 
-/// "indent()" function
-static void f_indent(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
-{
-  const linenr_T lnum = tv_get_lnum(argvars);
-  if (lnum >= 1 && lnum <= curbuf->b_ml.ml_line_count) {
-    rettv->vval.v_number = get_indent_lnum(lnum);
-  } else {
-    rettv->vval.v_number = -1;
-  }
-}
-
 /// "index()" function
 static void f_index(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 {
@@ -3371,6 +3345,9 @@ static varnumber_T indexof_blob(blob_T *b, varnumber_T startidx, typval_T *expr)
     }
   }
 
+  set_vim_var_type(VV_KEY, VAR_NUMBER);
+  set_vim_var_type(VV_VAL, VAR_NUMBER);
+
   const int called_emsg_start = called_emsg;
   for (varnumber_T idx = startidx; idx < tv_blob_len(b); idx++) {
     set_vim_var_nr(VV_KEY, idx);
@@ -3411,6 +3388,8 @@ static varnumber_T indexof_list(list_T *l, varnumber_T startidx, typval_T *expr)
       assert(item != NULL);
     }
   }
+
+  set_vim_var_type(VV_KEY, VAR_NUMBER);
 
   const int called_emsg_start = called_emsg;
   for (; item != NULL; item = TV_LIST_ITEM_NEXT(l, item), idx++) {
@@ -4415,20 +4394,6 @@ static void f_line2byte(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   }
 }
 
-/// "lispindent(lnum)" function
-static void f_lispindent(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
-{
-  const pos_T pos = curwin->w_cursor;
-  const linenr_T lnum = tv_get_lnum(argvars);
-  if (lnum >= 1 && lnum <= curbuf->b_ml.ml_line_count) {
-    curwin->w_cursor.lnum = lnum;
-    rettv->vval.v_number = get_lisp_indent();
-    curwin->w_cursor = pos;
-  } else {
-    rettv->vval.v_number = -1;
-  }
-}
-
 /// "localtime()" function
 static void f_localtime(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 {
@@ -5280,52 +5245,6 @@ static void f_printf(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   }
 }
 
-/// "prompt_setcallback({buffer}, {callback})" function
-static void f_prompt_setcallback(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
-{
-  Callback prompt_callback = { .type = kCallbackNone };
-
-  if (check_secure()) {
-    return;
-  }
-  buf_T *buf = tv_get_buf(&argvars[0], false);
-  if (buf == NULL) {
-    return;
-  }
-
-  if (argvars[1].v_type != VAR_STRING || *argvars[1].vval.v_string != NUL) {
-    if (!callback_from_typval(&prompt_callback, &argvars[1])) {
-      return;
-    }
-  }
-
-  callback_free(&buf->b_prompt_callback);
-  buf->b_prompt_callback = prompt_callback;
-}
-
-/// "prompt_setinterrupt({buffer}, {callback})" function
-static void f_prompt_setinterrupt(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
-{
-  Callback interrupt_callback = { .type = kCallbackNone };
-
-  if (check_secure()) {
-    return;
-  }
-  buf_T *buf = tv_get_buf(&argvars[0], false);
-  if (buf == NULL) {
-    return;
-  }
-
-  if (argvars[1].v_type != VAR_STRING || *argvars[1].vval.v_string != NUL) {
-    if (!callback_from_typval(&interrupt_callback, &argvars[1])) {
-      return;
-    }
-  }
-
-  callback_free(&buf->b_prompt_interrupt);
-  buf->b_prompt_interrupt = interrupt_callback;
-}
-
 /// "prompt_getprompt({buffer})" function
 static void f_prompt_getprompt(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   FUNC_ATTR_NONNULL_ALL
@@ -5344,22 +5263,6 @@ static void f_prompt_getprompt(typval_T *argvars, typval_T *rettv, EvalFuncData 
   }
 
   rettv->vval.v_string = xstrdup(buf_prompt_text(buf));
-}
-
-/// "prompt_setprompt({buffer}, {text})" function
-static void f_prompt_setprompt(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
-{
-  if (check_secure()) {
-    return;
-  }
-  buf_T *buf = tv_get_buf(&argvars[0], false);
-  if (buf == NULL) {
-    return;
-  }
-
-  const char *text = tv_get_string(&argvars[1]);
-  xfree(buf->b_prompt_text);
-  buf->b_prompt_text = xstrdup(text);
 }
 
 /// "prompt_getinput({buffer})" function
@@ -6825,12 +6728,42 @@ static void f_serverlist(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   size_t n;
   char **addrs = server_address_list(&n);
 
+  Arena arena = ARENA_EMPTY;
+  // Passed to vim._core.server.serverlist() to avoid duplicates
+  Array addrs_arr = arena_array(&arena, n);
+
   // Copy addrs into a linked list.
   list_T *const l = tv_list_alloc_ret(rettv, (ptrdiff_t)n);
   for (size_t i = 0; i < n; i++) {
     tv_list_append_allocated_string(l, addrs[i]);
+    ADD_C(addrs_arr, CSTR_AS_OBJ(addrs[i]));
   }
+
+  if (!(argvars[0].v_type == VAR_DICT && tv_dict_get_bool(argvars[0].vval.v_dict, "peer", false))) {
+    goto cleanup;
+  }
+
+  MAXSIZE_TEMP_ARRAY(args, 1);
+  ADD_C(args, ARRAY_OBJ(addrs_arr));
+
+  Error err = ERROR_INIT;
+  Object rv = NLUA_EXEC_STATIC("return require('vim._core.server').serverlist(...)",
+                               args, kRetObject,
+                               &arena, &err);
+
+  if (ERROR_SET(&err)) {
+    ELOG("vim._core.serverlist failed: %s", err.msg);
+    goto cleanup;
+  }
+
+  for (size_t i = 0; i < rv.data.array.size; i++) {
+    char *curr_server = rv.data.array.items[i].data.string.data;
+    tv_list_append_string(l, curr_server, -1);
+  }
+
+cleanup:
   xfree(addrs);
+  arena_mem_free(arena_finish(&arena));
 }
 
 /// "serverstart()" function
@@ -7257,15 +7190,22 @@ static void f_settagstack(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   }
 }
 
-/// f_sha256 - sha256({string}) function
+/// "sha256({expr})" function
 static void f_sha256(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 {
-  const char *p = tv_get_string(&argvars[0]);
-  const char *hash = sha256_bytes((const uint8_t *)p, strlen(p), NULL, 0);
-
-  // make a copy of the hash (sha256_bytes returns a static buffer)
-  rettv->vval.v_string = xstrdup(hash);
   rettv->v_type = VAR_STRING;
+  rettv->vval.v_string = NULL;
+
+  if (argvars[0].v_type == VAR_BLOB) {
+    blob_T *blob = argvars[0].vval.v_blob;
+    const uint8_t *p = blob != NULL ? (uint8_t *)blob->bv_ga.ga_data : (uint8_t *)"";
+    int len = blob != NULL ? blob->bv_ga.ga_len : 0;
+    rettv->vval.v_string = xstrdup(sha256_bytes(p, (size_t)len, NULL, 0));
+  } else {
+    const char *p = tv_get_string(&argvars[0]);
+    const char *hash = sha256_bytes((const uint8_t *)p, strlen(p), NULL, 0);
+    rettv->vval.v_string = xstrdup(hash);
+  }
 }
 
 /// "shellescape({string})" function
@@ -8009,17 +7949,6 @@ static void f_synstack(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
       tv_list_append_number(rettv->vval.v_list, id);
     }
   }
-}
-
-/// f_system - the Vimscript system() function
-static void f_system(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
-{
-  get_system_output_as_rettv(argvars, rettv, false);
-}
-
-static void f_systemlist(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
-{
-  get_system_output_as_rettv(argvars, rettv, true);
 }
 
 /// "tabpagebuflist()" function

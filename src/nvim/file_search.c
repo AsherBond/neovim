@@ -186,9 +186,7 @@ typedef struct {
 
 // locally needed functions
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "file_search.c.generated.h"
-#endif
+#include "file_search.c.generated.h"
 
 static const char e_path_too_long_for_completion[]
   = N_("E854: Path too long for completion");
@@ -1031,7 +1029,7 @@ fail:
 
 /// Free the list of lists of visited files and directories
 /// Can handle it if the passed search_context is NULL;
-void vim_findfile_free_visited(void *search_ctx_arg)
+static void vim_findfile_free_visited(void *search_ctx_arg)
 {
   if (search_ctx_arg == NULL) {
     return;

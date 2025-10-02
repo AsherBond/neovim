@@ -26,6 +26,7 @@ describe('completion', function()
     screen:add_extra_attr_ids {
       [100] = { foreground = Screen.colors.Gray0, background = Screen.colors.Yellow },
       [101] = { background = Screen.colors.Gray0 },
+      [102] = { foreground = Screen.colors.SeaGreen },
     }
   end)
 
@@ -952,6 +953,12 @@ describe('completion', function()
     end
   end)
 
+  it('cmdline completion for :restart', function()
+    eq('qall', fn.getcompletion('restart +qa', 'cmdline')[1])
+    eq('edit', fn.getcompletion('restart +qall ed', 'cmdline')[1])
+    eq('edit', fn.getcompletion('restart ed', 'cmdline')[1])
+  end)
+
   describe('from the commandline window', function()
     it('is cleared after CTRL-C', function()
       feed('q:')
@@ -1371,6 +1378,260 @@ describe('completion', function()
       {4:f}{1:                                                           }|
       {1:~                                                           }|*5
       {5:-- Keyword completion (^N^P) The only match}                 |
+    ]])
+  end)
+
+  -- oldtest: Test_shortmess()
+  it('shortmess+=c turns off completion messages', function()
+    command('set ruler')
+    command([[call setline(1, ['hello', 'hullo', 'heee'])]])
+    feed('Goh<C-N>')
+    screen:expect([[
+      hello                                                       |
+      hullo                                                       |
+      heee                                                        |
+      hello^                                                       |
+      {12:hello          }{1:                                             }|
+      {4:hullo          }{1:                                             }|
+      {4:heee           }{1:                                             }|
+      {5:-- Keyword completion (^N^P) }{6:match 1 of 3}                   |
+    ]])
+    feed('<Esc>')
+    command('set shm+=c')
+    feed('Sh<C-N>')
+    screen:expect([[
+      hello                                                       |
+      hullo                                                       |
+      heee                                                        |
+      hello^                                                       |
+      {12:hello          }{1:                                             }|
+      {4:hullo          }{1:                                             }|
+      {4:heee           }{1:                                             }|
+      {5:-- INSERT --}                              4,6           All |
+    ]])
+  end)
+
+  -- oldtest: Test_autocompletedelay()
+  it("'autocompletedelay' option", function()
+    screen:try_resize(60, 10)
+    source([[
+      call setline(1, ['foo', 'foobar', 'foobarbaz'])
+      setlocal autocomplete
+    ]])
+    screen:expect([[
+      ^foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      {1:~                                                           }|*6
+                                                                  |
+    ]])
+    screen.timeout = 400
+
+    feed('Gof')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      f^                                                           |
+      {4:foobarbaz      }{1:                                             }|
+      {4:foobar         }{1:                                             }|
+      {4:foo            }{1:                                             }|
+      {1:~                                                           }|*2
+      {5:-- INSERT --}                                                |
+    ]])
+
+    feed('<Esc>')
+    command('set autocompletedelay=500')
+    feed('Sf')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      f^                                                           |
+      {1:~                                                           }|*5
+      {5:-- INSERT --}                                                |
+    ]])
+    feed('o')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      fo^                                                          |
+      {1:~                                                           }|*5
+      {5:-- INSERT --}                                                |
+    ]])
+    vim.uv.sleep(500)
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      fo^                                                          |
+      {4:foobarbaz      }{1:                                             }|
+      {4:foobar         }{1:                                             }|
+      {4:foo            }{1:                                             }|
+      {1:~                                                           }|*2
+      {5:-- INSERT --}                                                |
+    ]])
+    feed('<BS>')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      f^                                                           |
+      {1:~                                                           }|*5
+      {5:-- INSERT --}                                                |
+    ]])
+    vim.uv.sleep(500)
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      f^                                                           |
+      {4:foobarbaz      }{1:                                             }|
+      {4:foobar         }{1:                                             }|
+      {4:foo            }{1:                                             }|
+      {1:~                                                           }|*2
+      {5:-- INSERT --}                                                |
+    ]])
+
+    -- During delay wait, user can open menu using CTRL_N completion
+    feed('<Esc>')
+    command('set completeopt=menuone')
+    feed('Sf<C-N>')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      foo^                                                         |
+      {12:foo            }{1:                                             }|
+      {4:foobar         }{1:                                             }|
+      {4:foobarbaz      }{1:                                             }|
+      {1:~                                                           }|*2
+      {5:-- Keyword completion (^N^P) }{6:match 1 of 3}                   |
+    ]])
+
+    -- After the menu is open, ^N/^P and Up/Down should not delay
+    feed('<Esc>')
+    command('set completeopt=menu')
+    feed('Sf')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      f^                                                           |
+      {1:~                                                           }|*5
+      {5:-- INSERT --}                                                |
+    ]])
+    vim.uv.sleep(500)
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      f^                                                           |
+      {4:foobarbaz      }{1:                                             }|
+      {4:foobar         }{1:                                             }|
+      {4:foo            }{1:                                             }|
+      {1:~                                                           }|*2
+      {5:-- INSERT --}                                                |
+    ]])
+    feed('<C-N>')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      foobarbaz^                                                   |
+      {12:foobarbaz      }{1:                                             }|
+      {4:foobar         }{1:                                             }|
+      {4:foo            }{1:                                             }|
+      {1:~                                                           }|*2
+      {5:-- INSERT --}                                                |
+    ]])
+    feed('<Down>')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      foobarbaz^                                                   |
+      {4:foobarbaz      }{1:                                             }|
+      {12:foobar         }{1:                                             }|
+      {4:foo            }{1:                                             }|
+      {1:~                                                           }|*2
+      {5:-- INSERT --}                                                |
+    ]])
+
+    -- When menu is not open Up/Down moves cursor to different line
+    feed('<Esc>Sf')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      f^                                                           |
+      {1:~                                                           }|*5
+      {5:-- INSERT --}                                                |
+    ]])
+    feed('<Up>')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      f^oobarbaz                                                   |
+      f                                                           |
+      {1:~                                                           }|*5
+      {5:-- INSERT --}                                                |
+    ]])
+    feed('<Down>')
+    screen:expect([[
+      foo                                                         |
+      foobar                                                      |
+      foobarbaz                                                   |
+      f^                                                           |
+      {1:~                                                           }|*5
+      {5:-- INSERT --}                                                |
+    ]])
+
+    feed('<esc>')
+  end)
+
+  it([[first item isn't selected with "fuzzy" and 'acl']], function()
+    screen:try_resize(60, 10)
+    source([[
+      call setline(1, ["v", "vi", "vim"])
+      set autocomplete completeopt=menuone,noinsert,fuzzy autocompletedelay=300
+    ]])
+
+    feed('Govi')
+    screen:expect([[
+      v                                                           |
+      vi                                                          |
+      vim                                                         |
+      vi^                                                          |
+      {4:vi             }{1:                                             }|
+      {4:vim            }{1:                                             }|
+      {1:~                                                           }|*3
+      {5:-- INSERT --}                                                |
+    ]])
+
+    feed('<Esc>Sv')
+    screen:expect([[
+      v                                                           |
+      vi                                                          |
+      vim                                                         |
+      v^                                                           |
+      {4:v              }{1:                                             }|
+      {4:vi             }{1:                                             }|
+      {4:vim            }{1:                                             }|
+      {1:~                                                           }|*2
+      {5:-- INSERT --}                                                |
+    ]])
+    feed('i')
+    screen:expect([[
+      v                                                           |
+      vi                                                          |
+      vim                                                         |
+      vi^                                                          |
+      {4:vi             }{1:                                             }|
+      {4:vim            }{1:                                             }|
+      {1:~                                                           }|*3
+      {5:-- INSERT --}                                                |
     ]])
   end)
 end)

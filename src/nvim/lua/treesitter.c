@@ -60,9 +60,7 @@ typedef struct {
   uint64_t timeout_threshold_ns;
 } TSLuaParserCallbackPayload;
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "lua/treesitter.c.generated.h"
-#endif
+#include "lua/treesitter.c.generated.h"
 
 static PMap(cstr_t) langs = MAP_INIT;
 
@@ -445,8 +443,9 @@ static const char *input_cb(void *payload, uint32_t byte_index, TSPoint position
     *bytes_read = 0;
     return "";
   }
-  char *line = ml_get_buf(bp, (linenr_T)position.row + 1);
-  size_t len = (size_t)ml_get_buf_len(bp, (linenr_T)position.row + 1);
+  linenr_T lnum = (linenr_T)position.row + 1;
+  char *line = ml_get_buf(bp, lnum);
+  size_t len = (size_t)ml_get_buf_len(bp, lnum);
   if (position.column > len) {
     *bytes_read = 0;
     return "";
@@ -458,10 +457,13 @@ static const char *input_cb(void *payload, uint32_t byte_index, TSPoint position
   memchrsub(buf, '\n', NUL, tocopy);
   *bytes_read = (uint32_t)tocopy;
   if (tocopy < BUFSIZE) {
-    // now add the final \n. If it didn't fit, input_cb will be called again
-    // on the same line with advanced column.
-    buf[tocopy] = '\n';
-    (*bytes_read)++;
+    // now add the final \n, if it is meant to be present for this buffer. If it didn't fit,
+    // input_cb will be called again on the same line with advanced column.
+    if (lnum != bp->b_ml.ml_line_count || (!bp->b_p_bin && bp->b_p_fixeol)
+        || (lnum != bp->b_no_eol_lnum && bp->b_p_eol)) {
+      buf[tocopy] = '\n';
+      (*bytes_read)++;
+    }
   }
   return buf;
 #undef BUFSIZE
@@ -1363,33 +1365,45 @@ static int tslua_push_querycursor(lua_State *L)
 
   TSQuery *query = query_check(L, 2);
   TSQueryCursor *cursor = ts_query_cursor_new();
+
+  if (lua_gettop(L) >= 3 && !lua_isnil(L, 3)) {
+    luaL_argcheck(L, lua_istable(L, 3), 3, "table expected");
+  }
+
+  lua_getfield(L, 3, "start_row");
+  uint32_t start_row = (uint32_t)luaL_checkinteger(L, -1);
+  lua_pop(L, 1);
+
+  lua_getfield(L, 3, "start_col");
+  uint32_t start_col = (uint32_t)luaL_checkinteger(L, -1);
+  lua_pop(L, 1);
+
+  lua_getfield(L, 3, "end_row");
+  uint32_t end_row = (uint32_t)luaL_checkinteger(L, -1);
+  lua_pop(L, 1);
+
+  lua_getfield(L, 3, "end_col");
+  uint32_t end_col = (uint32_t)luaL_checkinteger(L, -1);
+  lua_pop(L, 1);
+
+  ts_query_cursor_set_point_range(cursor, (TSPoint){ start_row, start_col },
+                                  (TSPoint){ end_row, end_col });
+
+  lua_getfield(L, 3, "max_start_depth");
+  if (!lua_isnil(L, -1)) {
+    uint32_t max_start_depth = (uint32_t)luaL_checkinteger(L, -1);
+    ts_query_cursor_set_max_start_depth(cursor, max_start_depth);
+  }
+  lua_pop(L, 1);
+
+  lua_getfield(L, 3, "match_limit");
+  if (!lua_isnil(L, -1)) {
+    uint32_t match_limit = (uint32_t)luaL_checkinteger(L, -1);
+    ts_query_cursor_set_match_limit(cursor, match_limit);
+  }
+  lua_pop(L, 1);
+
   ts_query_cursor_exec(cursor, query, node);
-
-  if (lua_gettop(L) >= 3) {
-    uint32_t start = (uint32_t)luaL_checkinteger(L, 3);
-    uint32_t end = lua_gettop(L) >= 4 ? (uint32_t)luaL_checkinteger(L, 4) : MAXLNUM;
-    ts_query_cursor_set_point_range(cursor, (TSPoint){ start, 0 }, (TSPoint){ end, 0 });
-  }
-
-  if (lua_gettop(L) >= 5 && !lua_isnil(L, 5)) {
-    luaL_argcheck(L, lua_istable(L, 5), 5, "table expected");
-    lua_pushnil(L);  // [dict, ..., nil]
-    while (lua_next(L, 5)) {
-      // [dict, ..., key, value]
-      if (lua_type(L, -2) == LUA_TSTRING) {
-        char *k = (char *)lua_tostring(L, -2);
-        if (strequal("max_start_depth", k)) {
-          uint32_t max_start_depth = (uint32_t)lua_tointeger(L, -1);
-          ts_query_cursor_set_max_start_depth(cursor, max_start_depth);
-        } else if (strequal("match_limit", k)) {
-          uint32_t match_limit = (uint32_t)lua_tointeger(L, -1);
-          ts_query_cursor_set_match_limit(cursor, match_limit);
-        }
-      }
-      // pop the value; lua_next will pop the key.
-      lua_pop(L, 1);  // [dict, ..., key]
-    }
-  }
 
   TSQueryCursor **ud = lua_newuserdata(L, sizeof(*ud));  // [node, query, ..., udata]
   *ud = cursor;

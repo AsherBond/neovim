@@ -24,6 +24,10 @@ local TEXT_WIDTH = 78
 --- @field remote boolean
 --- @field since integer
 
+local LUA_API_RETURN_OVERRIDES = {
+  nvim_win_get_config = 'vim.api.keyset.win_config_ret',
+}
+
 local LUA_META_HEADER = {
   '--- @meta _',
   '-- THIS FILE IS GENERATED',
@@ -174,7 +178,7 @@ local function get_api_meta()
   --- @type table<string,nvim.cdoc.parser.fun>
   local functions = {}
   for path, ty in vim.fs.dir(f) do
-    if ty == 'file' then
+    if ty == 'file' and (vim.endswith(path, '.c') or vim.endswith(path, '.h')) then
       local filename = vim.fs.joinpath(f, path)
       local _, funs = cdoc_parser.parse(filename)
       for _, fn in ipairs(funs) do
@@ -306,7 +310,8 @@ local function render_api_meta(_f, fun, write)
 
   if fun.returns ~= 'nil' then
     local ret_desc = fun.returns_desc and ' # ' .. fun.returns_desc or ''
-    write(util.prefix_lines('--- ', '@return ' .. fun.returns .. ret_desc))
+    local ret = LUA_API_RETURN_OVERRIDES[fun.name] or fun.returns
+    write(util.prefix_lines('--- ', '@return ' .. ret .. ret_desc))
   end
   local param_str = table.concat(param_names, ', ')
 
@@ -322,12 +327,16 @@ local function get_api_keysets_meta()
 
   --- @type {name: string, keys: string[], types: table<string,string>}[]
   local keysets = metadata.keysets
+  local event_type = 'vim.api.keyset.events|vim.api.keyset.events[]'
 
   for _, k in ipairs(keysets) do
     local params = {}
     for _, key in ipairs(k.keys) do
       local pty = k.types[key] or 'any'
-      table.insert(params, { key .. '?', api_type(pty) })
+      table.insert(params, {
+        key .. '?',
+        k.name:find('autocmd') and key == 'event' and event_type or api_type(pty),
+      })
     end
     ret[k.name] = {
       signature = 'NA',
@@ -346,6 +355,16 @@ end
 local function render_api_keyset_meta(_f, fun, write)
   if string.sub(fun.name, 1, 1) == '_' then
     return -- not exported
+  elseif fun.name == 'create_autocmd' then
+    local events = vim.deepcopy(require('nvim.auevents'))
+    for event in pairs(events.aliases) do
+      events.events[event] = true
+    end
+    write('')
+    write('--- @alias vim.api.keyset.events')
+    for event in vim.spairs(events.events) do
+      write(("--- |'%s'"):format(event))
+    end
   end
   write('')
   write('--- @class vim.api.keyset.' .. fun.name)

@@ -471,6 +471,10 @@ end
 
 --- Runs a system command or throws an error if {cmd} cannot be run.
 ---
+--- The command runs directly (not in 'shell') so shell builtins such as "echo" in cmd.exe, cmdlets
+--- in powershell, or "help" in bash, will not work unless you actually invoke a shell:
+--- `vim.system({'bash', '-c', 'help'})`.
+---
 --- Examples:
 ---
 --- ```lua
@@ -499,7 +503,7 @@ end
 ---   asynchronously. See return of SystemObj:wait().
 ---
 --- @return vim.SystemObj
---- @overload fun(cmd: string, on_exit: fun(out: vim.SystemCompleted)): vim.SystemObj
+--- @overload fun(cmd: string[], on_exit: fun(out: vim.SystemCompleted)): vim.SystemObj
 function vim.system(cmd, opts, on_exit)
   if type(opts) == 'function' then
     on_exit = opts

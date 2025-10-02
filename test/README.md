@@ -417,6 +417,16 @@ by the semantic component they are testing.
       sense, before creating a new one.
 
 
+Fixing tests
+============
+
+> Nvim session T123 took 2000 milliseconds to exit
+> This indicates a likely problem with the test even if it passed!
+
+This may indicate a leak, because Nvim waits on uv handles before exiting.
+Example: https://github.com/neovim/neovim/pull/35768
+
+
 Lint
 ====
 
@@ -520,6 +530,10 @@ Number; !must be defined to function properly):
   too hard for some reason. Normally (on OS X or when
   `NVIM_TEST_CORE_GLOB_DIRECTORY` is defined and this variable is not) cores
   are checked for after each test.
+
+- `NVIM_TEST_INTEG` (F) (D): enables integration tests that makes real network
+  calls. By default these tests are skipped. When set to `1`, tests requiring external
+  HTTP requests (e.g `vim.net.request()`) will be run.
 
 - `NVIM_TEST_RUN_TESTTEST` (U) (1): allows running
   `test/unit/testtest_spec.lua` used to check how testing infrastructure works.

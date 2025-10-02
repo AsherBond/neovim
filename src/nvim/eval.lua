@@ -1190,18 +1190,25 @@ M.funcs = {
     signature = 'charidx({string}, {idx} [, {countcc} [, {utf16}]])',
   },
   chdir = {
-    args = 1,
+    args = { 1, 2 },
     base = 1,
     desc = [=[
-      Change the current working directory to {dir}.  The scope of
-      the directory change depends on the directory of the current
-      window:
-      	- If the current window has a window-local directory
-      	  (|:lcd|), then changes the window local directory.
-      	- Otherwise, if the current tabpage has a local
-      	  directory (|:tcd|) then changes the tabpage local
-      	  directory.
-      	- Otherwise, changes the global directory.
+      Changes the current working directory to {dir}.  The scope of
+      the change is determined as follows:
+      If {scope} is not present, the current working directory is
+      changed to the scope of the current directory:
+          - If the window local directory (|:lcd|) is set, it
+            changes the current working directory for that scope.
+          - Otherwise, if the tab page local directory (|:tcd|) is
+            set, it changes the current directory for that scope.
+          - Otherwise, changes the global directory for that scope.
+
+      If {scope} is present, changes the current working directory
+      for the specified scope:
+          "window"	Changes the window local directory.  |:lcd|
+          "tabpage"	Changes the tab page local directory.  |:tcd|
+          "global"	Changes the global directory.  |:cd|
+
       {dir} must be a String.
       If successful, returns the previous working directory.  Pass
       this to another chdir() to restore the directory.
@@ -1217,9 +1224,9 @@ M.funcs = {
 
     ]=],
     name = 'chdir',
-    params = { { 'dir', 'string' } },
+    params = { { 'dir', 'string' }, { 'scope', 'string' } },
     returns = 'string',
-    signature = 'chdir({dir})',
+    signature = 'chdir({dir} [, {scope}])',
   },
   cindent = {
     args = 1,
@@ -2405,35 +2412,38 @@ M.funcs = {
       done like for the |cmdline-special| variables with their
       associated modifiers.  Here is a short overview:
 
-      	%		current file name
-      	#		alternate file name
-      	#n		alternate file name n
-      	<cfile>		file name under the cursor
-      	<afile>		autocmd file name
-      	<abuf>		autocmd buffer number (as a String!)
-      	<amatch>	autocmd matched name
+      	%		Current file name
+      	#		Alternate file name
+      	#n		Alternate file name n
+      	<cfile>		File name under the cursor
+      	<afile>		Autocmd file name
+      	<abuf>		Autocmd buffer number (as a String!)
+      	<amatch>	Autocmd matched name
       	<cexpr>		C expression under the cursor
-      	<sfile>		deprecated, use <script> or <stack>
-      	<slnum>		sourced script line number or function
+      	<sfile>		Deprecated, use <script> or <stack>
+      	<slnum>		Sourced script line number or function
       			line number
-      	<sflnum>	script file line number, also when in
+      	<sflnum>	Script file line number, also when in
       			a function
       	<SID>		"<SNR>123_"  where "123" is the
       			current script ID  |<SID>|
-      	<script>	sourced script file, or script file
+      	<script>	Sourced script file, or script file
       			where the current function was defined.
-      			Use |debug.getinfo()| in Lua scripts.
-      	<stack>		call stack
-      	<cword>		word under the cursor
+      			For Lua see |lua-script-location|.
+      	<stack>		Call stack
+      	<cword>		Word under the cursor
       	<cWORD>		WORD under the cursor
-      	<client>	the {clientid} of the last received
+      	<client>	The {clientid} of the last received
       			message
       Modifiers:
-      	:p		expand to full path
-      	:h		head (last path component removed)
-      	:t		tail (last path component only)
-      	:r		root (one extension removed)
-      	:e		extension only
+      	:p		Expand to full path
+      	:h		Head (last path component removed)
+      	:t		Tail (last path component only)
+      	:r		Root (one extension removed)
+      	:e		Extension only
+
+      More modifiers are supported, for the full list see
+      |filename-modifiers|.
 
       Example: >vim
       	let &tags = expand("%:p:h") .. "/tags"
@@ -3847,7 +3857,7 @@ M.funcs = {
     ]=],
     name = 'getcmdtype',
     params = {},
-    returns = "':'|'>'|'/'|'?'|'@'|'-'|'='",
+    returns = "':'|'>'|'/'|'?'|'@'|'-'|'='|''",
     signature = 'getcmdtype()',
   },
   getcmdwintype = {
@@ -3858,7 +3868,7 @@ M.funcs = {
     ]=],
     name = 'getcmdwintype',
     params = {},
-    returns = "':'|'>'|'/'|'?'|'@'|'-'|'='",
+    returns = "':'|'>'|'/'|'?'|'@'|'-'|'='|''",
     signature = 'getcmdwintype()',
   },
   getcompletion = {
@@ -3881,13 +3891,13 @@ M.funcs = {
       customlist,{func} custom completion, defined via {func}
       diff_buffer	|:diffget| and |:diffput| completion
       dir		directory names
-      dir_in_path	directory names in |'cdpath'|
+      dir_in_path	directory names in 'cdpath'
       environment	environment variable names
       event		autocommand events
       expression	Vim expression
       file		file and directory names
-      file_in_path	file and directory names in |'path'|
-      filetype	filetype names |'filetype'|
+      file_in_path	file and directory names in 'path'
+      filetype	filetype names 'filetype'
       filetypecmd	|:filetype| suboptions
       function	function name
       help		help subjects
@@ -3901,12 +3911,13 @@ M.funcs = {
       messages	|:messages| suboptions
       option		options
       packadd		optional package |pack-add| names
+      retab		|:retab| suboptions
       runtime		|:runtime| completion
       scriptnames	sourced script names |:scriptnames|
       shellcmd	Shell command
       shellcmdline	Shell command line with filename arguments
       sign		|:sign| suboptions
-      syntax		syntax file names |'syntax'|
+      syntax		syntax file names 'syntax'
       syntime		|:syntime| suboptions
       tag		tags
       tag_listfiles	tags, file names
@@ -6049,22 +6060,27 @@ M.funcs = {
     args = 1,
     base = 1,
     desc = [=[
-      Return a |List| with all the key-value pairs of {dict}.  Each
-      |List| item is a list with two items: the key of a {dict}
-      entry and the value of this entry.  The |List| is in arbitrary
-      order.  Also see |keys()| and |values()|.
+      Return a |List| with all key/index and value pairs of {expr}.
+      Each |List| item is a list with two items:
+      - for a |Dict|: the key and the value
+      - for a |List| or |String|: the index and the value
+      The returned |List| is in arbitrary order for a |Dict|,
+      otherwise it's in ascending order of the index.
+
+      Also see |keys()| and |values()|.
+
       Example: >vim
+      	let mydict = #{a: 'red', b: 'blue'}
       	for [key, value] in items(mydict)
-      	   echo key .. ': ' .. value
+      	   echo $"{key} = {value}"
       	endfor
+      	echo items([1, 2, 3])
+      	echo items("foobar")
       <
-      A List or a String argument is also supported.  In these
-      cases, items() returns a List with the index and the value at
-      the index.
     ]=],
     name = 'items',
-    params = { { 'dict', 'table' } },
-    signature = 'items({dict})',
+    params = { { 'expr', 'table|string' } },
+    signature = 'items({expr})',
   },
   jobclose = {
     args = { 1, 2 },
@@ -6998,6 +7014,7 @@ M.funcs = {
       { 'count', 'integer' },
     },
     signature = 'match({expr}, {pat} [, {start} [, {count}]])',
+    returns = 'integer',
   },
   matchadd = {
     args = { 2, 5 },
@@ -7067,10 +7084,11 @@ M.funcs = {
       { 'pattern', 'string' },
       { 'priority', 'integer' },
       { 'id', 'integer' },
-      { 'dict', 'string' },
+      { 'dict', 'table' },
     },
     signature = 'matchadd({group}, {pattern} [, {priority} [, {id} [, {dict}]]])',
     tags = { 'E798', 'E799', 'E801', 'E957' },
+    returns = 'integer',
   },
   matchaddpos = {
     args = { 2, 5 },
@@ -7119,9 +7137,10 @@ M.funcs = {
       { 'pos', 'any[]' },
       { 'priority', 'integer' },
       { 'id', 'integer' },
-      { 'dict', 'string' },
+      { 'dict', 'table' },
     },
     signature = 'matchaddpos({group}, {pos} [, {priority} [, {id} [, {dict}]]])',
+    returns = 'integer|table',
   },
   matcharg = {
     args = 1,
@@ -7142,6 +7161,7 @@ M.funcs = {
     name = 'matcharg',
     params = { { 'nr', 'integer' } },
     signature = 'matcharg({nr})',
+    returns = 'string[]',
   },
   matchbufline = {
     args = { 4, 5 },
@@ -7199,6 +7219,7 @@ M.funcs = {
       { 'dict', 'table' },
     },
     signature = 'matchbufline({buf}, {pat}, {lnum}, {end}, [, {dict}])',
+    returns = 'string[]',
   },
   matchdelete = {
     args = { 1, 2 },
@@ -7248,6 +7269,7 @@ M.funcs = {
       { 'count', 'integer' },
     },
     signature = 'matchend({expr}, {pat} [, {start} [, {count}]])',
+    returns = 'integer',
   },
   matchfuzzy = {
     args = { 2, 3 },
@@ -7264,9 +7286,6 @@ M.funcs = {
       		given sequence.
           limit	Maximum number of matches in {list} to be
       		returned.  Zero means no limit.
-          camelcase	Use enhanced camel case scoring making results
-      		better suited for completion related to
-      		programming languages.  Defaults to v:true.
 
       If {list} is a list of dictionaries, then the optional {dict}
       argument supports the following additional items:
@@ -7321,6 +7340,7 @@ M.funcs = {
     name = 'matchfuzzy',
     params = { { 'list', 'any[]' }, { 'str', 'string' }, { 'dict', 'table' } },
     signature = 'matchfuzzy({list}, {str} [, {dict}])',
+    returns = 'table',
   },
   matchfuzzypos = {
     args = { 2, 3 },
@@ -7350,6 +7370,7 @@ M.funcs = {
     name = 'matchfuzzypos',
     params = { { 'list', 'any[]' }, { 'str', 'string' }, { 'dict', 'table' } },
     signature = 'matchfuzzypos({list}, {str} [, {dict}])',
+    returns = 'table',
   },
   matchlist = {
     args = { 2, 4 },
@@ -7375,6 +7396,7 @@ M.funcs = {
       { 'count', 'integer' },
     },
     signature = 'matchlist({expr}, {pat} [, {start} [, {count}]])',
+    returns = 'string[]',
   },
   matchstr = {
     args = { 2, 4 },
@@ -7401,6 +7423,7 @@ M.funcs = {
       { 'count', 'integer' },
     },
     signature = 'matchstr({expr}, {pat} [, {start} [, {count}]])',
+    returns = 'string',
   },
   matchstrlist = {
     args = { 2, 3 },
@@ -7441,6 +7464,7 @@ M.funcs = {
     name = 'matchstrlist',
     params = { { 'list', 'string[]' }, { 'pat', 'string' }, { 'dict', 'table' } },
     signature = 'matchstrlist({list}, {pat} [, {dict}])',
+    returns = 'string[]',
   },
   matchstrpos = {
     args = { 2, 4 },
@@ -7472,6 +7496,7 @@ M.funcs = {
       { 'count', 'integer' },
     },
     signature = 'matchstrpos({expr}, {pat} [, {start} [, {count}]])',
+    returns = 'table',
   },
   max = {
     args = 1,
@@ -7998,6 +8023,18 @@ M.funcs = {
     params = { { 'x', 'number' }, { 'y', 'number' } },
     returns = 'number',
     signature = 'pow({x}, {y})',
+  },
+  preinserted = {
+    desc = [=[
+      Returns non-zero if text has been inserted after the cursor
+      because "preinsert" is present in 'completeopt', or because
+      "longest" is present in 'completeopt' while 'autocomplete'
+      is active.  Otherwise returns zero.
+    ]=],
+    name = 'preinserted',
+    params = {},
+    returns = 'number',
+    signature = 'preinserted()',
   },
   prevnonblank = {
     args = 1,
@@ -9654,17 +9691,25 @@ M.funcs = {
     signature = 'searchpos({pattern} [, {flags} [, {stopline} [, {timeout} [, {skip}]]]])',
   },
   serverlist = {
+    args = { 0, 1 },
     desc = [=[
       Returns a list of server addresses, or empty if all servers
       were stopped. |serverstart()| |serverstop()|
+
+      The optional argument {opts} is a Dict and supports the following items:
+
+        peer  : If |TRUE|, servers not started by |serverstart()| 
+                will also be returned. (default: |FALSE|)
+                Not supported on Windows yet.
+
       Example: >vim
       	echo serverlist()
       <
     ]=],
     name = 'serverlist',
-    params = {},
+    params = { { 'opts', 'table' } },
     returns = 'string[]',
-    signature = 'serverlist()',
+    signature = 'serverlist([{opts}])',
   },
   serverstart = {
     args = { 0, 1 },
@@ -10401,13 +10446,14 @@ M.funcs = {
     base = 1,
     desc = [=[
       Returns a String with 64 hex characters, which is the SHA256
-      checksum of {string}.
+      checksum of {expr}.
+      {expr} is a String or a Blob.
 
     ]=],
     name = 'sha256',
-    params = { { 'string', 'string' } },
+    params = { { 'expr', 'string' } },
     returns = 'string',
-    signature = 'sha256({string})',
+    signature = 'sha256({expr})',
   },
   shellescape = {
     args = { 1, 2 },
@@ -11379,8 +11425,8 @@ M.funcs = {
       log          String  Logs directory (for use by plugins too).
       run          String  Run directory: temporary, local storage
       		     for sockets, named pipes, etc.
-      state        String  Session state directory: storage for file
-      		     drafts, swap, undo, |shada|.
+      state        String  Session state: storage for backupdir,
+      		     file drafts, |shada|, swap, undo, 'viewdir'.
 
       Example: >vim
       	echo stdpath("config")
@@ -11820,7 +11866,7 @@ M.funcs = {
     base = 1,
     desc = [=[
       The result is a String, which is {string} with all unprintable
-      characters translated into printable characters |'isprint'|.
+      characters translated into printable characters 'isprint'.
       Like they are shown in a window.  Example: >vim
       	echo strtrans(@a)
       <This displays a newline in register a as "^@" instead of
@@ -12417,7 +12463,7 @@ M.funcs = {
       Refer to |tag-regexp| for more information about the tag
       search regular expression pattern.
 
-      Refer to |'tags'| for information about how the tags file is
+      Refer to 'tags' for information about how the tags file is
       located by Vim. Refer to |tags-file-format| for the format of
       the tags file generated by the different ctags tools.
 
@@ -12847,6 +12893,8 @@ M.funcs = {
     base = 1,
     tags = { 'E882' },
     desc = [=[
+      Note: Prefer |vim.list.unique()| in Lua.
+
       Remove second and succeeding copies of repeated adjacent
       {list} items in-place.  Returns {list}.  If you want a list
       to remain unmodified make a copy first: >vim
@@ -12922,9 +12970,9 @@ M.funcs = {
     base = 1,
     desc = [=[
       The result is a Number, which is the screen column of the file
-      position given with {expr}.  That is, the last screen position
-      occupied by the character at that position, when the screen
-      would be of unlimited width.  When there is a <Tab> at the
+      position given with {expr}.  That is, the total number of
+      screen cells occupied by the part of the line until the end of
+      the character at that position.  When there is a <Tab> at the
       position, the returned Number will be the column at the end of
       the <Tab>.  For example, for a <Tab> in column 1, with 'ts'
       set to 8, it returns 8. |conceal| is ignored.
@@ -12940,7 +12988,7 @@ M.funcs = {
       last character.  When "off" is omitted zero is used.  When
       Virtual editing is active in the current mode, a position
       beyond the end of the line can be returned.  Also see
-      |'virtualedit'|
+      'virtualedit'
 
       If {list} is present and non-zero then virtcol() returns a
       List with the first and last screen position occupied by the
@@ -13067,6 +13115,33 @@ M.funcs = {
     name = 'wildmenumode',
     params = {},
     signature = 'wildmenumode()',
+  },
+  wildtrigger = {
+    desc = [==[
+      Start wildcard expansion in the command-line, using the
+      behavior defined by the 'wildmode' and 'wildoptions' settings.
+
+      This function also enables completion in search patterns such
+      as |/|, |?|, |:s|, |:g|, |:v| and |:vimgrep|.
+
+      Unlike pressing 'wildchar' manually, this function does not
+      produce a beep when no matches are found and generally
+      operates more quietly.  This makes it suitable for triggering
+      completion automatically.
+
+      Note: After navigating command-line history, the first call to
+      wildtrigger() is a no-op; a second call is needed to start
+      expansion.  This is to support history navigation in
+      command-line autocompletion.
+
+      See |cmdline-autocompletion|.
+
+      Return value is always 0.
+    ]==],
+    name = 'wildtrigger',
+    params = {},
+    returns = 'number',
+    signature = 'wildtrigger()',
   },
   win_execute = {
     args = { 2, 3 },

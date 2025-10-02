@@ -3,7 +3,6 @@ local n = require('test.functional.testnvim')()
 
 local t_lsp = require('test.functional.plugin.lsp.testutil')
 
-local assert_log = t.assert_log
 local buf_lines = n.buf_lines
 local command = n.command
 local dedent = t.dedent
@@ -278,7 +277,7 @@ describe('LSP', function()
         on_exit = function(code, signal)
           eq(101, code, 'exit code') -- See fake-lsp-server.lua
           eq(0, signal, 'exit signal')
-          assert_log(
+          t.assert_log(
             pesc([[assert_eq failed: left == "\"shutdown\"", right == "\"test\""]]),
             fake_lsp_logfile
           )
@@ -596,32 +595,35 @@ describe('LSP', function()
       exec_lua(create_server_definition)
       local result = exec_lua(function()
         local server = _G._create_server()
-        local bufnr = vim.api.nvim_create_buf(false, true)
-        vim.api.nvim_set_current_buf(bufnr)
-        local detach_called = false
+        local bufnr1 = vim.api.nvim_create_buf(false, true)
+        local bufnr2 = vim.api.nvim_create_buf(false, true)
+        local detach_called1 = false
+        local detach_called2 = false
         vim.api.nvim_create_autocmd('LspDetach', {
+          buffer = bufnr1,
           callback = function()
-            detach_called = true
+            detach_called1 = true
           end,
         })
-        local client_id = vim.lsp.start({ name = 'detach-dummy', cmd = server.cmd })
-        assert(client_id, 'lsp.start must return client_id')
+        vim.api.nvim_create_autocmd('LspDetach', {
+          buffer = bufnr2,
+          callback = function()
+            detach_called2 = true
+          end,
+        })
+        vim.api.nvim_set_current_buf(bufnr1)
+        local client_id = assert(vim.lsp.start({ name = 'detach-dummy', cmd = server.cmd }))
         local client = assert(vim.lsp.get_client_by_id(client_id))
-        local num_attached_before = vim.tbl_count(client.attached_buffers)
-        vim.api.nvim_buf_delete(bufnr, { force = true })
-        local num_attached_after = vim.tbl_count(client.attached_buffers)
-        return {
-          bufnr = bufnr,
-          client_id = client_id,
-          num_attached_before = num_attached_before,
-          num_attached_after = num_attached_after,
-          detach_called = detach_called,
-        }
+        vim.api.nvim_set_current_buf(bufnr2)
+        vim.lsp.start({ name = 'detach-dummy', cmd = server.cmd })
+        assert(vim.tbl_count(client.attached_buffers) == 2)
+        vim.api.nvim_buf_delete(bufnr1, { force = true })
+        assert(vim.tbl_count(client.attached_buffers) == 1)
+        vim.api.nvim_buf_delete(bufnr2, { force = true })
+        assert(vim.tbl_count(client.attached_buffers) == 0)
+        return detach_called1 and detach_called2
       end)
-      eq(true, result ~= nil, 'exec_lua must return result')
-      eq(1, result.num_attached_before)
-      eq(0, result.num_attached_after)
-      eq(true, result.detach_called)
+      eq(true, result)
     end)
 
     it('should not re-attach buffer if it was deleted in on_init #28575', function()
@@ -1976,7 +1978,7 @@ describe('LSP', function()
         {
           NIL,
           {
-            arguments = { 'EXTRACT_METHOD', { metadata = {} }, 3, 0, 6123, NIL },
+            arguments = { 'EXTRACT_METHOD', { metadata = { field = vim.NIL } }, 3, 0, 6123, NIL },
             command = 'refactor.perform',
             title = 'EXTRACT_METHOD',
           },
@@ -3328,7 +3330,7 @@ describe('LSP', function()
           filename = '/test_a',
           kind = 'File',
           lnum = 2,
-          text = '[File] TestA',
+          text = '[File] TestA in TestAContainer',
         },
         {
           col = 1,
@@ -3337,7 +3339,7 @@ describe('LSP', function()
           filename = '/test_b',
           kind = 'Module',
           lnum = 4,
-          text = '[Module] TestB',
+          text = '[Module] TestB in TestBContainer (deprecated)',
         },
       }
       eq(
@@ -3364,7 +3366,7 @@ describe('LSP', function()
               containerName = 'TestAContainer',
             },
             {
-              deprecated = false,
+              deprecated = true,
               kind = 2,
               name = 'TestB',
               location = {
@@ -3774,7 +3776,7 @@ describe('LSP', function()
         }
         return vim.lsp.util.convert_signature_help_to_markdown_lines(signature_help, 'cs', { ',' })
       end)
-      local expected = { '```cs', 'TestEntity.TestEntity()', '```', 'some doc' }
+      local expected = { '```cs', 'TestEntity.TestEntity()', '```', '---', 'some doc' }
       eq(expected, result)
     end)
 
@@ -4498,7 +4500,7 @@ describe('LSP', function()
         name = 'prepare_rename_placeholder',
         expected_handlers = {
           { NIL, {}, { method = 'shutdown', client_id = 1 } },
-          { NIL, NIL, { method = 'textDocument/rename', client_id = 1, bufnr = 1 } },
+          { {}, NIL, { method = 'textDocument/rename', client_id = 1, bufnr = 1 } },
           { NIL, {}, { method = 'start', client_id = 1 } },
         },
         expected_text = 'placeholder', -- see fake lsp response
@@ -4508,7 +4510,7 @@ describe('LSP', function()
         name = 'prepare_rename_range',
         expected_handlers = {
           { NIL, {}, { method = 'shutdown', client_id = 1 } },
-          { NIL, NIL, { method = 'textDocument/rename', client_id = 1, bufnr = 1 } },
+          { {}, NIL, { method = 'textDocument/rename', client_id = 1, bufnr = 1 } },
           { NIL, {}, { method = 'start', client_id = 1 } },
         },
         expected_text = 'line', -- see test case and fake lsp response
@@ -5311,22 +5313,18 @@ describe('LSP', function()
                 notify_msg = msg
               end
 
-              local handler = vim.lsp.handlers['textDocument/formatting']
-              local handler_called = false
-              vim.lsp.handlers['textDocument/formatting'] = function()
-                handler_called = true
-              end
-
+              _G.handler_called = false
               vim.lsp.buf.format({ bufnr = bufnr, async = true })
               vim.wait(1000, function()
-                return handler_called
+                return _G.handler_called
               end)
 
               vim.notify = notify
-              vim.lsp.handlers['textDocument/formatting'] = handler
-              return { notify = notify_msg, handler_called = handler_called }
+              return { notify_msg = notify_msg, handler_called = _G.handler_called }
             end)
             eq({ handler_called = true }, result)
+          elseif ctx.method == 'textDocument/formatting' then
+            exec_lua('_G.handler_called = true')
           elseif ctx.method == 'shutdown' then
             client:stop()
           end
@@ -6796,6 +6794,7 @@ describe('LSP', function()
     it('validates config on attach', function()
       local tmp1 = t.tmpname(true)
       exec_lua(function()
+        vim.fn.writefile({ '' }, fake_lsp_logfile)
         vim.lsp.log._set_filename(fake_lsp_logfile)
       end)
 
@@ -6805,22 +6804,32 @@ describe('LSP', function()
           vim.lsp.config('foo', cfg)
           vim.lsp.enable('foo')
           vim.cmd.edit(assert(tmp1))
+          vim.bo.filetype = 'non.applicable.filetype'
+        end)
+
+        -- Assert NO log for non-applicable 'filetype'. #35737
+        if type(cfg.filetypes) == 'table' then
+          t.assert_nolog(err, fake_lsp_logfile)
+        end
+
+        exec_lua(function()
           vim.bo.filetype = 'foo'
         end)
 
         retry(nil, 1000, function()
-          assert_log(err, fake_lsp_logfile)
+          t.assert_log(err, fake_lsp_logfile)
         end)
       end
 
       test_cfg({
+        filetypes = { 'foo' },
         cmd = { 'lolling' },
-      }, 'cannot start foo due to config error: .* lolling is not executable')
+      }, 'invalid "foo" config: .* lolling is not executable')
 
       test_cfg({
         cmd = { 'cat' },
         filetypes = true,
-      }, 'cannot start foo due to config error: .* filetypes: expected table, got boolean')
+      }, 'invalid "foo" config: .* filetypes: expected table, got boolean')
     end)
 
     it('does not start without workspace if workspace_required=true', function()
@@ -7108,6 +7117,61 @@ describe('LSP', function()
           return vim.diagnostic.get(vim.uri_to_bufnr(fake_uri))[1].message
         end)
       )
+    end)
+  end)
+
+  describe('vim.lsp.buf.hover()', function()
+    it('handles empty contents', function()
+      exec_lua(create_server_definition)
+      exec_lua(function()
+        local server = _G._create_server({
+          capabilities = {
+            hoverProvider = true,
+          },
+          handlers = {
+            ['textDocument/hover'] = function(_, _, callback)
+              local res = {
+                contents = {
+                  kind = 'markdown',
+                  value = '',
+                },
+              }
+              callback(nil, res)
+            end,
+          },
+        })
+        vim.lsp.start({ name = 'dummy', cmd = server.cmd })
+      end)
+
+      eq('Empty hover response', n.exec_capture('lua vim.lsp.buf.hover()'))
+    end)
+
+    it('treats markedstring array as not empty', function()
+      exec_lua(create_server_definition)
+      exec_lua(function()
+        local server = _G._create_server({
+          capabilities = {
+            hoverProvider = true,
+          },
+          handlers = {
+            ['textDocument/hover'] = function(_, _, callback)
+              local res = {
+                contents = {
+                  {
+                    language = 'java',
+                    value = 'Example',
+                  },
+                  'doc comment',
+                },
+              }
+              callback(nil, res)
+            end,
+          },
+        })
+        vim.lsp.start({ name = 'dummy', cmd = server.cmd })
+      end)
+
+      eq('', n.exec_capture('lua vim.lsp.buf.hover()'))
     end)
   end)
 end)

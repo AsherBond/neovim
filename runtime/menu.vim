@@ -2,7 +2,7 @@
 " You can also use this as a start for your own set of menus.
 "
 " Maintainer:	The Vim Project <https://github.com/vim/vim>
-" Last Change:	2025 Jun 04
+" Last Change:	2025 Aug 10
 " Former Maintainer:	Bram Moolenaar <Bram@vim.org>
 
 " Note that ":an" (short for ":anoremenu") is often used to make a menu work
@@ -684,7 +684,12 @@ func s:BMAdd()
     if s:bmenu_count == &menuitems && s:bmenu_short == 0
       call s:BMShow()
     else
-      call s:BMRedraw()
+      let name = expand("<afile>")
+      let num = expand("<abuf>") + 0 " add zero to convert to a number type
+      if s:BMCanAdd(name, num)
+	call <SID>BMFilename(name, num)
+	let s:bmenu_count += 1
+      endif
     endif
   endif
 endfunc
@@ -726,16 +731,17 @@ func s:BMCanAdd(name, num)
 endfunc
 
 " Create the buffer menu (delete an existing one first).
-func s:BMShow()
+func s:BMShow(...)
   let s:bmenu_wait = 1
   let s:bmenu_short = 1
   let s:bmenu_count = 0
   let s:bmenu_items = {}
+  "
+  " get new priority, if exists
+  if a:0 == 1
+    let g:bmenu_priority = a:1
+  endif
 
-  call s:BMRedraw()
-endfunc
-
-func s:BMRedraw()
   " Remove old menu, if it exists; keep one entry to avoid a torn off menu to
   " disappear.  Use try/catch to avoid setting v:errmsg
   try | unmenu &Buffers | catch | endtry
@@ -755,30 +761,26 @@ func s:BMRedraw()
   unmenu &Buffers.Dummy
 
   " figure out how many buffers there are
-  let buffer_menu_items = []
   let buf = 1
   while buf <= bufnr('$')
-    let name = bufname(buf)
-    if s:BMCanAdd(name, buf)
-      call add(buffer_menu_items, [substitute(name, ".", '\L\0', ""), name, buf])
+    if s:BMCanAdd(bufname(buf), buf)
+      let s:bmenu_count = s:bmenu_count + 1
     endif
     let buf = buf + 1
   endwhile
-  let s:bmenu_count = len(buffer_menu_items)
-
   if s:bmenu_count <= &menuitems
     let s:bmenu_short = 0
   endif
 
   " iterate through buffer list, adding each buffer to the menu:
-  call sort(buffer_menu_items)
-
-  let i = 0
-  for menu_item in buffer_menu_items
-    call s:BMFilename(menu_item[1], menu_item[2], i)
-    let i += 1
-  endfor
-
+  let buf = 1
+  while buf <= bufnr('$')
+    let name = bufname(buf)
+    if s:BMCanAdd(name, buf)
+      call <SID>BMFilename(name, buf)
+    endif
+    let buf = buf + 1
+  endwhile
   let s:bmenu_wait = 0
   aug buffer_list
   au!
@@ -787,9 +789,43 @@ func s:BMRedraw()
   aug END
 endfunc
 
+func s:BMHash(name)
+  " Create a sortable numeric hash of the name. This number has to be within
+  " the bounds of a signed 32-bit integer as this is what Vim GUI uses
+  " internally for the index.
+
+  " Make name all upper case, so that alphanumeric chars are between 32 and 96
+  let nm = toupper(a:name)
+
+  if char2nr(nm->slice(0, 1)) < 32 || char2nr(nm->slice(0, 1)) > 96
+    " We don't have an ASCII character, so just return the raw character value
+    " for first character (clamped to 2^31) and set the high bit to make it
+    " sort after other items. This means only the first character will be
+    " sorted, unfortunately.
+    return or(and(char2nr(nm), 0x7fffffff), 0x40000000)
+  endif
+
+  if has("ebcdic")
+    " HACK: Replace all non alphabetics with 'Z'
+    "       Just to make it work for now.
+    let nm = substitute(nm, "[^A-Z]", 'Z', "g")
+    let sp = char2nr('A') - 1
+  else
+    let sp = char2nr(' ')
+  endif
+  " convert first five chars into a number for sorting by compressing each
+  " char into 5 bits (0-63), to a total of 30 bits. If any character is not
+  " ASCII, it will simply be clamped to prevent overflow.
+  " Nvim: no << operator
+  return (max([0, min([63, char2nr(nm->slice(0, 1)) - sp])]) * 0x1000000) +
+        \ (max([0, min([63, char2nr(nm->slice(1, 2)) - sp])]) * 0x40000) +
+        \ (max([0, min([63, char2nr(nm->slice(2, 3)) - sp])]) * 0x1000) +
+        \ (max([0, min([63, char2nr(nm->slice(3, 4)) - sp])]) * 0x40) +
+        \ max([0, min([63, char2nr(nm->slice(4, 5)) - sp])])
+endfunc
+
 func s:BMHash2(name)
-  let nm = substitute(a:name, ".", '\L\0', "")
-  " Not exactly right for EBCDIC...
+  let nm = tolower(a:name->slice(0, 1))
   if nm[0] < 'a' || nm[0] > 'z'
     return '&others.'
   elseif nm[0] <= 'd'
@@ -808,15 +844,16 @@ func s:BMHash2(name)
 endfunc
 
 " Insert a buffer name into the buffer menu.
-func s:BMFilename(name, num, index)
+func s:BMFilename(name, num)
   let munge = <SID>BMMunge(a:name, a:num)
+  let hash = <SID>BMHash(munge)
   if s:bmenu_short == 0
     let s:bmenu_items[a:num] = munge
-    let cmd = 'an ' .. g:bmenu_priority .. '.9999.' .. a:index .. ' &Buffers.' .. munge
+    let cmd = 'an ' . g:bmenu_priority . '.' . hash . ' &Buffers.' . munge
   else
     let menu_name = <SID>BMHash2(munge) . munge
     let s:bmenu_items[a:num] = menu_name
-    let cmd = 'an ' .. g:bmenu_priority .. '.9999.0.' .. a:index .. ' &Buffers.' .. menu_name
+    let cmd = 'an ' . g:bmenu_priority . '.' . hash . '.' . hash . ' &Buffers.' . menu_name
   endif
   " set 'cpo' to include the <CR>
   let cpo_save = &cpo

@@ -631,6 +631,12 @@ M.cmds = {
     func = 'ex_wrongmodifier',
   },
   {
+    command = 'connect',
+    flags = bit.bor(BANG, WORD1, NOTRLCOM, NEEDARG),
+    addr_type = 'ADDR_NONE',
+    func = 'ex_connect',
+  },
+  {
     command = 'const',
     flags = bit.bor(EXTRA, NOTRLCOM, SBOXOK, CMDWIN, LOCK_OK),
     addr_type = 'ADDR_NONE',
@@ -2184,13 +2190,13 @@ M.cmds = {
     command = 'quitall',
     flags = bit.bor(BANG, TRLBAR),
     addr_type = 'ADDR_NONE',
-    func = 'ex_quitall_or_restart',
+    func = 'ex_quitall',
   },
   {
     command = 'qall',
     flags = bit.bor(BANG, TRLBAR, CMDWIN, LOCK_OK),
     addr_type = 'ADDR_NONE',
-    func = 'ex_quitall_or_restart',
+    func = 'ex_quitall',
   },
   {
     command = 'read',
@@ -2248,9 +2254,9 @@ M.cmds = {
   },
   {
     command = 'restart',
-    flags = bit.bor(BANG, TRLBAR),
+    flags = bit.bor(CMDARG, EXTRA, NOTRLCOM),
     addr_type = 'ADDR_NONE',
-    func = 'ex_quitall_or_restart',
+    func = 'ex_restart',
   },
   {
     command = 'retab',

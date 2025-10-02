@@ -211,6 +211,18 @@ typedef struct {
   OptInt wo_winbl;
 #define w_p_winbl w_onebuf_opt.wo_winbl  // 'winblend'
 
+  // A few options have local flags for kOptFlagInsecure.
+  uint32_t wo_wrap_flags;               // flags for 'wrap'
+#define w_p_wrap_flags w_onebuf_opt.wo_wrap_flags
+  uint32_t wo_stl_flags;                // flags for 'statusline'
+#define w_p_stl_flags w_onebuf_opt.wo_stl_flags
+  uint32_t wo_wbr_flags;                // flags for 'winbar'
+#define w_p_wbr_flags w_onebuf_opt.wo_wbr_flags
+  uint32_t wo_fde_flags;                // flags for 'foldexpr'
+#define w_p_fde_flags w_onebuf_opt.wo_fde_flags
+  uint32_t wo_fdt_flags;                // flags for 'foldtext'
+#define w_p_fdt_flags w_onebuf_opt.wo_fdt_flags
+
   sctx_T wo_script_ctx[kWinOptCount];  // SCTXs for window-local options
 #define w_p_script_ctx w_onebuf_opt.wo_script_ctx
 } winopt_T;
@@ -399,7 +411,7 @@ struct file_buffer {
 
   varnumber_T b_last_changedtick;       // b:changedtick when TextChanged was
                                         // last triggered.
-  varnumber_T b_last_changedtick_i;     // b:changedtick for TextChangedI
+  varnumber_T b_last_changedtick_i;     // b:changedtick for TextChangedI/T
   varnumber_T b_last_changedtick_pum;   // b:changedtick for TextChangedP
 
   bool b_saving;                // Set to true if we are in the middle of
@@ -514,6 +526,7 @@ struct file_buffer {
 
   sctx_T b_p_script_ctx[kBufOptCount];  // SCTXs for buffer-local options
 
+  int b_p_ac;                   ///< 'autocomplete'
   int b_p_ai;                   ///< 'autoindent'
   int b_p_ai_nopaste;           ///< b_p_ai saved for paste mode
   char *b_p_bkc;                ///< 'backupco
@@ -540,6 +553,8 @@ struct file_buffer {
 #ifdef BACKSLASH_IN_FILENAME
   char *b_p_csl;                ///< 'completeslash'
 #endif
+  Callback *b_p_cpt_cb;         ///< F{func} in 'complete' callback
+  int b_p_cpt_count;            ///< Count of values in 'complete'
   char *b_p_cfu;                ///< 'completefunc'
   Callback b_cfu_cb;            ///< 'completefunc' callback
   char *b_p_ofu;                ///< 'omnifunc'
@@ -619,6 +634,7 @@ struct file_buffer {
   char *b_p_tc;                 ///< 'tagcase' local value
   unsigned b_tc_flags;          ///< flags for 'tagcase'
   char *b_p_dict;               ///< 'dictionary' local value
+  char *b_p_dia;                ///< 'diffanchors' local value
   char *b_p_tsr;                ///< 'thesaurus' local value
   char *b_p_tsrfu;              ///< 'thesaurusfunc' local value
   Callback b_tsrfu_cb;          ///< 'thesaurusfunc' callback
@@ -759,9 +775,11 @@ struct file_buffer {
 /// and how many lines it occupies in that buffer.  When the lines are missing
 /// in the buffer the df_count[] is zero.  This is all counted in
 /// buffer lines.
-/// There is always at least one unchanged line in between the diffs (unless
-/// linematch is used).  Otherwise it would have been included in the diff above
-/// or below it.
+/// Usually there is always at least one unchanged line in between the diffs as
+/// otherwise it would have been included in the diff above or below it.  When
+/// linematch or diff anchors are used, this is no longer guaranteed, and we may
+/// have adjacent diff blocks.  In all cases they will not overlap, although it
+/// is possible to have multiple 0-count diff blocks at the same line.
 /// df_lnum[] + df_count[] is the lnum below the change.  When in one buffer
 /// lines have been inserted, in the other buffer df_lnum[] is the line below
 /// the insertion and df_count[] is zero.  When appending lines at the end of
@@ -1296,11 +1314,6 @@ struct window_S {
   // transform a pointer to a "onebuf" option into a "allbuf" option
 #define GLOBAL_WO(p)    ((char *)(p) + sizeof(winopt_T))
 
-  // A few options have local flags for kOptFlagInsecure.
-  uint32_t w_p_stl_flags;           // flags for 'statusline'
-  uint32_t w_p_wbr_flags;           // flags for 'winbar'
-  uint32_t w_p_fde_flags;           // flags for 'foldexpr'
-  uint32_t w_p_fdt_flags;           // flags for 'foldtext'
   int *w_p_cc_cols;                 // array of columns to highlight or NULL
   uint8_t w_p_culopt_flags;         // flags for cursorline highlighting
 

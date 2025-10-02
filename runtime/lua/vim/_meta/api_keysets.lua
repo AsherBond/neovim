@@ -18,7 +18,7 @@ error('Cannot require a meta file')
 
 --- @class vim.api.keyset.clear_autocmds
 --- @field buffer? integer
---- @field event? string|string[]
+--- @field event? vim.api.keyset.events|vim.api.keyset.events[]
 --- @field group? integer|string
 --- @field pattern? string|string[]
 
@@ -77,6 +77,149 @@ error('Cannot require a meta file')
 --- @class vim.api.keyset.create_augroup
 --- @field clear? boolean
 
+--- @alias vim.api.keyset.events
+--- |'BufAdd'
+--- |'BufCreate'
+--- |'BufDelete'
+--- |'BufEnter'
+--- |'BufFilePost'
+--- |'BufFilePre'
+--- |'BufHidden'
+--- |'BufLeave'
+--- |'BufModifiedSet'
+--- |'BufNew'
+--- |'BufNewFile'
+--- |'BufRead'
+--- |'BufReadCmd'
+--- |'BufReadPost'
+--- |'BufReadPre'
+--- |'BufUnload'
+--- |'BufWinEnter'
+--- |'BufWinLeave'
+--- |'BufWipeout'
+--- |'BufWrite'
+--- |'BufWriteCmd'
+--- |'BufWritePost'
+--- |'BufWritePre'
+--- |'ChanInfo'
+--- |'ChanOpen'
+--- |'CmdUndefined'
+--- |'CmdlineChanged'
+--- |'CmdlineEnter'
+--- |'CmdlineLeave'
+--- |'CmdlineLeavePre'
+--- |'CmdwinEnter'
+--- |'CmdwinLeave'
+--- |'ColorScheme'
+--- |'ColorSchemePre'
+--- |'CompleteChanged'
+--- |'CompleteDone'
+--- |'CompleteDonePre'
+--- |'CursorHold'
+--- |'CursorHoldI'
+--- |'CursorMoved'
+--- |'CursorMovedC'
+--- |'CursorMovedI'
+--- |'DiagnosticChanged'
+--- |'DiffUpdated'
+--- |'DirChanged'
+--- |'DirChangedPre'
+--- |'EncodingChanged'
+--- |'ExitPre'
+--- |'FileAppendCmd'
+--- |'FileAppendPost'
+--- |'FileAppendPre'
+--- |'FileChangedRO'
+--- |'FileChangedShell'
+--- |'FileChangedShellPost'
+--- |'FileEncoding'
+--- |'FileReadCmd'
+--- |'FileReadPost'
+--- |'FileReadPre'
+--- |'FileType'
+--- |'FileWriteCmd'
+--- |'FileWritePost'
+--- |'FileWritePre'
+--- |'FilterReadPost'
+--- |'FilterReadPre'
+--- |'FilterWritePost'
+--- |'FilterWritePre'
+--- |'FocusGained'
+--- |'FocusLost'
+--- |'FuncUndefined'
+--- |'GUIEnter'
+--- |'GUIFailed'
+--- |'InsertChange'
+--- |'InsertCharPre'
+--- |'InsertEnter'
+--- |'InsertLeave'
+--- |'InsertLeavePre'
+--- |'LspAttach'
+--- |'LspDetach'
+--- |'LspNotify'
+--- |'LspProgress'
+--- |'LspRequest'
+--- |'LspTokenUpdate'
+--- |'MenuPopup'
+--- |'ModeChanged'
+--- |'OptionSet'
+--- |'PackChanged'
+--- |'PackChangedPre'
+--- |'Progress'
+--- |'QuickFixCmdPost'
+--- |'QuickFixCmdPre'
+--- |'QuitPre'
+--- |'RecordingEnter'
+--- |'RecordingLeave'
+--- |'RemoteReply'
+--- |'SafeState'
+--- |'SearchWrapped'
+--- |'SessionLoadPost'
+--- |'SessionWritePost'
+--- |'ShellCmdPost'
+--- |'ShellFilterPost'
+--- |'Signal'
+--- |'SourceCmd'
+--- |'SourcePost'
+--- |'SourcePre'
+--- |'SpellFileMissing'
+--- |'StdinReadPost'
+--- |'StdinReadPre'
+--- |'SwapExists'
+--- |'Syntax'
+--- |'TabClosed'
+--- |'TabEnter'
+--- |'TabLeave'
+--- |'TabNew'
+--- |'TabNewEntered'
+--- |'TermChanged'
+--- |'TermClose'
+--- |'TermEnter'
+--- |'TermLeave'
+--- |'TermOpen'
+--- |'TermRequest'
+--- |'TermResponse'
+--- |'TextChanged'
+--- |'TextChangedI'
+--- |'TextChangedP'
+--- |'TextChangedT'
+--- |'TextYankPost'
+--- |'UIEnter'
+--- |'UILeave'
+--- |'User'
+--- |'VimEnter'
+--- |'VimLeave'
+--- |'VimLeavePre'
+--- |'VimResized'
+--- |'VimResume'
+--- |'VimSuspend'
+--- |'WinClosed'
+--- |'WinEnter'
+--- |'WinLeave'
+--- |'WinNew'
+--- |'WinResized'
+--- |'WinScrolled'
+
 --- @class vim.api.keyset.create_autocmd
 --- @field buffer? integer
 --- @field callback? string|fun(args: vim.api.keyset.create_autocmd.callback_args): boolean?
@@ -91,6 +234,11 @@ error('Cannot require a meta file')
 --- @field err? boolean
 --- @field verbose? boolean
 --- @field kind? string
+--- @field id? integer|string
+--- @field title? string
+--- @field status? string
+--- @field percent? integer
+--- @field data? table<string,any>
 
 --- @class vim.api.keyset.empty
 
@@ -114,7 +262,7 @@ error('Cannot require a meta file')
 --- @field output? boolean
 
 --- @class vim.api.keyset.get_autocmds
---- @field event? string|string[]
+--- @field event? vim.api.keyset.events|vim.api.keyset.events[]
 --- @field group? integer|string
 --- @field pattern? string|string[]
 --- @field buffer? integer|integer[]
@@ -234,6 +382,7 @@ error('Cannot require a meta file')
 --- @field on_buf? fun(_: "buf", bufnr: integer, tick: integer)
 --- @field on_win? fun(_: "win", winid: integer, bufnr: integer, toprow: integer, botrow: integer): boolean?
 --- @field on_line? fun(_: "line", winid: integer, bufnr: integer, row: integer): boolean?
+--- @field on_range? fun(_: "range", winid: integer, bufnr: integer, start_row: integer, start_col: integer, end_row: integer, end_col: integer): boolean?
 --- @field on_end? fun(_: "end", tick: integer)
 --- @field _on_hl_def? fun(_: "hl_def")
 --- @field _on_spell_nav? fun(_: "spell_nav")
@@ -274,6 +423,7 @@ error('Cannot require a meta file')
 --- @field undo_restore? boolean
 --- @field url? string
 --- @field scoped? boolean
+--- @field _subpriority? integer
 
 --- @class vim.api.keyset.user_command
 --- @field addr? any

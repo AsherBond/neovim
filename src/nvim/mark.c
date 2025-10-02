@@ -55,9 +55,7 @@
 // There are marks 'A - 'Z (set by user) and '0 to '9 (set when writing
 // shada).
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "mark.c.generated.h"
-#endif
+#include "mark.c.generated.h"
 
 // Set named mark "c" at current cursor position.
 // Returns OK on success, FAIL if bad name given.
@@ -145,6 +143,11 @@ int setmark_pos(int c, pos_T *pos, int fnum, fmarkv_T *view_pt)
       // Visual_mode has not yet been set, use a sane default.
       buf->b_visual.vi_mode = 'v';
     }
+    return OK;
+  }
+
+  if (c == ':' && bt_prompt(buf)) {
+    RESET_FMARK(&buf->b_prompt_start, *pos, buf->b_fnum, view);
     return OK;
   }
 
@@ -717,11 +720,7 @@ static void fname2fnum(xfmark_T *fm)
 
   // First expand "~/" in the file name to the home directory.
   // Don't expand the whole name, it may contain other '~' chars.
-#ifdef BACKSLASH_IN_FILENAME
-  if (fm->fname[0] == '~' && (fm->fname[1] == '/' || fm->fname[1] == '\\')) {
-#else
-  if (fm->fname[0] == '~' && (fm->fname[1] == '/')) {
-#endif
+  if (fm->fname[0] == '~' && vim_ispathsep_nocolon(fm->fname[1])) {
     size_t len = expand_env("~/", NameBuff, MAXPATHL);
     xstrlcpy(NameBuff + len, fm->fname + 2, MAXPATHL - len);
   } else {
@@ -1726,8 +1725,7 @@ bool mark_set_local(const char name, buf_T *const buf, const fmark_T fm, const b
   } else if (name == '^') {
     fm_tgt = &(buf->b_last_insert);
   } else if (name == ':') {
-    // Readonly mark for prompt buffer. Can't be edited on user side.
-    return false;
+    fm_tgt = &(buf->b_prompt_start);
   } else if (name == '.') {
     fm_tgt = &(buf->b_last_change);
   } else {

@@ -504,6 +504,20 @@ describe('global statusline', function()
       {3:[No Name]                                 0,0-1          All}|
                                                                   |
     ]])
+
+    -- Shouldn't gain a hsep if the global statusline is turned off.
+    command('set laststatus=2')
+    eq('Vim(wincmd):E36: Not enough room', pcall_err(command, 'wincmd L'))
+    command('mode')
+    screen:expect([[
+                                                                  |
+      {1:~                                                           }|*5
+      {2:[No Name]                                 0,0-1          All}|
+      ^                                                            |
+      {1:~                                                           }|*6
+      {3:[No Name]                                 0,0-1          All}|
+                                                                  |
+    ]])
   end)
 end)
 
@@ -792,6 +806,7 @@ describe('default statusline', function()
       "%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}",
       "%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}",
       "%{% &busy > 0 ? '◐ ' : '' %}",
+      "%(%{luaeval('(package.loaded[''vim.diagnostic''] and vim.diagnostic.status()) or '''' ')} %)",
       "%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}",
     })
 

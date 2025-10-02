@@ -99,6 +99,9 @@ source setup.vim
 " Needed for RunningWithValgrind().
 source shared.vim
 
+" Needed for the various Check commands
+source check.vim
+
 " For consistency run all tests with 'nocompatible' set.
 " This also enables use of line continuation.
 set nocp viminfo+=nviminfo
@@ -371,6 +374,11 @@ func RunTheTest(test)
   " Clear any autocommands and put back the catch-all for SwapExists.
   au!
   au SwapExists * call HandleSwapExists()
+
+  " Close any stray popup windows
+  if has('popupwin')
+    call popup_clear()
+  endif
 
   " Close any extra tab pages and windows and make the current one not modified.
   while tabpagenr('$') > 1

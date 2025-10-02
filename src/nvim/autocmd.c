@@ -7,9 +7,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "klib/kvec.h"
-#include "nvim/api/private/helpers.h"
-#include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
 #include "nvim/buffer.h"
 #include "nvim/charset.h"
@@ -63,10 +60,8 @@
 #include "nvim/window.h"
 #include "nvim/winfloat.h"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "auevents_name_map.generated.h"
-# include "autocmd.c.generated.h"
-#endif
+#include "auevents_name_map.generated.h"
+#include "autocmd.c.generated.h"
 
 static const char e_autocommand_nesting_too_deep[]
   = N_("E218: Autocommand nesting too deep");
@@ -1566,7 +1561,7 @@ bool has_event(event_T event) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 
 /// Return true when there is a CursorHold/CursorHoldI autocommand defined for
 /// the current mode.
-bool has_cursorhold(void) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
+static bool has_cursorhold(void) FUNC_ATTR_PURE FUNC_ATTR_WARN_UNUSED_RESULT
 {
   return has_event((get_real_state() == MODE_NORMAL_BUSY ? EVENT_CURSORHOLD : EVENT_CURSORHOLDI));
 }
@@ -2511,12 +2506,6 @@ char *aucmd_handler_to_string(AutoCmd *ac)
     return xstrdup(ac->handler_cmd);
   }
   return callback_to_string(&ac->handler_fn, NULL);
-}
-
-bool au_event_is_empty(event_T event)
-  FUNC_ATTR_PURE
-{
-  return kv_size(autocmds[(int)event]) == 0;
 }
 
 // Arg Parsing Functions

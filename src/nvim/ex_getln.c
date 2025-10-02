@@ -20,6 +20,7 @@
 #include "nvim/buffer.h"
 #include "nvim/buffer_defs.h"
 #include "nvim/charset.h"
+#include "nvim/clipboard.h"
 #include "nvim/cmdexpand.h"
 #include "nvim/cmdexpand_defs.h"
 #include "nvim/cmdhist.h"
@@ -70,6 +71,7 @@
 #include "nvim/profile.h"
 #include "nvim/regexp.h"
 #include "nvim/regexp_defs.h"
+#include "nvim/register.h"
 #include "nvim/search.h"
 #include "nvim/state.h"
 #include "nvim/state_defs.h"
@@ -134,7 +136,9 @@ typedef struct {
   int save_msg_scroll;
   int save_State;                       // remember State when called
   int prev_cmdpos;
+  char *prev_cmdbuff;
   char *save_p_icm;
+  bool skip_pum_redraw;
   bool some_key_typed;                  // one of the keys was typed
   // mouse drag and release events are ignored, unless they are
   // preceded with a mouse down event
@@ -145,6 +149,7 @@ typedef struct {
   buf_T *b_im_ptr_buf;  ///< buffer where b_im_ptr is valid
   int cmdline_type;
   bool event_cmdlineleavepre_triggered;
+  bool did_hist_navigate;
 } CommandLineState;
 
 typedef struct {
@@ -216,9 +221,7 @@ static bool getln_interrupted_highlight = false;
 
 static int cedit_key = -1;  ///< key value of 'cedit' option
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "ex_getln.c.generated.h"
-#endif
+#include "ex_getln.c.generated.h"
 
 static handle_T cmdpreview_bufnr = 0;
 static int cmdpreview_ns = 0;
@@ -898,6 +901,7 @@ static uint8_t *command_line_enter(int firstc, int count, int indent, bool clear
 
   // Trigger CmdlineLeavePre autocommands if not already triggered.
   if (!s->event_cmdlineleavepre_triggered) {
+    set_vim_var_char(s->c);  // Set v:char
     trigger_cmd_autocmd(s->cmdline_type, EVENT_CMDLINELEAVEPRE);
   }
 
@@ -911,6 +915,7 @@ static uint8_t *command_line_enter(int firstc, int count, int indent, bool clear
     // not readonly:
     tv_dict_add_bool(dict, S_LEN("abort"),
                      s->gotesc ? kBoolVarTrue : kBoolVarFalse);
+    set_vim_var_char(s->c);  // Set v:char
     TRY_WRAP(&err, {
       apply_autocmds(EVENT_CMDLINELEAVE, firstcbuf, firstcbuf, false, curbuf);
       // error printed below, to avoid redraw issues
@@ -927,7 +932,7 @@ static uint8_t *command_line_enter(int firstc, int count, int indent, bool clear
   // if certain special keys like <Esc> or <C-\> were used as wildchar. Make
   // sure to still clean up to avoid memory corruption.
   if (cmdline_pum_active()) {
-    cmdline_pum_remove();
+    cmdline_pum_remove(false);
   }
   wildmenu_cleanup(&ccline);
   s->did_wild_list = false;
@@ -1013,12 +1018,16 @@ theend:
     ccline.cmdbuff = NULL;
   }
 
+  xfree(s->prev_cmdbuff);
   return (uint8_t *)p;
 }
 
 static int command_line_check(VimState *state)
 {
   CommandLineState *s = (CommandLineState *)state;
+
+  s->prev_cmdpos = ccline.cmdpos;
+  XFREE_CLEAR(s->prev_cmdbuff);
 
   redir_off = true;        // Don't redirect the typed command.
   // Repeated, because a ":redir" inside
@@ -1031,6 +1040,15 @@ static int command_line_check(VimState *state)
 
   // Trigger SafeState if nothing is pending.
   may_trigger_safestate(s->xpc.xp_numfiles <= 0);
+
+  if (ccline.cmdbuff != NULL) {
+    s->prev_cmdbuff = xstrdup(ccline.cmdbuff);
+  }
+
+  // Defer screen update to avoid pum flicker during wildtrigger()
+  if (s->c == K_WILD && s->firstc != '@') {
+    s->skip_pum_redraw = true;
+  }
 
   cursorcmd();             // set the cursor on the right spot
   ui_cursor_shape();
@@ -1113,44 +1131,58 @@ static int command_line_wildchar_complete(CommandLineState *s)
 {
   int res;
   int options = WILD_NO_BEEP;
+  bool escape = s->firstc != '@';
+  bool redraw_if_menu_empty = s->c == K_WILD;
+  bool wim_noselect = p_wmnu && (wim_flags[0] & kOptWimFlagNoselect) != 0;
+
   if (wim_flags[s->wim_index] & kOptWimFlagLastused) {
     options |= WILD_BUFLASTUSED;
   }
-  if (wim_flags[0] & kOptWimFlagNoselect) {
-    options |= WILD_KEEP_SOLE_ITEM;
-  }
   if (s->xpc.xp_numfiles > 0) {       // typed p_wc at least twice
-    // if 'wildmode' contains "list" may still need to list
+    // If "list" is present, list matches unless already listed
     if (s->xpc.xp_numfiles > 1
         && !s->did_wild_list
-        && ((wim_flags[s->wim_index] & kOptWimFlagList)
-            || (p_wmnu && (wim_flags[s->wim_index] & kOptWimFlagFull) != 0))) {
-      showmatches(&s->xpc, p_wmnu && ((wim_flags[s->wim_index] & kOptWimFlagList) == 0));
+        && (wim_flags[s->wim_index] & kOptWimFlagList)) {
+      showmatches(&s->xpc, false, true, wim_noselect);
       redrawcmd();
       s->did_wild_list = true;
     }
-
     if (wim_flags[s->wim_index] & kOptWimFlagLongest) {
-      res = nextwild(&s->xpc, WILD_LONGEST, options, s->firstc != '@');
+      res = nextwild(&s->xpc, WILD_LONGEST, options, escape);
     } else if (wim_flags[s->wim_index] & kOptWimFlagFull) {
-      res = nextwild(&s->xpc, WILD_NEXT, options, s->firstc != '@');
+      res = nextwild(&s->xpc, WILD_NEXT, options, escape);
     } else {
       res = OK;                 // don't insert 'wildchar' now
     }
   } else {                    // typed p_wc first time
-    if (s->c == p_wc || s->c == p_wcm) {
+    bool wim_longest = (wim_flags[0] & kOptWimFlagLongest);
+    bool wim_list = (wim_flags[0] & kOptWimFlagList);
+    bool wim_full = (wim_flags[0] & kOptWimFlagFull);
+
+    s->wim_index = 0;
+    if (s->c == p_wc || s->c == p_wcm || s->c == K_WILD || s->c == Ctrl_Z) {
       options |= WILD_MAY_EXPAND_PATTERN;
+      if (s->c == K_WILD) {
+        options |= WILD_FUNC_TRIGGER;
+      }
       s->xpc.xp_pre_incsearch_pos = s->is_state.search_start;
     }
-    s->wim_index = 0;
-    int j = ccline.cmdpos;
+    int cmdpos_before = ccline.cmdpos;
 
     // if 'wildmode' first contains "longest", get longest
     // common part
-    if (wim_flags[0] & kOptWimFlagLongest) {
-      res = nextwild(&s->xpc, WILD_LONGEST, options, s->firstc != '@');
+    if (wim_longest) {
+      res = nextwild(&s->xpc, WILD_LONGEST, options, escape);
     } else {
-      res = nextwild(&s->xpc, WILD_EXPAND_KEEP, options, s->firstc != '@');
+      if (wim_noselect || wim_list) {
+        options |= WILD_NOSELECT;
+      }
+      res = nextwild(&s->xpc, WILD_EXPAND_KEEP, options, escape);
+    }
+
+    // Remove popup menu if no completion items are available
+    if (redraw_if_menu_empty && s->xpc.xp_numfiles <= 0) {
+      pum_check_clear();
     }
 
     // if interrupted while completing, behave like it failed
@@ -1162,38 +1194,38 @@ static int command_line_wildchar_complete(CommandLineState *s)
       return CMDLINE_CHANGED;
     }
 
-    // when more than one match, and 'wildmode' first contains
-    // "list", or no change and 'wildmode' contains "longest,list",
-    // list all matches
-    if (res == OK
-        && s->xpc.xp_numfiles > ((wim_flags[s->wim_index] & kOptWimFlagNoselect) ? 0 : 1)) {
-      // a "longest" that didn't do anything is skipped (but not
-      // "list:longest")
-      if (wim_flags[0] == kOptWimFlagLongest && ccline.cmdpos == j) {
-        s->wim_index = 1;
-      }
-      if ((wim_flags[s->wim_index] & kOptWimFlagList)
-          || (p_wmnu && (wim_flags[s->wim_index] & (kOptWimFlagFull|kOptWimFlagNoselect)))) {
-        if (!(wim_flags[0] & kOptWimFlagLongest)) {
-          int p_wmnu_save = p_wmnu;
-          p_wmnu = 0;
-          // remove match
-          nextwild(&s->xpc, WILD_PREV, options, s->firstc != '@');
-          p_wmnu = p_wmnu_save;
-        }
-
-        showmatches(&s->xpc, p_wmnu && ((wim_flags[s->wim_index] & kOptWimFlagList) == 0));
-        redrawcmd();
-        s->did_wild_list = true;
-
-        if (wim_flags[s->wim_index] & kOptWimFlagLongest) {
-          nextwild(&s->xpc, WILD_LONGEST, options, s->firstc != '@');
-        } else if ((wim_flags[s->wim_index] & kOptWimFlagFull)
-                   && !(wim_flags[s->wim_index] & kOptWimFlagNoselect)) {
-          nextwild(&s->xpc, WILD_NEXT, options, s->firstc != '@');
+    // Display matches
+    if (res == OK && s->xpc.xp_numfiles > (wim_noselect ? 0 : 1)) {
+      if (wim_longest) {
+        bool found_longest_prefix = (ccline.cmdpos != cmdpos_before);
+        if (wim_list || (p_wmnu && wim_full)) {
+          showmatches(&s->xpc, p_wmnu, wim_list, true);
+        } else if (!found_longest_prefix) {
+          bool wim_list_next = (wim_flags[1] & kOptWimFlagList);
+          bool wim_full_next = (wim_flags[1] & kOptWimFlagFull);
+          bool wim_noselect_next = (wim_flags[1] & kOptWimFlagNoselect);
+          if (wim_list_next || (p_wmnu && (wim_full_next || wim_noselect_next))) {
+            if (wim_full_next && !wim_noselect_next) {
+              nextwild(&s->xpc, WILD_NEXT, options, escape);
+            } else {
+              showmatches(&s->xpc, p_wmnu, wim_list_next, wim_noselect_next);
+            }
+            if (wim_list_next) {
+              s->did_wild_list = true;
+            }
+          }
         }
       } else {
-        vim_beep(kOptBoFlagWildmode);
+        if (wim_list || (p_wmnu && (wim_full || wim_noselect))) {
+          showmatches(&s->xpc, p_wmnu, wim_list, wim_noselect);
+        } else {
+          vim_beep(kOptBoFlagWildmode);
+        }
+      }
+
+      redrawcmd();
+      if (wim_list) {
+        s->did_wild_list = true;
       }
     } else if (s->xpc.xp_numfiles == -1) {
       s->xpc.xp_context = EXPAND_NOTHING;
@@ -1211,10 +1243,15 @@ static int command_line_wildchar_complete(CommandLineState *s)
   return (res == OK) ? CMDLINE_CHANGED : CMDLINE_NOT_CHANGED;
 }
 
-static void command_line_end_wildmenu(CommandLineState *s)
+static void command_line_end_wildmenu(CommandLineState *s, bool key_is_wc)
 {
   if (cmdline_pum_active()) {
-    cmdline_pum_remove();
+    s->skip_pum_redraw = (s->skip_pum_redraw && !key_is_wc
+                          && !ascii_iswhite(s->c)
+                          && (vim_isprintc(s->c)
+                              || s->c == K_BS || s->c == Ctrl_H || s->c == K_DEL
+                              || s->c == K_KDEL || s->c == Ctrl_W || s->c == Ctrl_U));
+    cmdline_pum_remove(s->skip_pum_redraw);
   }
   if (s->xpc.xp_numfiles != -1) {
     ExpandOne(&s->xpc, NULL, NULL, 0, WILD_FREE);
@@ -1236,6 +1273,12 @@ static int command_line_execute(VimState *state, int key)
   disptick_T display_tick_saved = display_tick;
   CommandLineState *s = (CommandLineState *)state;
   s->c = key;
+
+  // Skip wildmenu during history navigation via Up/Down keys
+  if (s->c == K_WILD && s->did_hist_navigate) {
+    s->did_hist_navigate = false;
+    return 1;
+  }
 
   if (s->c == K_EVENT || s->c == K_COMMAND || s->c == K_LUA) {
     if (s->c == K_EVENT) {
@@ -1261,7 +1304,7 @@ static int command_line_execute(VimState *state, int key)
         nextwild(&s->xpc, WILD_PUM_WANT, 0, s->firstc != '@');
         if (pum_want.finish) {
           nextwild(&s->xpc, WILD_APPLY, WILD_NO_BEEP, s->firstc != '@');
-          command_line_end_wildmenu(s);
+          command_line_end_wildmenu(s, false);
         }
       }
       pum_want.active = false;
@@ -1334,7 +1377,7 @@ static int command_line_execute(VimState *state, int key)
 
   int wild_type = 0;
   const bool key_is_wc = (s->c == p_wc && KeyTyped) || s->c == p_wcm;
-  if ((cmdline_pum_active() || s->did_wild_list) && !key_is_wc) {
+  if ((cmdline_pum_active() || wild_menu_showing || s->did_wild_list) && !key_is_wc) {
     // Ctrl-Y: Accept the current selection and close the popup menu.
     // Ctrl-E: cancel the cmdline popup menu and return the original text.
     if (s->c == Ctrl_E || s->c == Ctrl_Y) {
@@ -1346,6 +1389,7 @@ static int command_line_execute(VimState *state, int key)
   // Trigger CmdlineLeavePre autocommand
   if ((KeyTyped && (s->c == '\n' || s->c == '\r' || s->c == K_KENTER || s->c == ESC))
       || s->c == Ctrl_C) {
+    set_vim_var_char(s->c);  // Set v:char
     trigger_cmd_autocmd(s->cmdline_type, EVENT_CMDLINELEAVEPRE);
     s->event_cmdlineleavepre_triggered = true;
     if ((s->c == ESC || s->c == Ctrl_C) && (wim_flags[0] & kOptWimFlagList)) {
@@ -1367,7 +1411,7 @@ static int command_line_execute(VimState *state, int key)
 
   // free expanded names when finished walking through matches
   if (end_wildmenu) {
-    command_line_end_wildmenu(s);
+    command_line_end_wildmenu(s, key_is_wc);
   }
 
   if (p_wmnu) {
@@ -1433,10 +1477,21 @@ static int command_line_execute(VimState *state, int key)
     }
   }
 
-  // Completion for 'wildchar' or 'wildcharm' key.
-  if ((s->c == p_wc && !s->gotesc && KeyTyped) || s->c == p_wcm || s->c == Ctrl_Z) {
-    if (command_line_wildchar_complete(s) == CMDLINE_CHANGED) {
+  // Completion for 'wildchar', 'wildcharm', and wildtrigger()
+  if ((s->c == p_wc && !s->gotesc && KeyTyped) || s->c == p_wcm || s->c == K_WILD
+      || s->c == Ctrl_Z) {
+    if (s->c == K_WILD) {
+      emsg_silent++;  // Silence the bell
+    }
+    int res = command_line_wildchar_complete(s);
+    if (s->c == K_WILD) {
+      emsg_silent--;
+    }
+    if (res == CMDLINE_CHANGED) {
       return command_line_changed(s);
+    }
+    if (s->c == K_WILD) {
+      return command_line_not_changed(s);
     }
   }
 
@@ -1448,7 +1503,8 @@ static int command_line_execute(VimState *state, int key)
       if (s->xpc.xp_numfiles > 1
           && ((!s->did_wild_list && (wim_flags[s->wim_index] & kOptWimFlagList)) || p_wmnu)) {
         // Trigger the popup menu when wildoptions=pum
-        showmatches(&s->xpc, p_wmnu && ((wim_flags[s->wim_index] & kOptWimFlagList) == 0));
+        showmatches(&s->xpc, p_wmnu, wim_flags[s->wim_index] & kOptWimFlagList,
+                    wim_flags[0] & kOptWimFlagNoselect);
       }
       nextwild(&s->xpc, WILD_PREV, 0, s->firstc != '@');
       nextwild(&s->xpc, WILD_PREV, 0, s->firstc != '@');
@@ -1466,13 +1522,11 @@ static int command_line_execute(VimState *state, int key)
   // If already used to cancel/accept wildmenu, don't process the key further.
   if (wild_type == WILD_CANCEL || wild_type == WILD_APPLY) {
     // Apply search highlighting
-    if (wild_type == WILD_APPLY) {
-      if (s->is_state.winid != curwin->handle) {
-        init_incsearch_state(&s->is_state);
-      }
-      if (KeyTyped || vpeekc() == NUL) {
-        may_do_incsearch_highlighting(s->firstc, s->count, &s->is_state);
-      }
+    if (s->is_state.winid != curwin->handle) {
+      init_incsearch_state(&s->is_state);
+    }
+    if (KeyTyped || vpeekc() == NUL) {
+      may_do_incsearch_highlighting(s->firstc, s->count, &s->is_state);
     }
     return command_line_not_changed(s);
   }
@@ -1522,6 +1576,17 @@ static int may_do_command_line_next_incsearch(int firstc, int count, incsearch_s
     pat = ccline.cmdbuff + skiplen;
   }
 
+  bool bslsh = false;
+  // do not search for the search end delimiter,
+  // unless it is part of the pattern
+  if (patlen > 2 && firstc == pat[patlen - 1]) {
+    patlen--;
+    if (pat[patlen - 1] == '\\') {
+      pat[patlen - 1] = (char)(uint8_t)firstc;
+      bslsh = true;
+    }
+  }
+
   if (next_match) {
     t = s->match_end;
     if (lt(s->match_start, s->match_end)) {
@@ -1545,6 +1610,9 @@ static int may_do_command_line_next_incsearch(int firstc, int count, incsearch_s
                        RE_SEARCH, NULL);
   emsg_off--;
   pat[patlen] = save;
+  if (bslsh) {
+    pat[patlen - 1] = '\\';
+  }
   ui_busy_stop();
   if (found) {
     s->search_start = s->match_start;
@@ -2003,7 +2071,8 @@ static int command_line_handle_key(CommandLineState *s)
     }
 
   case Ctrl_D:
-    if (showmatches(&s->xpc, false) == EXPAND_NOTHING) {
+    if (showmatches(&s->xpc, false, true, wim_flags[0] & kOptWimFlagNoselect)
+        == EXPAND_NOTHING) {
       break;                  // Use ^D as normal char instead
     }
 
@@ -2184,6 +2253,7 @@ static int command_line_handle_key(CommandLineState *s)
     } else {
       switch (command_line_browse_history(s)) {
       case CMDLINE_CHANGED:
+        s->did_hist_navigate = true;
         return command_line_changed(s);
       case GOTO_NORMAL_MODE:
         return 0;
@@ -2288,7 +2358,6 @@ static void may_trigger_cursormovedc(CommandLineState *s)
 {
   if (ccline.cmdpos != s->prev_cmdpos) {
     trigger_cmd_autocmd(s->cmdline_type, EVENT_CURSORMOVEDC);
-    s->prev_cmdpos = ccline.cmdpos;
     ccline.redraw_state = MAX(ccline.redraw_state, kCmdRedrawPos);
   }
 }
@@ -2296,6 +2365,7 @@ static void may_trigger_cursormovedc(CommandLineState *s)
 static int command_line_not_changed(CommandLineState *s)
 {
   may_trigger_cursormovedc(s);
+  s->prev_cmdpos = ccline.cmdpos;
   // Incremental searches for "/" and "?":
   // Enter command_line_not_changed() when a character has been read but the
   // command line did not change. Then we only search and redraw if something
@@ -2643,7 +2713,7 @@ static bool cmdpreview_may_show(CommandLineState *s)
   char *cmdline = xstrdup(ccline.cmdbuff);
   const char *errormsg = NULL;
   emsg_off++;  // Block errors when parsing the command line, and don't update v:errmsg
-  if (!parse_cmdline(cmdline, &ea, &cmdinfo, &errormsg)) {
+  if (!parse_cmdline(&cmdline, &ea, &cmdinfo, &errormsg)) {
     emsg_off--;
     goto end;
   }
@@ -2772,11 +2842,6 @@ static void do_autocmd_cmdlinechanged(int firstc)
 
 static int command_line_changed(CommandLineState *s)
 {
-  // Trigger CmdlineChanged autocommands.
-  do_autocmd_cmdlinechanged(s->firstc > 0 ? s->firstc : '-');
-
-  may_trigger_cursormovedc(s);
-
   const bool prev_cmdpreview = cmdpreview;
   if (s->firstc == ':'
       && current_sctx.sc_sid == 0    // only if interactive
@@ -2797,6 +2862,14 @@ static int command_line_changed(CommandLineState *s)
       may_do_incsearch_highlighting(s->firstc, s->count, &s->is_state);
     }
   }
+
+  if (ccline.cmdpos != s->prev_cmdpos
+      || (s->prev_cmdbuff != NULL && strcmp(s->prev_cmdbuff, ccline.cmdbuff) != 0)) {
+    // Trigger CmdlineChanged autocommands.
+    do_autocmd_cmdlinechanged(s->firstc > 0 ? s->firstc : '-');
+  }
+
+  may_trigger_cursormovedc(s);
 
   if (p_arshape && !p_tbidi) {
     // Always redraw the whole command line to fix shaping and
@@ -4780,6 +4853,10 @@ void get_user_input(const typval_T *const argvars, typval_T *const rettv, const 
   rettv->v_type = VAR_STRING;
   rettv->vval.v_string = NULL;
 
+  if (cmdpreview) {
+    return;
+  }
+
   const char *prompt;
   const char *defstr = "";
   typval_T *cancelreturn = NULL;
@@ -4893,4 +4970,28 @@ void get_user_input(const typval_T *const argvars, typval_T *const rettv, const 
   // Since the user typed this, no need to wait for return.
   need_wait_return = false;
   msg_didout = false;
+}
+
+/// "wildtrigger()" function
+void f_wildtrigger(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
+{
+  if (!(State & MODE_CMDLINE) || char_avail()
+      || (wild_menu_showing != 0 && wild_menu_showing != WM_LIST)
+      || cmdline_pum_active()) {
+    return;
+  }
+
+  int cmd_type = get_cmdline_type();
+
+  if (cmd_type == ':' || cmd_type == '/' || cmd_type == '?') {
+    // Add K_WILD as a single special key
+    uint8_t key_string[4];
+    key_string[0] = K_SPECIAL;
+    key_string[1] = KS_EXTRA;
+    key_string[2] = KE_WILD;
+    key_string[3] = NUL;
+
+    // Insert it into the typeahead buffer
+    ins_typebuf((char *)key_string, REMAP_NONE, 0, true, false);
+  }
 }

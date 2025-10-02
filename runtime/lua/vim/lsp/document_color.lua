@@ -1,3 +1,6 @@
+--- @brief This module provides LSP support for highlighting color references in a document.
+--- Highlighting is enabled by default.
+
 local api = vim.api
 local lsp = vim.lsp
 local util = lsp.util
@@ -252,11 +255,17 @@ end
 --- @param bufnr integer
 --- @param client_id? integer
 function M._buf_refresh(bufnr, client_id)
-  util._refresh(ms.textDocument_documentColor, {
-    bufnr = bufnr,
-    handler = on_document_color,
-    client_id = client_id,
-  })
+  for _, client in
+    ipairs(lsp.get_clients({
+      bufnr = bufnr,
+      id = client_id,
+      method = ms.textDocument_documentColor,
+    }))
+  do
+    ---@type lsp.DocumentColorParams
+    local params = { textDocument = util.make_text_document_params(bufnr) }
+    client:request(ms.textDocument_documentColor, params, on_document_color)
+  end
 end
 
 --- Query whether document colors are enabled in the given buffer.
@@ -276,15 +285,6 @@ function M.is_enabled(bufnr)
 end
 
 --- Enables document highlighting from the given language client in the given buffer.
----
---- You can enable document highlighting when a client attaches to a buffer as follows:
---- ```lua
---- vim.api.nvim_create_autocmd('LspAttach', {
----   callback = function(args)
----     vim.lsp.document_color.enable(true, args.buf)
----   end
---- })
---- ```
 ---
 --- To "toggle", pass the inverse of `is_enabled()`:
 ---
@@ -450,7 +450,7 @@ function M.color_presentation()
       end
       vim.list_extend(text_edits, choice.additionalTextEdits or {})
 
-      lsp.util.apply_text_edits(text_edits, bufnr, client.offset_encoding)
+      util.apply_text_edits(text_edits, bufnr, client.offset_encoding)
     end)
   end)
 end

@@ -6,9 +6,7 @@
 #include "nvim/statusline_defs.h"
 #include "nvim/types_defs.h"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "option_vars.generated.h"  // NOLINT(build/include_defs)
-#endif
+#include "option_vars.generated.h"  // NOLINT(build/include_defs)
 
 // option_vars.h: definition of global variables for settable options
 
@@ -21,7 +19,7 @@
   "R:SpellRare,L:SpellLocal,+:Pmenu,=:PmenuSel,k:PmenuMatch,<:PmenuMatchSel,[:PmenuKind," \
   "]:PmenuKindSel,{:PmenuExtra,}:PmenuExtraSel,x:PmenuSbar,X:PmenuThumb,*:TabLine,#:TabLineSel," \
   "_:TabLineFill,!:CursorColumn,.:CursorLine,o:ColorColumn,q:QuickFixLine,z:StatusLineTerm," \
-  "Z:StatusLineTermNC,g:MsgArea,h:ComplMatchIns,0:Whitespace,I:NormalNC"
+  "Z:StatusLineTermNC,g:MsgArea,h:ComplMatchIns,0:Whitespace,I:PreInsert"
 
 // Default values for 'errorformat'.
 // The "%f|%l| %m" one is used for when the contents of the quickfix window is
@@ -294,6 +292,7 @@ EXTERN OptInt p_cwh;            ///< 'cmdwinheight'
 EXTERN OptInt p_ch;             ///< 'cmdheight'
 EXTERN char *p_cms;             ///< 'commentstring'
 EXTERN char *p_cpt;             ///< 'complete'
+EXTERN OptInt p_cto;            ///< 'completetimeout'
 EXTERN OptInt p_columns;        ///< 'columns'
 EXTERN int p_confirm;           ///< 'confirm'
 EXTERN char *p_cfc;             ///< 'completefuzzycollect'
@@ -302,6 +301,9 @@ EXTERN char *p_cia;             ///< 'completeitemalign'
 EXTERN unsigned cia_flags;      ///< order flags of 'completeitemalign'
 EXTERN char *p_cot;             ///< 'completeopt'
 EXTERN unsigned cot_flags;      ///< flags from 'completeopt'
+EXTERN int p_ac;                ///< 'autocomplete'
+EXTERN OptInt p_act;            ///< 'autocompletetimeout'
+EXTERN OptInt p_acl;            ///< 'autocompletedelay'
 #ifdef BACKSLASH_IN_FILENAME
 EXTERN char *p_csl;             ///< 'completeslash'
 #endif
@@ -314,6 +316,7 @@ EXTERN char *p_cpo;             ///< 'cpoptions'
 EXTERN char *p_debug;           ///< 'debug'
 EXTERN char *p_def;             ///< 'define'
 EXTERN char *p_inc;
+EXTERN char *p_dia;             ///< 'diffanchors'
 EXTERN char *p_dip;             ///< 'diffopt'
 EXTERN char *p_dex;             ///< 'diffexpr'
 EXTERN char *p_dict;            ///< 'dictionary'
@@ -592,7 +595,7 @@ EXTERN int p_cdh;               ///< 'cdhome'
 
 #define ERR_BUFLEN 80
 
-#define SB_MAX 100000  // Maximum 'scrollback' value.
+#define SB_MAX 1000000  // Maximum 'scrollback' value.
 
 #define MAX_NUMBERWIDTH 20      // used for 'numberwidth'
 

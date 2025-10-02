@@ -46,9 +46,7 @@
 
 #define MENUDEPTH   10          // maximum depth of menus
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "menu.c.generated.h"
-#endif
+#include "menu.c.generated.h"
 
 /// The character for each menu mode
 static char *menu_mode_chars[] = { "n", "v", "s", "o", "i", "c", "tl", "t" };
@@ -1090,7 +1088,7 @@ char *get_menu_names(expand_T *xp, int idx)
 ///
 /// @param name may be modified.
 /// @return start of the next element
-char *menu_name_skip(char *const name)
+static char *menu_name_skip(char *const name)
 {
   char *p;
 

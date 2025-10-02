@@ -746,25 +746,47 @@ func Test_WinClosed_switch_tab()
   %bwipe!
 endfunc
 
-" This used to trigger WinClosed twice for the same window, and the window's
-" buffer was NULL in the second autocommand.
-func Test_WinClosed_BufUnload_close_other()
-  tabnew
+" This used to trigger WinClosed/WinLeave/BufLeave twice for the same window,
+" and the window's buffer was NULL in the second autocommand.
+func Run_test_BufUnload_close_other(extra_cmd)
+  let oldtab = tabpagenr()
+  tabnew Xb1
   let g:tab = tabpagenr()
-  let g:buf = bufnr()
-  new
-  setlocal bufhidden=wipe
-  augroup test-WinClosed
-    autocmd BufUnload * ++once exe g:buf .. 'bwipe!'
-    autocmd WinClosed * call tabpagebuflist(g:tab)
+  let g:w1 = win_getid()
+  new Xb2
+  let g:w2 = win_getid()
+  let g:log = []
+  exe a:extra_cmd
+
+  augroup test-BufUnload-close-other
+    autocmd BufUnload * ++nested ++once bwipe! Xb1
+    for event in ['WinClosed', 'BufLeave', 'WinLeave', 'TabLeave']
+      exe $'autocmd {event} * call tabpagebuflist(g:tab)'
+      exe $'autocmd {event} * let g:log += ["{event}:" .. expand("<afile>")]'
+    endfor
   augroup END
+
   close
+  " WinClosed is triggered once for each of the 2 closed windows.
+  " Others are only triggered once.
+  call assert_equal(['BufLeave:Xb2', 'WinLeave:Xb2', $'WinClosed:{g:w2}',
+        \ $'WinClosed:{g:w1}', 'TabLeave:Xb2'], g:log)
+  call assert_equal(oldtab, tabpagenr())
+  call assert_equal([0, 0], win_id2tabwin(g:w1))
+  call assert_equal([0, 0], win_id2tabwin(g:w2))
 
   unlet g:tab
-  unlet g:buf
-  autocmd! test-WinClosed
-  augroup! test-WinClosed
+  unlet g:w1
+  unlet g:w2
+  unlet g:log
+  autocmd! test-BufUnload-close-other
+  augroup! test-BufUnload-close-other
   %bwipe!
+endfunc
+
+func Test_BufUnload_close_other()
+  call Run_test_BufUnload_close_other('')
+  call Run_test_BufUnload_close_other('setlocal bufhidden=wipe')
 endfunc
 
 func s:AddAnAutocmd()
@@ -859,7 +881,7 @@ func Test_BufReadCmdNofile()
             \ 'quickfix',
             \ 'help',
             "\ 'terminal',
-            \ 'prompt',
+            "\ 'prompt',
             "\ 'popup',
             \ ]
     new somefile
@@ -977,7 +999,7 @@ func Test_BufEnter()
             \ 'quickfix',
             \ 'help',
             "\ 'terminal',
-            \ 'prompt',
+            "\ 'prompt',
             "\ 'popup',
             \ ]
     new somefile
@@ -2090,7 +2112,7 @@ func Test_Cmdline()
 
   let g:log = []
   let @r = 'abc'
-  call feedkeys(":0\<C-R>r1\<C-R>\<C-O>r2\<C-R>\<C-R>r3\<Esc>", 'xt')
+  call feedkeys(":0\<C-R>=@r\<CR>1\<C-R>\<C-O>r2\<C-R>\<C-R>r3\<Esc>", 'xt')
   call assert_equal([
         \ '0',
         \ '0a',
@@ -2101,6 +2123,17 @@ func Test_Cmdline()
         \ '0abc1abc2',
         \ '0abc1abc2abc',
         \ '0abc1abc2abc3',
+        \ ], g:log)
+
+  " <Del> should trigger CmdlineChanged
+  let g:log = []
+  call feedkeys(":foo\<Left>\<Left>\<Del>\<Del>\<Esc>", 'xt')
+  call assert_equal([
+        \ 'f',
+        \ 'fo',
+        \ 'foo',
+        \ 'fo',
+        \ 'f',
         \ ], g:log)
 
   unlet g:log
@@ -2375,7 +2408,10 @@ func Test_BufReadCmd()
 
   call writefile(['one', 'two', 'three'], 'Xcmd.test', 'D')
   edit Xcmd.test
+  set noruler
   call assert_match('Xcmd.test" line 1 of 3', execute('file'))
+  set ruler
+  call assert_match('Xcmd.test" 3 lines --33%--', execute('file'))
   normal! Gofour
   write
   call assert_equal(['one', 'two', 'three', 'four'], readfile('Xcmd.test'))

@@ -36,10 +36,10 @@
 #include "nvim/macros_defs.h"
 #include "nvim/memory.h"
 #include "nvim/message.h"
-#include "nvim/ops.h"
 #include "nvim/option.h"
 #include "nvim/option_defs.h"
 #include "nvim/os/os.h"
+#include "nvim/register.h"
 #include "nvim/search.h"
 #include "nvim/strings.h"
 #include "nvim/types_defs.h"
@@ -48,9 +48,7 @@
 
 typedef int (*ex_unletlock_callback)(lval_T *, char *, exarg_T *, int);
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "eval/vars.c.generated.h"
-#endif
+#include "eval/vars.c.generated.h"
 
 // TODO(ZyX-I): Remove DICT_MAXNEST, make users be non-recursive instead
 

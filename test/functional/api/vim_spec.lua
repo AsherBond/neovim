@@ -385,6 +385,9 @@ describe('API', function()
       )
       eq({ output = '' }, api.nvim_exec2('echo', { output = true }))
       eq({ output = 'foo 42' }, api.nvim_exec2('echo "foo" 42', { output = true }))
+      -- Returns output in cmdline mode #35321
+      feed(':')
+      eq({ output = 'foo 42' }, api.nvim_exec2('echo "foo" 42', { output = true }))
     end)
 
     it('displays messages when opts.output=false', function()
@@ -1572,6 +1575,17 @@ describe('API', function()
         ]])
       eq("Invalid 'type': 'bx'", pcall_err(api.nvim_put, { 'xxx', 'yyy' }, 'bx', false, true))
       eq("Invalid 'type': 'b3x'", pcall_err(api.nvim_put, { 'xxx', 'yyy' }, 'b3x', false, true))
+    end)
+
+    it('computes block width correctly when not specified #35034', function()
+      api.nvim_put({ 'line 1', 'line 2', 'line 3' }, 'l', false, false)
+      -- block width should be 4
+      api.nvim_put({ 'あい', 'xxx', 'xx' }, 'b', false, false)
+      expect([[
+        あいline 1
+        xxx line 2
+        xx  line 3
+        ]])
     end)
   end)
 
@@ -4933,6 +4947,9 @@ describe('API', function()
     end)
 
     it('captures output', function()
+      eq('foo', api.nvim_cmd({ cmd = 'echo', args = { '"foo"' } }, { output = true }))
+      -- Returns output in cmdline mode #35321
+      feed(':')
       eq('foo', api.nvim_cmd({ cmd = 'echo', args = { '"foo"' } }, { output = true }))
     end)
 

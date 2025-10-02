@@ -1,5 +1,8 @@
 #!/usr/bin/env -S nvim -l
---- Generates Nvim :help docs from Lua/C docstrings
+--- Generates Nvim :help docs from Lua/C docstrings.
+---
+--- Usage:
+---     make doc
 ---
 --- The generated :help text for each function is formatted as follows:
 --- - Max width of 78 columns (`TEXT_WIDTH`).
@@ -105,17 +108,21 @@ local config = {
   api = {
     filename = 'api.txt',
     section_order = {
+      -- Sections at the top, in a specific order:
+      'events.c',
       'vim.c',
       'vimscript.c',
-      'command.c',
-      'options.c',
-      'buffer.c',
-      'extmark.c',
-      'window.c',
-      'win_config.c',
-      'tabpage.c',
+
+      -- Sections in alphanumeric order:
       'autocmd.c',
+      'buffer.c',
+      'command.c',
+      'extmark.c',
+      'options.c',
+      'tabpage.c',
       'ui.c',
+      'win_config.c',
+      'window.c',
     },
     fn_name_pat = 'nvim_.*',
     files = { 'src/nvim/api' },
@@ -123,77 +130,93 @@ local config = {
       ['vim.c'] = 'Global',
     },
     section_fmt = function(name)
+      if name == 'Events' then
+        return 'Global Events'
+      end
+
       return name .. ' Functions'
     end,
     helptag_fmt = function(name)
       return fmt('api-%s', name:lower())
     end,
+    fn_helptag_fmt = function(fun)
+      local name = fun.name
+      if vim.endswith(name, '_event') then
+        return name
+      end
+      return fn_helptag_fmt_common(fun)
+    end,
   },
   lua = {
     filename = 'lua.txt',
     section_order = {
-      'hl.lua',
-      'diff.lua',
-      'mpack.lua',
-      'json.lua',
-      'base64.lua',
-      'spell.lua',
+      -- Sections at the top, in a specific order:
       'builtin.lua',
       '_options.lua',
       '_editor.lua',
-      '_system.lua',
       '_inspector.lua',
       'shared.lua',
-      'loader.lua',
-      'pack.lua',
-      'uri.lua',
-      'ui.lua',
-      '_extui.lua',
+
+      -- Sections in alphanumeric order:
+      'base64.lua',
       'filetype.lua',
-      'keymap.lua',
       'fs.lua',
       'glob.lua',
+      'hl.lua',
+      'iter.lua',
+      'json.lua',
+      'keymap.lua',
+      'loader.lua',
       'lpeg.lua',
+      'mpack.lua',
+      'net.lua',
+      'pos.lua',
+      'range.lua',
       're.lua',
       'regex.lua',
       'secure.lua',
-      'version.lua',
-      'iter.lua',
       'snippet.lua',
+      'spell.lua',
+      '_system.lua',
       'text.lua',
-      'tohtml.lua',
+      'ui.lua',
+      'uri.lua',
+      'version.lua',
+
+      -- Sections at the end, in a specific order:
+      '_extui.lua',
     },
     files = {
-      'runtime/lua/vim/iter.lua',
       'runtime/lua/vim/_editor.lua',
-      'runtime/lua/vim/_options.lua',
-      'runtime/lua/vim/shared.lua',
-      'runtime/lua/vim/loader.lua',
-      'runtime/lua/vim/pack.lua',
-      'runtime/lua/vim/uri.lua',
-      'runtime/lua/vim/ui.lua',
       'runtime/lua/vim/_extui.lua',
+      'runtime/lua/vim/_inspector.lua',
+      'runtime/lua/vim/_meta/base64.lua',
+      'runtime/lua/vim/_meta/builtin.lua',
+      'runtime/lua/vim/_meta/json.lua',
+      'runtime/lua/vim/_meta/lpeg.lua',
+      'runtime/lua/vim/_meta/mpack.lua',
+      'runtime/lua/vim/_meta/re.lua',
+      'runtime/lua/vim/_meta/regex.lua',
+      'runtime/lua/vim/_meta/spell.lua',
+      'runtime/lua/vim/_options.lua',
       'runtime/lua/vim/_system.lua',
       'runtime/lua/vim/filetype.lua',
-      'runtime/lua/vim/keymap.lua',
       'runtime/lua/vim/fs.lua',
+      'runtime/lua/vim/glob.lua',
       'runtime/lua/vim/hl.lua',
+      'runtime/lua/vim/iter.lua',
+      'runtime/lua/vim/keymap.lua',
+      'runtime/lua/vim/loader.lua',
+      'runtime/lua/vim/net.lua',
+      'runtime/lua/vim/pos.lua',
+      'runtime/lua/vim/range.lua',
       'runtime/lua/vim/secure.lua',
-      'runtime/lua/vim/version.lua',
-      'runtime/lua/vim/_inspector.lua',
+      'runtime/lua/vim/shared.lua',
       'runtime/lua/vim/snippet.lua',
       'runtime/lua/vim/text.lua',
-      'runtime/lua/vim/glob.lua',
-      'runtime/lua/vim/_meta/builtin.lua',
-      'runtime/lua/vim/_meta/diff.lua',
-      'runtime/lua/vim/_meta/mpack.lua',
-      'runtime/lua/vim/_meta/json.lua',
-      'runtime/lua/vim/_meta/base64.lua',
-      'runtime/lua/vim/_meta/regex.lua',
-      'runtime/lua/vim/_meta/lpeg.lua',
-      'runtime/lua/vim/_meta/re.lua',
-      'runtime/lua/vim/_meta/spell.lua',
-      'runtime/lua/tohtml.lua',
+      'runtime/lua/vim/ui.lua',
+      'runtime/lua/vim/uri.lua',
+      'runtime/lua/vim/version.lua',
     },
     fn_xform = function(fun)
       if contains(fun.module, { 'vim.uri', 'vim.shared', 'vim._editor' }) then
@@ -224,24 +247,6 @@ local config = {
       elseif name == 'builtin' then
         return 'VIM'
       end
-      if
-        contains(name, {
-          'hl',
-          'mpack',
-          'json',
-          'base64',
-          'diff',
-          'spell',
-          'regex',
-          'lpeg',
-          're',
-        })
-      then
-        return 'VIM.' .. name:upper()
-      end
-      if name == 'tohtml' then
-        return 'Lua module: tohtml'
-      end
       return 'Lua module: vim.' .. name
     end,
     helptag_fmt = function(name)
@@ -251,8 +256,6 @@ local config = {
         return 'lua-vim-system'
       elseif name == '_options' then
         return 'lua-vimscript'
-      elseif name == 'tohtml' then
-        return 'tohtml'
       end
       return 'vim.' .. name:lower()
     end,
@@ -275,21 +278,29 @@ local config = {
   lsp = {
     filename = 'lsp.txt',
     section_order = {
+      -- Sections at the top, in a specific order:
       'lsp.lua',
-      'client.lua',
+
+      -- Sections in alphanumeric order:
       'buf.lua',
-      'diagnostic.lua',
+      'client.lua',
       'codelens.lua',
       'completion.lua',
-      'folding_range.lua',
-      'inlay_hint.lua',
-      'tagfunc.lua',
-      'semantic_tokens.lua',
+      'diagnostic.lua',
       'document_color.lua',
+      'folding_range.lua',
       'handlers.lua',
-      'util.lua',
+      'inlay_hint.lua',
+      'inline_completion.lua',
+      'linked_editing_range.lua',
       'log.lua',
+      'on_type_formatting.lua',
       'rpc.lua',
+      'semantic_tokens.lua',
+      'tagfunc.lua',
+
+      -- Sections at the end, in a specific order:
+      'util.lua',
       'protocol.lua',
     },
     files = {
@@ -331,15 +342,18 @@ local config = {
   treesitter = {
     filename = 'treesitter.txt',
     section_order = {
+      -- Sections at the top, in a specific order:
       'tstree.lua',
       'tsnode.lua',
       'treesitter.lua',
+
+      -- Sections in alphanumeric order:
+      'dev.lua',
+      'highlighter.lua',
       'language.lua',
+      'languagetree.lua',
       'query.lua',
       'tsquery.lua',
-      'highlighter.lua',
-      'languagetree.lua',
-      'dev.lua',
     },
     append_only = { 'tsquery.lua' },
     files = {
@@ -370,25 +384,6 @@ local config = {
       return 'treesitter-' .. name:lower()
     end,
   },
-  editorconfig = {
-    filename = 'editorconfig.txt',
-    files = {
-      'runtime/lua/editorconfig.lua',
-    },
-    section_order = {
-      'editorconfig.lua',
-    },
-    section_fmt = function(_name)
-      return 'EditorConfig integration'
-    end,
-    helptag_fmt = function(name)
-      return name:lower()
-    end,
-    fn_xform = function(fun)
-      fun.table = true
-      fun.name = vim.split(fun.name, '.', { plain = true })[2]
-    end,
-  },
   health = {
     filename = 'health.txt',
     files = {
@@ -402,6 +397,41 @@ local config = {
     end,
     helptag_fmt = function()
       return { 'vim.health', 'health' }
+    end,
+  },
+  pack = {
+    filename = 'pack.txt',
+    files = { 'runtime/lua/vim/pack.lua' },
+    section_order = { 'pack.lua' },
+    section_fmt = function(_name)
+      return 'Plugin manager'
+    end,
+    helptag_fmt = function()
+      return { 'vim.pack' }
+    end,
+  },
+  plugins = {
+    filename = 'plugins.txt',
+    section_order = {
+      'editorconfig.lua',
+      'tohtml.lua',
+    },
+    files = {
+      'runtime/lua/editorconfig.lua',
+      'runtime/lua/tohtml.lua',
+    },
+    fn_xform = function(fun)
+      if fun.module == 'editorconfig' then
+        -- Example: "editorconfig.properties.root()" => "editorconfig.root"
+        fun.table = true
+        fun.name = vim.split(fun.name, '.', { plain = true })[2] or fun.name
+      end
+    end,
+    section_fmt = function(name)
+      return 'Builtin plugin: ' .. name:lower()
+    end,
+    helptag_fmt = function(name)
+      return name:lower()
     end,
   },
 }
@@ -435,7 +465,6 @@ end
 --- @param generics? table<string,string>
 --- @param default? string
 local function render_type(ty, generics, default)
-  -- TODO(lewis6991): Document LSP protocol types
   ty = ty:gsub('vim%.lsp%.protocol%.Method.[%w.]+', 'string')
 
   if generics then
@@ -575,7 +604,7 @@ local function render_fields_or_params(xs, generics, classes, cfg)
     inline_type(p, classes)
     local nm, ty = p.name, p.type
 
-    local desc = p.classvar and string.format('See |%s|.', cfg.fn_helptag_fmt(p)) or p.desc
+    local desc = p.classvar and fmt('See |%s|.', cfg.fn_helptag_fmt(p)) or p.desc
 
     local fnm = p.kind == 'operator' and fmt('op(%s)', nm) or fmt_field_name(nm)
     local pnm = fmt('      • %-' .. indent .. 's', fnm)
@@ -1055,7 +1084,7 @@ local function gen_target(cfg)
   for _, f in ipairs(cfg.section_order) do
     local section = sections[f]
     if section then
-      print(string.format("    Rendering section: '%s'", section.title))
+      print(fmt("    Rendering section: '%s'", section.title))
       local add_sep_and_header = not vim.tbl_contains(cfg.append_only or {}, f)
       docs[#docs + 1] = render_section(section, add_sep_and_header)
     end

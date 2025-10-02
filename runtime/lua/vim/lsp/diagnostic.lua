@@ -269,37 +269,36 @@ function M.on_diagnostic(error, result, ctx)
     return
   end
 
-  if result == nil or result.kind == 'unchanged' then
+  if result == nil then
     return
   end
 
   local client_id = ctx.client_id
-  handle_diagnostics(ctx.params.textDocument.uri, client_id, result.items, true)
-
   local bufnr = assert(ctx.bufnr)
   local bufstate = bufstates[bufnr]
   bufstate.client_result_id[client_id] = result.resultId
-end
 
---- Clear push diagnostics and diagnostic cache.
----
---- Diagnostic producers should prefer |vim.diagnostic.reset()|. However,
---- this method signature is still used internally in some parts of the LSP
---- implementation so it's simply marked @private rather than @deprecated.
----
----@param client_id integer
----@param buffer_client_map table<integer, table<integer, table>> map of buffers to active clients
----@private
-function M.reset(client_id, buffer_client_map)
-  buffer_client_map = vim.deepcopy(buffer_client_map)
-  vim.schedule(function()
-    for bufnr, client_ids in pairs(buffer_client_map) do
-      if client_ids[client_id] then
-        local namespace = M.get_namespace(client_id, false)
-        vim.diagnostic.reset(namespace, bufnr)
-      end
+  if result.kind == 'unchanged' then
+    return
+  end
+
+  handle_diagnostics(ctx.params.textDocument.uri, client_id, result.items, true)
+
+  for uri, related_result in pairs(result.relatedDocuments or {}) do
+    if related_result.kind == 'full' then
+      handle_diagnostics(uri, client_id, related_result.items, true)
     end
-  end)
+
+    local related_bufnr = vim.uri_to_bufnr(uri)
+    local related_bufstate = bufstates[related_bufnr]
+      -- Create a new bufstate if it doesn't exist for the related document. This will not enable
+      -- diagnostic pulling by itself, but will allow previous result IDs to be passed correctly the
+      -- next time this buffer's diagnostics are pulled.
+      or { pull_kind = 'document', client_result_id = {} }
+    bufstates[related_bufnr] = related_bufstate
+
+    related_bufstate.client_result_id[client_id] = related_result.resultId
+  end
 end
 
 --- Get the diagnostics by line
@@ -478,7 +477,7 @@ function M._workspace_diagnostics(opts)
   local function handler(error, result, ctx)
     -- Check for retrigger requests on cancellation errors.
     -- Unless `retriggerRequest` is explicitly disabled, try again.
-    if error ~= nil and error.code == lsp.protocol.ErrorCodes.ServerCancelled then
+    if error ~= nil and error.code == protocol.ErrorCodes.ServerCancelled then
       if error.data == nil or error.data.retriggerRequest ~= false then
         local client = assert(lsp.get_client_by_id(ctx.client_id))
         client:request(ms.workspace_diagnostic, ctx.params, handler)

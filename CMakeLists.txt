@@ -277,7 +277,7 @@ add_glob_target(
   TOUCH_STRATEGY PER_DIR)
 
 add_custom_target(lintcommit
-  COMMAND $<TARGET_FILE:nvim_bin> -u NONE -l ${PROJECT_SOURCE_DIR}/scripts/lintcommit.lua main)
+  COMMAND $<TARGET_FILE:nvim_bin> --clean -l ${PROJECT_SOURCE_DIR}/scripts/lintcommit.lua main)
 add_dependencies(lintcommit nvim_bin)
 
 add_custom_target(lint)
@@ -346,7 +346,7 @@ else()
   add_custom_target(lua_dev_deps)
 endif()
 
-if (CMAKE_SYSTEM_PROCESSOR MATCHES arm64)
+if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch")
   set(LUALS_ARCH arm64)
 else()
   set(LUALS_ARCH x64)

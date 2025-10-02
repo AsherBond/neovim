@@ -43,6 +43,7 @@
 #include "nvim/pos_defs.h"
 #include "nvim/regexp.h"
 #include "nvim/regexp_defs.h"
+#include "nvim/shada.h"
 #include "nvim/spell.h"
 #include "nvim/spellfile.h"
 #include "nvim/spellsuggest.h"
@@ -53,9 +54,7 @@
 #include "nvim/vim_defs.h"
 #include "nvim/window.h"
 
-#ifdef INCLUDE_GENERATED_DECLARATIONS
-# include "optionstr.c.generated.h"
-#endif
+#include "optionstr.c.generated.h"
 
 static const char e_illegal_character_after_chr[]
   = N_("E535: Illegal character after <%c>");
@@ -117,6 +116,15 @@ char *illegal_char(char *errbuf, size_t errbuflen, int c)
   return errbuf;
 }
 
+static char *illegal_char_after_chr(char *errbuf, size_t errbuflen, int c)
+{
+  if (errbuf == NULL) {
+    return "";
+  }
+  vim_snprintf(errbuf, errbuflen, _(e_illegal_character_after_chr), c);
+  return errbuf;
+}
+
 /// Check string options in a buffer for NULL value.
 void check_buf_options(buf_T *buf)
 {
@@ -170,6 +178,7 @@ void check_buf_options(buf_T *buf)
   check_string_option(&buf->b_p_tfu);
   check_string_option(&buf->b_p_tc);
   check_string_option(&buf->b_p_dict);
+  check_string_option(&buf->b_p_dia);
   check_string_option(&buf->b_p_tsr);
   check_string_option(&buf->b_p_tsrfu);
   check_string_option(&buf->b_p_lw);
@@ -900,9 +909,8 @@ const char *did_set_complete(optset_T *args)
     }
     if (char_before != NUL) {
       if (args->os_errbuf != NULL) {
-        vim_snprintf(args->os_errbuf, args->os_errbuflen,
-                     _(e_illegal_character_after_chr), char_before);
-        return args->os_errbuf;
+        return illegal_char_after_chr(args->os_errbuf, args->os_errbuflen,
+                                      char_before);
       }
       return NULL;
     }
@@ -910,6 +918,10 @@ const char *did_set_complete(optset_T *args)
     while (*p == ',' || *p == ' ') {
       p++;
     }
+  }
+
+  if (set_cpt_callbacks(args) != OK) {
+    return illegal_char_after_chr(args->os_errbuf, args->os_errbuflen, 'F');
   }
   return NULL;
 }
@@ -1032,6 +1044,16 @@ const char *did_set_cursorlineopt(optset_T *args)
 
   // This could be changed to use opt_strings_flags() instead.
   if (**varp == NUL || fill_culopt_flags(*varp, win) != OK) {
+    return e_invarg;
+  }
+
+  return NULL;
+}
+
+/// The 'diffanchors' option is changed.
+const char *did_set_diffanchors(optset_T *args)
+{
+  if (diffanchors_changed(args->os_flags & OPT_LOCAL) == FAIL) {
     return e_invarg;
   }
 
