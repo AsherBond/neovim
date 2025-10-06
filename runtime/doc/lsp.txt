@@ -1365,8 +1365,10 @@ code_action({opts})                                *vim.lsp.buf.code_action()*
                     values like `refactor` or `quickfix`.
                   • {triggerKind}? (`integer`) The reason why code actions
                     were requested.
-                • {filter}? (`fun(x: lsp.CodeAction|lsp.Command):boolean`)
-                  Predicate taking an `CodeAction` and returning a boolean.
+                • {filter}?
+                  (`fun(x: lsp.CodeAction|lsp.Command, client_id: integer):boolean`)
+                  Predicate taking a code action or command and the provider's
+                  ID. If it returns false, the action is filtered out.
                 • {apply}? (`boolean`) When set to `true`, and there is just
                   one remaining action (after filtering), the action is
                   applied without user query.
@@ -3044,12 +3046,6 @@ make_client_capabilities()
 
     Return: ~
         (`lsp.ClientCapabilities`)
-
-Methods                                             *vim.lsp.protocol.Methods*
-    LSP method names.
-
-    See also: ~
-      • https://microsoft.github.io/language-server-protocol/specification/#metaModel
 
                                      *vim.lsp.protocol.resolve_capabilities()*
 resolve_capabilities({server_capabilities})
