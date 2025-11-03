@@ -282,6 +282,10 @@ preprocess_patch() {
   LC_ALL=C sed -Ee 's/( [ab]\/src\/nvim)\/profiler\.c/\1\/profile.c/g' \
     "$file" > "$file".tmp && mv "$file".tmp "$file"
 
+  # Rename regexp_(bt|nfa).c to regexp.c
+  LC_ALL=C sed -Ee 's/( [ab]\/src\/nvim)\/regexp_(bt|nfa)\.c/\1\/regexp.c/g' \
+    "$file" > "$file".tmp && mv "$file".tmp "$file"
+
   # Rename scriptfile.c to runtime.c
   LC_ALL=C sed -Ee 's/( [ab]\/src\/nvim)\/scriptfile\.c/\1\/runtime.c/g' \
     "$file" > "$file".tmp && mv "$file".tmp "$file"
@@ -308,6 +312,10 @@ preprocess_patch() {
 
   # Rename runtime/doc/eval.txt to runtime/doc/vimeval.txt
   LC_ALL=C sed -Ee 's/( [ab]\/runtime\/doc)\/eval\.txt/\1\/vimeval.txt/g' \
+    "$file" > "$file".tmp && mv "$file".tmp "$file"
+
+  # Rename <lang>.txt to l10n-<lang>.txt
+  LC_ALL=C sed -Ee 's/( [ab]\/runtime\/doc)\/(arabic|hebrew|russian|vietnamese)\.txt/\1\/l10n-\2.txt/g' \
     "$file" > "$file".tmp && mv "$file".tmp "$file"
 
   # Rename version*.txt to news.txt

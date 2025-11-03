@@ -46,6 +46,10 @@ end
 ---@param end_lnum integer|nil The line number of the last line (inclusive, 1-based)
 ---@return string[] # Array of lines
 function M._getlines(bufnr, start_lnum, end_lnum)
+  if not bufnr or bufnr < 0 then
+    return {}
+  end
+
   if start_lnum then
     return api.nvim_buf_get_lines(bufnr, start_lnum - 1, end_lnum or start_lnum, false)
   end
@@ -59,6 +63,10 @@ end
 ---@param start_lnum integer The line number of the first line (inclusive, 1-based)
 ---@return string
 function M._getline(bufnr, start_lnum)
+  if not bufnr or bufnr < 0 then
+    return ''
+  end
+
   -- Return a single line
   return api.nvim_buf_get_lines(bufnr, start_lnum - 1, start_lnum, false)[1] or ''
 end
@@ -204,6 +212,7 @@ local extension = {
   aml = 'aml',
   run = 'ampl',
   g4 = 'antlr4',
+  applescript = 'applescript',
   scpt = 'applescript',
   ino = 'arduino',
   pde = 'arduino',
@@ -920,6 +929,7 @@ local extension = {
   textproto = 'pbtxt',
   textpb = 'pbtxt',
   pbtxt = 'pbtxt',
+  aconfig = 'pbtxt',
   g = 'pccts',
   pcmk = 'pcmk',
   pdf = 'pdf',
@@ -1164,6 +1174,7 @@ local extension = {
   spt = 'snobol4',
   sno = 'snobol4',
   sln = 'solution',
+  soy = 'soy',
   sparql = 'sparql',
   rq = 'sparql',
   spec = 'spec',
@@ -3091,6 +3102,10 @@ end
 ---@return function|nil # A function that modifies buffer state when called (for example, to set some
 ---                     filetype specific buffer variables). The function accepts a buffer number as
 ---                     its only argument.
+---@return boolean|nil # Return true if a match was found by falling back to a generic configuration
+---                    file (i.e., ".conf"). If true, the filetype should be set with
+---                    `:setf FALLBACK conf`, which enables a later |:setf| command to override the
+---                    filetype. See `:help setf` for more information.
 function M.match(args)
   vim.validate('arg', args, 'table')
 
@@ -3183,9 +3198,17 @@ function M.match(args)
           return dispatch(extension[ext], name, bufnr)
         end
       )
-      if ok then
+      if ok and ft then
         return ft, on_detect
       end
+    end
+  end
+
+  -- Generic configuration file used as fallback
+  if name and bufnr then
+    local ft = detect.conf(name, bufnr)
+    if ft then
+      return ft, nil, true
     end
   end
 end

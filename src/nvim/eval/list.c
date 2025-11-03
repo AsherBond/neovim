@@ -235,7 +235,9 @@ static void filter_map_string(const char *str, filtermap_T filtermap, typval_T *
     };
 
     set_vim_var_nr(VV_KEY, idx);
-    typval_T newtv;
+    typval_T newtv = {
+      .v_type = VAR_UNKNOWN,
+    };
     bool rem;
     if (filter_map_one(&tv, expr, filtermap, &newtv, &rem) == FAIL
         || did_emsg) {
@@ -247,7 +249,7 @@ static void filter_map_string(const char *str, filtermap_T filtermap, typval_T *
       if (newtv.v_type != VAR_STRING) {
         tv_clear(&newtv);
         tv_clear(&tv);
-        emsg(_(e_stringreq));
+        emsg(_(e_string_required));
         break;
       } else {
         ga_concat(&ga, newtv.vval.v_string);
@@ -463,13 +465,12 @@ static varnumber_T count_string(const char *haystack, const char *needle, bool i
     return 0;
   }
 
+  size_t needlelen = strlen(needle);
   if (ic) {
-    const size_t len = strlen(needle);
-
     while (*p != NUL) {
-      if (mb_strnicmp(p, needle, len) == 0) {
+      if (mb_strnicmp(p, needle, needlelen) == 0) {
         n++;
-        p += len;
+        p += needlelen;
       } else {
         MB_PTR_ADV(p);
       }
@@ -478,7 +479,7 @@ static varnumber_T count_string(const char *haystack, const char *needle, bool i
     const char *next;
     while ((next = strstr(p, needle)) != NULL) {
       n++;
-      p = next + strlen(needle);
+      p = next + needlelen;
     }
   }
 

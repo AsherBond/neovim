@@ -1710,7 +1710,7 @@ vim.is_callable({f})                                       *vim.is_callable()*
     Returns true if object `f` can be called as a function.
 
     Parameters: ~
-      • {f}  (`any`) Any object
+      • {f}  (`any?`) Any object
 
     Return: ~
         (`boolean`) `true` if `f` is callable, else `false`
@@ -1727,7 +1727,7 @@ vim.isarray({t})                                               *vim.isarray()*
     |rpcrequest()| or |vim.fn|.
 
     Parameters: ~
-      • {t}  (`table?`)
+      • {t}  (`any?`)
 
     Return: ~
         (`boolean`) `true` if array-like table, else `false`.
@@ -2414,6 +2414,11 @@ vim.filetype.match({args})                              *vim.filetype.match()*
         (`function?`) A function that modifies buffer state when called (for
         example, to set some filetype specific buffer variables). The function
         accepts a buffer number as its only argument.
+        (`boolean?`) Return true if a match was found by falling back to a
+        generic configuration file (i.e., ".conf"). If true, the filetype
+        should be set with `:setf FALLBACK conf`, which enables a later
+        |:setf| command to override the filetype. See `:help setf` for more
+        information.
 
 
 ==============================================================================
@@ -4510,11 +4515,12 @@ SystemObj:kill({signal})                                    *SystemObj:kill()*
 
     Example: >lua
         local obj = vim.system({'sleep', '10'})
-        obj:kill('TERM') -- sends SIGTERM to the process
+        obj:kill('sigterm') -- sends SIGTERM to the process
 <
 
     Parameters: ~
-      • {signal}  (`integer|string`) Signal to send to the process.
+      • {signal}  (`integer|string`) Signal to send to the process. See
+                  |luv-constants|.
 
 SystemObj:wait({timeout})                                   *SystemObj:wait()*
     Waits for the process to complete or until the specified timeout elapses.

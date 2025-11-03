@@ -220,7 +220,7 @@ local function buf_apply_graph_lines(tree, graph_lines, buf, meta, find_seq)
         found_seq = #meta
       end
     elseif line then
-      table.insert(extmark_buffer, { { line, 'Comment' } })
+      table.insert(extmark_buffer, { { line, 'Normal' } })
     end
 
     if next(extmark_buffer) and (v.kind == 'node' or is_last) then
@@ -236,7 +236,10 @@ local function buf_apply_graph_lines(tree, graph_lines, buf, meta, find_seq)
         local end_ = vim.api.nvim_buf_line_count(buf) - 1
         local start = end_ - #line_buffer + 3
         vim.api.nvim_buf_call(buf, function()
-          vim.cmd.fold { range = { start, end_ } }
+          local w = vim.b[buf].nvim_is_undotree
+          if vim.api.nvim_win_is_valid(w) and vim.wo[w].foldmethod == 'manual' then
+            vim.cmd.fold { range = { start, end_ } }
+          end
         end)
       end
 
@@ -264,9 +267,11 @@ local function draw(inbuf, outbuf)
   local curseq_line = buf_apply_graph_lines(tree, graph_lines, outbuf, meta, curseq)
   vim.bo[outbuf].modifiable = false
 
-  if vim.api.nvim_win_is_valid(vim.b[outbuf].nvim_is_undotree) then
-    vim.api.nvim_win_set_cursor(vim.b[outbuf].nvim_is_undotree, { curseq_line, 0 })
-  end
+  vim.schedule(function()
+    if vim.api.nvim_win_is_valid(vim.b[outbuf].nvim_is_undotree) then
+      vim.api.nvim_win_set_cursor(vim.b[outbuf].nvim_is_undotree, { curseq_line, 0 })
+    end
+  end)
 
   return meta
 end
@@ -287,7 +292,7 @@ end
 ---
 --- Title of the window. If a function, it accepts the buffer number of the
 --- source buffer as its only argument and should return a string.
---- @field title (string|fun(bufnr:integer):string|nil)
+--- @field title (string|fun(bufnr:integer):string|nil)?
 
 --- Open a window that displays a textual representation of the undotree.
 ---
@@ -369,9 +374,7 @@ function M.open(opts)
 
   vim.api.nvim_win_set_cursor(w, { vim.api.nvim_buf_line_count(b), 0 })
 
-  local group = vim.api.nvim_create_augroup('nvim.undotree', { clear = false })
-  vim.api.nvim_clear_autocmds({ buffer = b })
-  vim.api.nvim_clear_autocmds({ buffer = buf })
+  local group = vim.api.nvim_create_augroup('nvim.undotree', {})
 
   vim.api.nvim_win_call(w, function()
     vim.cmd.syntax('region Comment start="(" end=")"')

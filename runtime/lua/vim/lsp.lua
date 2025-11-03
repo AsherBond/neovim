@@ -301,9 +301,9 @@ end
 ---     filetypes = { 'c', 'cpp' },
 ---   }
 ---   ```
---- - Get the resolved configuration for "luals":
+--- - Get the resolved configuration for "lua_ls":
 ---   ```lua
----   local cfg = vim.lsp.config.luals
+---   local cfg = vim.lsp.config.lua_ls
 ---   ```
 ---
 ---@since 13
@@ -376,7 +376,6 @@ lsp.config = setmetatable({ _configs = {} }, {
       end
 
       if not rtp_config and not self._configs[name] then
-        log.warn(('%s does not have a configuration'):format(name))
         return
       end
 
@@ -434,10 +433,16 @@ local function validate_config(config)
   validate('filetypes', config.filetypes, 'table', true)
 end
 
+--- Returns true if:
+--- 1. the config is managed by vim.lsp,
+--- 2. it applies to the given buffer, and
+--- 3. its config is valid (in particular: its `cmd` isn't broken).
+---
 --- @param bufnr integer
 --- @param config vim.lsp.Config
 --- @param logging boolean
 local function can_start(bufnr, config, logging)
+  assert(config)
   if
     type(config.filetypes) == 'table'
     and not vim.tbl_contains(config.filetypes, vim.bo[bufnr].filetype)
@@ -476,7 +481,13 @@ local function lsp_enable_callback(bufnr)
   -- Stop any clients that no longer apply to this buffer.
   local clients = lsp.get_clients({ bufnr = bufnr, _uninitialized = true })
   for _, client in ipairs(clients) do
-    if lsp.is_enabled(client.name) and not can_start(bufnr, lsp.config[client.name], false) then
+    -- Don't index into lsp.config[…] unless is_enabled() is true.
+    if
+      lsp.is_enabled(client.name)
+      -- Check that the client is managed by vim.lsp.config before deciding to detach it!
+      and lsp.config[client.name]
+      and not can_start(bufnr, lsp.config[client.name], false)
+    then
       lsp.buf_detach_client(bufnr, client.id)
     end
   end
@@ -511,7 +522,7 @@ end
 ---
 --- ```lua
 --- vim.lsp.enable('clangd')
---- vim.lsp.enable({'luals', 'pyright'})
+--- vim.lsp.enable({'lua_ls', 'pyright'})
 --- ```
 ---
 --- Example: [lsp-restart]() Passing `false` stops and detaches the client(s). Thus you can
@@ -1075,7 +1086,7 @@ end
 --- @field name? string
 ---
 --- Only return clients supporting the given method
---- @field method? string
+--- @field method? vim.lsp.protocol.Method.ClientToServer
 ---
 --- Also return uninitialized clients.
 --- @field package _uninitialized? boolean
@@ -1121,46 +1132,9 @@ api.nvim_create_autocmd('VimLeavePre', {
   callback = function()
     local active_clients = lsp.get_clients()
     log.info('exit_handler', active_clients)
-    for _, client in pairs(lsp.client._all) do
-      client:stop()
-    end
 
-    local timeouts = {} --- @type table<integer,integer>
-    local max_timeout = 0
-    local send_kill = false
-
-    for client_id, client in pairs(active_clients) do
-      local timeout = client.flags.exit_timeout
-      if timeout then
-        send_kill = true
-        timeouts[client_id] = timeout
-        max_timeout = math.max(timeout, max_timeout)
-      end
-    end
-
-    local poll_time = 50
-
-    local function check_clients_closed()
-      for client_id, timeout in pairs(timeouts) do
-        timeouts[client_id] = timeout - poll_time
-      end
-
-      for client_id, _ in pairs(active_clients) do
-        if timeouts[client_id] ~= nil and timeouts[client_id] > 0 then
-          return false
-        end
-      end
-      return true
-    end
-
-    if send_kill then
-      if not vim.wait(max_timeout, check_clients_closed, poll_time) then
-        for client_id, client in pairs(active_clients) do
-          if timeouts[client_id] ~= nil then
-            client:stop(true)
-          end
-        end
-      end
+    for _, client in pairs(active_clients) do
+      client:stop(client.flags.exit_timeout)
     end
   end,
 })

@@ -106,8 +106,8 @@ end
 --- Dispatchers for LSP message types.
 --- @class vim.lsp.rpc.Dispatchers
 --- @inlinedoc
---- @field notification fun(method: string, params: table)
---- @field server_request fun(method: string, params: table): any?, lsp.ResponseError?
+--- @field notification fun(method: vim.lsp.protocol.Method.ClientToServer.Notification, params: table)
+--- @field server_request fun(method: vim.lsp.protocol.Method.ClientToServer.Request, params: table): any?, lsp.ResponseError?
 --- @field on_exit fun(code: integer, signal: integer)
 --- @field on_error fun(code: integer, err: any)
 
@@ -175,27 +175,34 @@ end
 --- @private
 --- @param handle_body fun(body: string)
 --- @param on_exit? fun()
---- @param on_error fun(err: any)
+--- @param on_error? fun(err: any, errkind: vim.lsp.rpc.ClientErrors)
 function M.create_read_loop(handle_body, on_exit, on_error)
-  local parse_chunk = coroutine.wrap(request_parser_loop) --[[@as fun(chunk: string?): string]]
-  parse_chunk()
+  on_exit = on_exit or function() end
+  on_error = on_error or function() end
+  local co = coroutine.create(request_parser_loop)
+  coroutine.resume(co)
   return function(err, chunk)
     if err then
-      on_error(err)
+      on_error(err, M.client_errors.READ_ERROR)
       return
     end
 
     if not chunk then
-      if on_exit then
-        on_exit()
-      end
+      on_exit()
+      return
+    end
+
+    if coroutine.status(co) == 'dead' then
       return
     end
 
     while true do
-      local body = parse_chunk(chunk)
-      if body then
-        handle_body(body)
+      local ok, res = coroutine.resume(co, chunk)
+      if not ok then
+        on_error(res, M.client_errors.INVALID_SERVER_MESSAGE)
+        break
+      elseif res then
+        handle_body(res)
         chunk = ''
       else
         break
@@ -460,10 +467,10 @@ end
 --- @class vim.lsp.rpc.PublicClient
 ---
 --- See [vim.lsp.rpc.request()]
---- @field request fun(method: string, params: table?, callback: fun(err?: lsp.ResponseError, result: any), notify_reply_callback?: fun(message_id: integer)):boolean,integer?
+--- @field request fun(method: vim.lsp.protocol.Method.ClientToServer.Request, params: table?, callback: fun(err?: lsp.ResponseError, result: any), notify_reply_callback?: fun(message_id: integer)):boolean,integer?
 ---
 --- See [vim.lsp.rpc.notify()]
---- @field notify fun(method: string, params: any): boolean
+--- @field notify fun(method: vim.lsp.protocol.Method.ClientToServer.Notification, params: any): boolean
 ---
 --- Indicates if the RPC is closing.
 --- @field is_closing fun(): boolean
@@ -547,8 +554,12 @@ local function create_client_read_loop(client, on_exit)
     client:handle_body(body)
   end
 
-  local function on_error(err)
-    client:on_error(M.client_errors.READ_ERROR, err)
+  --- @param errkind vim.lsp.rpc.ClientErrors
+  local function on_error(err, errkind)
+    client:on_error(errkind, err)
+    if errkind == M.client_errors.INVALID_SERVER_MESSAGE then
+      client.transport:terminate()
+    end
   end
 
   return M.create_read_loop(handle_body, on_exit, on_error)

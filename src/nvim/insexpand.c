@@ -2260,7 +2260,7 @@ bool ins_compl_has_autocomplete(void)
   return curbuf->b_p_ac >= 0 ? curbuf->b_p_ac : p_ac;
 }
 
-/// Cacluate fuzzy score and sort completion matches unless sorting is disabled.
+/// Calculate fuzzy score and sort completion matches unless sorting is disabled.
 static void ins_compl_fuzzy_sort(void)
 {
   unsigned cur_cot_flags = get_cot_flags();
@@ -3643,13 +3643,14 @@ static void fill_complete_info_dict(dict_T *di, compl_T *match, bool add_match)
 /// Get complete information
 static void get_complete_info(list_T *what_list, dict_T *retdict)
 {
-#define CI_WHAT_MODE            0x01
-#define CI_WHAT_PUM_VISIBLE     0x02
-#define CI_WHAT_ITEMS           0x04
-#define CI_WHAT_SELECTED        0x08
-#define CI_WHAT_COMPLETED       0x10
-#define CI_WHAT_MATCHES         0x20
-#define CI_WHAT_ALL             0xff
+#define CI_WHAT_MODE                0x01
+#define CI_WHAT_PUM_VISIBLE         0x02
+#define CI_WHAT_ITEMS               0x04
+#define CI_WHAT_SELECTED            0x08
+#define CI_WHAT_COMPLETED           0x10
+#define CI_WHAT_MATCHES             0x20
+#define CI_WHAT_PREINSERTED_TEXT    0x40
+#define CI_WHAT_ALL                 0xff
   int what_flag;
 
   if (what_list == NULL) {
@@ -3671,6 +3672,8 @@ static void get_complete_info(list_T *what_list, dict_T *retdict)
         what_flag |= CI_WHAT_SELECTED;
       } else if (strcmp(what, "completed") == 0) {
         what_flag |= CI_WHAT_COMPLETED;
+      } else if (strcmp(what, "preinserted_text") == 0) {
+        what_flag |= CI_WHAT_PREINSERTED_TEXT;
       } else if (strcmp(what, "matches") == 0) {
         what_flag |= CI_WHAT_MATCHES;
       }
@@ -3684,6 +3687,13 @@ static void get_complete_info(list_T *what_list, dict_T *retdict)
 
   if (ret == OK && (what_flag & CI_WHAT_PUM_VISIBLE)) {
     ret = tv_dict_add_nr(retdict, S_LEN("pum_visible"), pum_visible());
+  }
+
+  if (ret == OK && (what_flag & CI_WHAT_PREINSERTED_TEXT)) {
+    char *line = get_cursor_line_ptr();
+    int len = compl_ins_end_col - curwin->w_cursor.col;
+    ret = tv_dict_add_str_len(retdict, S_LEN("preinserted_text"),
+                              len > 0 ? line + curwin->w_cursor.col : "", MAX(len, 0));
   }
 
   if (ret == OK && (what_flag & (CI_WHAT_ITEMS|CI_WHAT_SELECTED
@@ -5776,7 +5786,17 @@ static int get_filename_compl_info(char *line, int startcol, colnr_T curs_col)
     while (p > line && vim_isfilec(utf_ptr2char(p))) {
       MB_PTR_BACK(line, p);
     }
-    if (p == line && vim_isfilec(utf_ptr2char(p))) {
+    bool p_is_filec = false;
+#ifdef MSWIN
+    // check for drive letters on mswin
+    if (p > line && path_has_drive_letter(p - 1, line + startcol - (p - 1))) {
+      p -= p == line + 1 ? 1 : 2;
+      p_is_filec = true;
+    }
+#endif
+    p_is_filec = p_is_filec || vim_isfilec(utf_ptr2char(p));
+
+    if (p == line && p_is_filec) {
       startcol = 0;
     } else {
       startcol = (int)(p - line) + 1;
@@ -6054,6 +6074,7 @@ static int ins_compl_start(void)
   can_si = false;
   can_si_back = false;
   if (stop_arrow() == FAIL) {
+    did_ai = save_did_ai;
     return FAIL;
   }
 
@@ -6148,6 +6169,7 @@ static int ins_compl_start(void)
     API_CLEAR_STRING(compl_pattern);
     API_CLEAR_STRING(compl_orig_text);
     kv_destroy(compl_orig_extmarks);
+    did_ai = save_did_ai;
     return FAIL;
   }
 
@@ -6162,6 +6184,7 @@ static int ins_compl_start(void)
     ui_flush();
   }
 
+  did_ai = save_did_ai;
   return OK;
 }
 
