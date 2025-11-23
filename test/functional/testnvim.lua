@@ -681,8 +681,7 @@ end
 
 --- Sets Nvim shell to powershell.
 ---
---- @param fake (boolean) If true, a fake will be used if powershell is not
----             found on the system.
+--- @param fake boolean? Use a fake if powershell is not found on the system.
 --- @returns true if powershell was found on the system, else false.
 function M.set_shell_powershell(fake)
   local found = M.has_powershell()
@@ -1014,6 +1013,9 @@ function M.add_builddir_to_rtp()
 end
 
 --- Create folder with non existing parents
+---
+--- TODO(justinmk): lift this and `t.mkdir()` into vim.fs.
+---
 --- @param path string
 --- @return boolean?
 function M.mkdir_p(path)

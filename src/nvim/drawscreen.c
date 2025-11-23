@@ -239,6 +239,7 @@ void screenclear(void)
   mode_displayed = false;
 
   redraw_all_later(UPD_NOT_VALID);
+  cmdline_was_last_drawn = false;
   redraw_cmdline = true;
   redraw_tabline = true;
   redraw_popupmenu = true;
@@ -2807,7 +2808,7 @@ bool conceal_cursor_line(const win_T *wp)
 bool win_cursorline_standout(const win_T *wp)
   FUNC_ATTR_NONNULL_ALL
 {
-  return wp->w_p_cul || (wp->w_p_cole > 0 && !conceal_cursor_line(wp));
+  return wp->w_p_cul || (wp == curwin && wp->w_p_cole > 0 && !conceal_cursor_line(wp));
 }
 
 /// Update w_cursorline, taking care to set it to the to the start of a closed fold.

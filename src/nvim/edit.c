@@ -986,7 +986,7 @@ static int insert_handle_key(InsertState *s)
     goto check_pum;
 
   case K_LUA:
-    map_execute_lua(false);
+    map_execute_lua(false, false);
 
 check_pum:
     // nvim_select_popupmenu_item() can be called from the handling of
@@ -1590,12 +1590,8 @@ static void init_prompt(int cmdchar_todo)
 {
   char *prompt = prompt_text();
 
-  if (curwin->w_cursor.lnum < curbuf->b_prompt_start.mark.lnum
-      || (cmdchar_todo != 'O'
-          && curwin->w_cursor.lnum == curbuf->b_prompt_start.mark.lnum
-          && (curwin->w_cursor.col < (int)strlen(prompt_text())))) {
-    curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
-    coladvance(curwin, MAXCOL);
+  if (curwin->w_cursor.lnum < curbuf->b_prompt_start.mark.lnum) {
+    curwin->w_cursor.lnum = curbuf->b_prompt_start.mark.lnum;
   }
   char *text = get_cursor_line_ptr();
   if ((curbuf->b_prompt_start.mark.lnum == curwin->w_cursor.lnum

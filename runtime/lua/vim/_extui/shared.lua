@@ -72,16 +72,23 @@ function M.check_targets()
         api.nvim_set_option_value('wrap', true, { scope = 'local' })
         api.nvim_set_option_value('linebreak', false, { scope = 'local' })
         api.nvim_set_option_value('smoothscroll', true, { scope = 'local' })
+        api.nvim_set_option_value('breakindent', false, { scope = 'local' })
+        api.nvim_set_option_value('foldenable', false, { scope = 'local' })
+        api.nvim_set_option_value('showbreak', '', { scope = 'local' })
+        api.nvim_set_option_value('spell', false, { scope = 'local' })
         api.nvim_set_option_value('swapfile', false, { scope = 'local' })
         api.nvim_set_option_value('modifiable', true, { scope = 'local' })
         api.nvim_set_option_value('bufhidden', 'hide', { scope = 'local' })
         api.nvim_set_option_value('buftype', 'nofile', { scope = 'local' })
-        if type ~= 'msg' then
-          -- Use MsgArea and hide search highlighting in the cmdline window.
-          local hl = 'Normal:MsgArea'
-          hl = hl .. (type == 'cmd' and ',Search:MsgArea,CurSearch:MsgArea,IncSearch:MsgArea' or '')
-          api.nvim_set_option_value('winhighlight', hl, { scope = 'local' })
+        -- Use MsgArea except in the msg window. Hide Search highlighting except in the pager.
+        local search_hide = 'Search:,CurSearch:,IncSearch:'
+        local hl = 'Normal:MsgArea,' .. search_hide
+        if type == 'pager' then
+          hl = 'Normal:MsgArea'
+        elseif type == 'msg' then
+          hl = search_hide
         end
+        api.nvim_set_option_value('winhighlight', hl, { scope = 'local' })
       end)
       api.nvim_buf_set_name(M.bufs[type], ('[%s]'):format(type:sub(1, 1):upper() .. type:sub(2)))
       -- Fire FileType with window context to let the user reconfigure local options.
