@@ -753,6 +753,7 @@ vim.go.cdh = vim.go.cdhome
 --- ```vim
 ---   let &cdpath = ',' .. substitute(substitute($CDPATH, '[, ]', '\\\0', 'g'), ':', ',', 'g')
 --- ```
+--- Environment variables are expanded `:set_env`.
 --- This option cannot be set from a `modeline` or in the `sandbox`, for
 --- security reasons.
 --- (parts of 'cdpath' can be passed to the shell to expand file names).
@@ -1132,31 +1133,6 @@ vim.o.cfu = vim.o.completefunc
 vim.bo.completefunc = vim.o.completefunc
 vim.bo.cfu = vim.bo.completefunc
 
---- A comma-separated list of strings to enable fuzzy collection for
---- specific `ins-completion` modes, affecting how matches are gathered
---- during completion.  For specified modes, fuzzy matching is used to
---- find completion candidates instead of the standard prefix-based
---- matching.  This option can contain the following values:
----
---- keyword		keywords in the current file	`i_CTRL-X_CTRL-N`
---- 		keywords with flags ".", "w",	`i_CTRL-N` `i_CTRL-P`
---- 		"b", "u", "U" and "k{dict}" in 'complete'
---- 		keywords in 'dictionary'	`i_CTRL-X_CTRL-K`
----
---- files		file names			`i_CTRL-X_CTRL-F`
----
---- whole_line	whole lines			`i_CTRL-X_CTRL-L`
----
---- When using the 'completeopt' "longest" option value, fuzzy collection
---- can identify the longest common string among the best fuzzy matches
---- and insert it automatically.
----
---- @type string
-vim.o.completefuzzycollect = ""
-vim.o.cfc = vim.o.completefuzzycollect
-vim.go.completefuzzycollect = vim.o.completefuzzycollect
-vim.go.cfc = vim.go.completefuzzycollect
-
 --- A comma-separated list of strings that controls the alignment and
 --- display order of items in the popup menu during Insert mode
 --- completion.  The supported values are "abbr", "kind", and "menu".
@@ -1176,12 +1152,7 @@ vim.go.cia = vim.go.completeitemalign
 ---    fuzzy    Enable `fuzzy-matching` for completion candidates.  This
 --- 	    allows for more flexible and intuitive matching, where
 --- 	    characters can be skipped and matches can be found even
---- 	    if the exact sequence is not typed.  Note: This option
---- 	    does not affect the collection of candidate list, it only
---- 	    controls how completion candidates are reduced from the
---- 	    list of alternatives.  If you want to use `fuzzy-matching`
---- 	    to gather more alternatives for your candidate list,
---- 	    see 'completefuzzycollect'.
+--- 	    if the exact sequence is not typed.
 ---
 ---    longest
 --- 	    When 'autocomplete' is not active, only the longest common
@@ -1752,6 +1723,7 @@ vim.go.deco = vim.go.delcombine
 --- To include a comma in a file name precede it with a backslash.  Spaces
 --- after a comma are ignored, otherwise spaces are included in the file
 --- name.  See `option-backslash` about using backslashes.
+--- Environment variables are expanded `:set_env`.
 --- This has nothing to do with the `Dictionary` variable type.
 --- Where to find a list of words?
 --- - BSD/macOS include the "/usr/share/dict/words" file.
@@ -3684,31 +3656,6 @@ vim.o.inf = vim.o.infercase
 vim.bo.infercase = vim.o.infercase
 vim.bo.inf = vim.bo.infercase
 
---- Defines characters and patterns for completion in insert mode.  Used
---- by the `complete_match()` function to determine the starting position
---- for completion.  This is a comma-separated list of triggers.  Each
---- trigger can be:
---- - A single character like "." or "/"
---- - A sequence of characters like "->", "/*", or "/**"
----
---- Note: Use "\\," to add a literal comma as trigger character, see
---- `option-backslash`.
----
---- Examples:
----
---- ```vim
----     set isexpand=.,->,/*,\\,
---- ```
----
----
---- @type string
-vim.o.isexpand = ""
-vim.o.ise = vim.o.isexpand
-vim.bo.isexpand = vim.o.isexpand
-vim.bo.ise = vim.bo.isexpand
-vim.go.isexpand = vim.o.isexpand
-vim.go.ise = vim.go.isexpand
-
 --- The characters specified by this option are included in file names and
 --- path names.  Filenames are used for commands like "gf", "[i" and in
 --- the tags file.  It is also used for "\f" in a `pattern`.
@@ -4547,7 +4494,7 @@ vim.go.mopt = vim.go.messagesopt
 --- ```
 --- If you have less than 512 Mbyte `:mkspell` may fail for some
 --- languages, no matter what you set 'mkspellmem' to.
----
+--- Environment variables are expanded `:set_env`.
 --- This option cannot be set from a `modeline` or in the `sandbox`, for
 --- security reasons.
 ---
@@ -4931,6 +4878,7 @@ vim.go.opfunc = vim.go.operatorfunc
 
 --- Directories used to find packages.
 --- See `packages` and `packages-runtimepath`.
+--- Environment variables are expanded `:set_env`.
 --- This option cannot be set from a `modeline` or in the `sandbox`, for
 --- security reasons.
 ---
@@ -5489,6 +5437,9 @@ vim.go.ruf = vim.go.rulerformat
 --- to find files which add to distributed runtime files.
 ---
 --- With `--clean` the home directory entries are not included.
+--- Environment variables are expanded `:set_env`.
+--- This option cannot be set from a `modeline` or in the `sandbox`, for
+--- security reasons.
 ---
 --- @type string
 vim.o.runtimepath = "..."
@@ -5832,6 +5783,7 @@ vim.go.sd = vim.go.shada
 --- When equal to "NONE" no shada file will be read or written.
 --- This option can be set with the `-i` command line flag.  The `--clean`
 --- command line flag sets it to "NONE".
+--- Environment variables are expanded `:set_env`.
 --- This option cannot be set from a `modeline` or in the `sandbox`, for
 --- security reasons.
 ---
@@ -6487,6 +6439,7 @@ vim.bo.spc = vim.bo.spellcapcheck
 --- name if you want to.  However, it will then only be used when
 --- 'spellfile' is set to it, for entries in 'spelllang' only files
 --- without region name will be found.
+--- Environment variables are expanded `:set_env`.
 --- This option cannot be set from a `modeline` or in the `sandbox`, for
 --- security reasons.
 ---
@@ -6623,7 +6576,7 @@ vim.bo.spo = vim.bo.spelloptions
 --- ```vim
 --- 	set sps=file:~/.config/nvim/sugg,best,expr:MySuggest()
 --- ```
----
+--- Environment variables are expanded `:set_env`.
 --- This option cannot be set from a `modeline` or in the `sandbox`, for
 --- security reasons.
 ---
@@ -6991,7 +6944,7 @@ vim.wo.stc = vim.wo.statuscolumn
 ---
 ---
 --- @type string
-vim.o.statusline = "%<%f %h%w%m%r %=%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}%{% &busy > 0 ? '◐ ' : '' %}%(%{luaeval('(package.loaded[''vim.diagnostic''] and vim.diagnostic.status()) or '''' ')} %)%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}"
+vim.o.statusline = "%<%f %h%w%m%r %=%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}%{% &busy > 0 ? '◐ ' : '' %}%{% luaeval('(package.loaded[''vim.diagnostic''] and vim.diagnostic.status() .. '' '') or '''' ') %}%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}"
 vim.o.stl = vim.o.statusline
 vim.wo.statusline = vim.o.statusline
 vim.wo.stl = vim.wo.statusline
@@ -7438,8 +7391,9 @@ vim.bo.tw = vim.bo.textwidth
 --- name.  See `option-backslash` about using backslashes.  The use of
 --- `:set+=` and `:set-=` is preferred when adding or removing directories
 --- from the list.  This avoids problems when a future version uses
---- another default.  Backticks cannot be used in this option for security
---- reasons.
+--- another default.
+--- Environment variables are expanded `:set_env`.
+--- Backticks cannot be used in this option for security reasons.
 ---
 --- @type string
 vim.o.thesaurus = ""
@@ -7610,6 +7564,7 @@ vim.go.ttm = vim.go.ttimeoutlen
 --- undo file that exists is used.  When it cannot be read an error is
 --- given, no further entry is used.
 --- See `undo-persistence`.
+--- Environment variables are expanded `:set_env`.
 --- This option cannot be set from a `modeline` or in the `sandbox`, for
 --- security reasons.
 ---
@@ -7803,6 +7758,7 @@ vim.go.vbs = vim.go.verbose
 --- Setting 'verbosefile' to a new value is like making it empty first.
 --- The difference with `:redir` is that verbose messages are not
 --- displayed when 'verbosefile' is set.
+--- Environment variables are expanded `:set_env`.
 --- This option cannot be set from a `modeline` or in the `sandbox`, for
 --- security reasons.
 ---
@@ -7813,6 +7769,7 @@ vim.go.verbosefile = vim.o.verbosefile
 vim.go.vfile = vim.go.verbosefile
 
 --- Name of the directory where to store files for `:mkview`.
+--- Environment variables are expanded `:set_env`.
 --- This option cannot be set from a `modeline` or in the `sandbox`, for
 --- security reasons.
 ---

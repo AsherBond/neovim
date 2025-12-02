@@ -1080,7 +1080,8 @@ local options = {
         a modified version of the following command in your vimrc file to
         override it: >vim
           let &cdpath = ',' .. substitute(substitute($CDPATH, '[, ]', '\\\0', 'g'), ':', ',', 'g')
-        <	This option cannot be set from a |modeline| or in the |sandbox|, for
+        <	Environment variables are expanded |:set_env|.
+        This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
         (parts of 'cdpath' can be passed to the shell to expand file names).
       ]=],
@@ -1576,40 +1577,6 @@ local options = {
       varname = 'p_cfu',
     },
     {
-      abbreviation = 'cfc',
-      defaults = '',
-      values = { 'keyword', 'files', 'whole_line' },
-      flags = true,
-      deny_duplicates = true,
-      desc = [=[
-        A comma-separated list of strings to enable fuzzy collection for
-        specific |ins-completion| modes, affecting how matches are gathered
-        during completion.  For specified modes, fuzzy matching is used to
-        find completion candidates instead of the standard prefix-based
-        matching.  This option can contain the following values:
-
-        keyword		keywords in the current file	|i_CTRL-X_CTRL-N|
-        		keywords with flags ".", "w",	|i_CTRL-N| |i_CTRL-P|
-        		"b", "u", "U" and "k{dict}" in 'complete'
-        		keywords in 'dictionary'	|i_CTRL-X_CTRL-K|
-
-        files		file names			|i_CTRL-X_CTRL-F|
-
-        whole_line	whole lines			|i_CTRL-X_CTRL-L|
-
-        When using the 'completeopt' "longest" option value, fuzzy collection
-        can identify the longest common string among the best fuzzy matches
-        and insert it automatically.
-      ]=],
-      full_name = 'completefuzzycollect',
-      list = 'onecomma',
-      scope = { 'global' },
-      short_desc = N_('use fuzzy collection for specific completion modes'),
-      type = 'string',
-      varname = 'p_cfc',
-      flags_varname = 'cfc_flags',
-    },
-    {
       abbreviation = 'cia',
       cb = 'did_set_completeitemalign',
       defaults = 'abbr,kind,menu',
@@ -1656,12 +1623,7 @@ local options = {
            fuzzy    Enable |fuzzy-matching| for completion candidates.  This
         	    allows for more flexible and intuitive matching, where
         	    characters can be skipped and matches can be found even
-        	    if the exact sequence is not typed.  Note: This option
-        	    does not affect the collection of candidate list, it only
-        	    controls how completion candidates are reduced from the
-        	    list of alternatives.  If you want to use |fuzzy-matching|
-        	    to gather more alternatives for your candidate list,
-        	    see 'completefuzzycollect'.
+        	    if the exact sequence is not typed.
 
            longest
         	    When 'autocomplete' is not active, only the longest common
@@ -2300,6 +2262,7 @@ local options = {
         To include a comma in a file name precede it with a backslash.  Spaces
         after a comma are ignored, otherwise spaces are included in the file
         name.  See |option-backslash| about using backslashes.
+        Environment variables are expanded |:set_env|.
         This has nothing to do with the |Dictionary| variable type.
         Where to find a list of words?
         - BSD/macOS include the "/usr/share/dict/words" file.
@@ -4837,33 +4800,6 @@ local options = {
       immutable = true,
     },
     {
-      abbreviation = 'ise',
-      cb = 'did_set_isexpand',
-      defaults = '',
-      deny_duplicates = true,
-      desc = [=[
-        Defines characters and patterns for completion in insert mode.  Used
-        by the |complete_match()| function to determine the starting position
-        for completion.  This is a comma-separated list of triggers.  Each
-        trigger can be:
-        - A single character like "." or "/"
-        - A sequence of characters like "->", "/*", or "/**"
-
-        Note: Use "\\," to add a literal comma as trigger character, see
-        |option-backslash|.
-
-        Examples: >vim
-            set isexpand=.,->,/*,\\,
-        <
-      ]=],
-      full_name = 'isexpand',
-      list = 'onecomma',
-      scope = { 'global', 'buf' },
-      short_desc = N_('Defines characters and patterns for completion in insert mode'),
-      type = 'string',
-      varname = 'p_ise',
-    },
-    {
       abbreviation = 'isf',
       cb = 'did_set_isopt',
       defaults = {
@@ -5892,7 +5828,7 @@ local options = {
         	set mkspellmem=900000,3000,800
         <	If you have less than 512 Mbyte |:mkspell| may fail for some
         languages, no matter what you set 'mkspellmem' to.
-
+        Environment variables are expanded |:set_env|.
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
       ]=],
@@ -6480,6 +6416,7 @@ local options = {
       desc = [=[
         Directories used to find packages.
         See |packages| and |packages-runtimepath|.
+        Environment variables are expanded |:set_env|.
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
       ]=],
@@ -7209,6 +7146,9 @@ local options = {
         to find files which add to distributed runtime files.
 
         With |--clean| the home directory entries are not included.
+        Environment variables are expanded |:set_env|.
+        This option cannot be set from a |modeline| or in the |sandbox|, for
+        security reasons.
       ]=],
       expand = 'nodefault',
       full_name = 'runtimepath',
@@ -7660,6 +7600,7 @@ local options = {
         When equal to "NONE" no shada file will be read or written.
         This option can be set with the |-i| command line flag.  The |--clean|
         command line flag sets it to "NONE".
+        Environment variables are expanded |:set_env|.
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
       ]=],
@@ -8501,6 +8442,7 @@ local options = {
         name if you want to.  However, it will then only be used when
         'spellfile' is set to it, for entries in 'spelllang' only files
         without region name will be found.
+        Environment variables are expanded |:set_env|.
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
       ]=],
@@ -8661,7 +8603,7 @@ local options = {
         Only one of "best", "double" or "fast" may be used.  The others may
         appear several times in any order.  Example: >vim
         	set sps=file:~/.config/nvim/sugg,best,expr:MySuggest()
-        <
+        <	Environment variables are expanded |:set_env|.
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
       ]=],
@@ -8823,7 +8765,7 @@ local options = {
           "%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}",
           "%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}",
           "%{% &busy > 0 ? '◐ ' : '' %}",
-          "%(%{luaeval('(package.loaded[''vim.diagnostic''] and vim.diagnostic.status()) or '''' ')} %)",
+          "%{% luaeval('(package.loaded[''vim.diagnostic''] and vim.diagnostic.status() .. '' '') or '''' ') %}",
           "%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}",
         }),
         doc = 'is very long',
@@ -9627,8 +9569,9 @@ local options = {
         name.  See |option-backslash| about using backslashes.  The use of
         |:set+=| and |:set-=| is preferred when adding or removing directories
         from the list.  This avoids problems when a future version uses
-        another default.  Backticks cannot be used in this option for security
-        reasons.
+        another default.
+        Environment variables are expanded |:set_env|.
+        Backticks cannot be used in this option for security reasons.
       ]=],
       expand = true,
       full_name = 'thesaurus',
@@ -9860,6 +9803,7 @@ local options = {
         undo file that exists is used.  When it cannot be read an error is
         given, no further entry is used.
         See |undo-persistence|.
+        Environment variables are expanded |:set_env|.
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
 
@@ -10090,6 +10034,7 @@ local options = {
         Setting 'verbosefile' to a new value is like making it empty first.
         The difference with |:redir| is that verbose messages are not
         displayed when 'verbosefile' is set.
+        Environment variables are expanded |:set_env|.
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
       ]=],
@@ -10106,6 +10051,7 @@ local options = {
       defaults = '',
       desc = [=[
         Name of the directory where to store files for |:mkview|.
+        Environment variables are expanded |:set_env|.
         This option cannot be set from a |modeline| or in the |sandbox|, for
         security reasons.
       ]=],
