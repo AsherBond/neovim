@@ -492,6 +492,14 @@ static bool can_unload_buffer(buf_T *buf)
   return can_unload;
 }
 
+void buf_close_terminal(buf_T *buf)
+{
+  assert(buf->terminal);
+  buf->b_locked++;
+  terminal_close(&buf->terminal, -1);
+  buf->b_locked--;
+}
+
 /// Close the link to a buffer.
 ///
 /// @param win    If not NULL, set b_last_cursor.
@@ -640,12 +648,6 @@ bool close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last, bool i
     return true;
   }
 
-  if (buf->terminal) {
-    buf->b_locked++;
-    terminal_close(&buf->terminal, -1);
-    buf->b_locked--;
-  }
-
   // Always remove the buffer when there is no file name.
   if (buf->b_ffname == NULL) {
     del_buf = true;
@@ -708,13 +710,10 @@ bool close_buffer(win_T *win, buf_T *buf, int action, bool abort_if_last, bool i
   }
 
   // Remove the buffer from the list.
-  if (wipe_buf) {
+  // Do not wipe out the buffer if it is used in a window.
+  if (wipe_buf && buf->b_nwindows <= 0) {
     if (clear_w_buf) {
       win->w_buffer = NULL;
-    }
-    // Do not wipe out the buffer if it is used in a window.
-    if (buf->b_nwindows > 0) {
-      return true;
     }
     FOR_ALL_TAB_WINDOWS(tp, wp) {
       mark_forget_file(wp, buf->b_fnum);
@@ -807,11 +806,12 @@ void buf_freeall(buf_T *buf, int flags)
   bufref_T bufref;
   set_bufref(&bufref, buf);
 
-  buf_updates_unload(buf, false);
-  if (!bufref_valid(&bufref)) {
-    // on_detach callback deleted the buffer.
-    return;
+  if (buf->terminal) {
+    buf_close_terminal(buf);
   }
+
+  buf_updates_unload(buf, false);
+
   if ((buf->b_ml.ml_mfp != NULL)
       && apply_autocmds(EVENT_BUFUNLOAD, buf->b_fname, buf->b_fname, false, buf)
       && !bufref_valid(&bufref)) {
@@ -1370,9 +1370,8 @@ static int do_buffer_ext(int action, int start, int dir, int count, int flags)
           return FAIL;
         }
       } else {
-        semsg(_("E89: No write since last change for buffer %" PRId64
-                " (add ! to override)"),
-              (int64_t)buf->b_fnum);
+        semsg(_("E89: No write since last change for buffer %d (add ! to override)"),
+              buf->b_fnum);
         return FAIL;
       }
     }
@@ -2063,6 +2062,7 @@ bool curbuf_reusable(void)
   return (curbuf != NULL
           && curbuf->b_ffname == NULL
           && curbuf->b_nwindows <= 1
+          && !curbuf->terminal
           && (curbuf->b_ml.ml_mfp == NULL || buf_is_empty(curbuf))
           && !bt_quickfix(curbuf)
           && !curbufIsChanged());
@@ -2170,7 +2170,7 @@ int buflist_getfile(int n, linenr_T lnum, int options, int forceit)
     if ((options & GETF_ALT) && n == 0) {
       emsg(_(e_noalt));
     } else {
-      semsg(_("E92: Buffer %" PRId64 " not found"), (int64_t)n);
+      semsg(_(e_buffer_nr_not_found), n);
     }
     return FAIL;
   }
