@@ -243,7 +243,7 @@ describe(':terminal buffer', function()
 
   it('requires bang (!) to close a running job #15402', function()
     skip(is_os('win'), 'Test freezes the CI and makes it time out')
-    eq('Vim(wqall):E948: Job still running', exc_exec('wqall'))
+    eq('Vim(wqall):E948: Job still running (add ! to end the job)', exc_exec('wqall'))
     for _, cmd in ipairs({ 'bdelete', '%bdelete', 'bwipeout', 'bunload' }) do
       matches(
         '^Vim%('
@@ -255,6 +255,10 @@ describe(':terminal buffer', function()
     command('call jobstop(&channel)')
     assert(0 >= eval('jobwait([&channel], 1000)[0]'))
     command('bdelete')
+  end)
+
+  it(':wqall! closes a running job', function()
+    n.expect_exit(command, 'wqall!')
   end)
 
   it('stops running jobs with :quit', function()
@@ -437,9 +441,8 @@ describe(':terminal buffer', function()
     screen:expect_unchanged()
     --- @type string
     local title_before_del = exec_lua(function()
-      vim.wait(10) -- Ensure there are no pending events.
+      vim.wait(10) -- Ensure there are no pending events so that a write isn't queued.
       vim.api.nvim_chan_send(vim.bo.channel, '\027]2;OTHER_TITLE\007')
-      vim.uv.run('once') -- Only process the pending write.
       vim.uv.sleep(50) -- Block the event loop and wait for tty-test to forward OSC 2.
       local term_title = vim.b.term_title
       vim.api.nvim_buf_delete(0, { force = true })
