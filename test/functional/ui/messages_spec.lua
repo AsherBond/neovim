@@ -3113,7 +3113,6 @@ aliquip ex ea commodo consequat.]]
 end)
 
 it('pager works in headless mode with UI attached', function()
-  skip(is_os('win'))
   clear()
   local child_server = assert(n.new_pipename())
   fn.jobstart({ nvim_prog, '--clean', '--headless', '--listen', child_server })
