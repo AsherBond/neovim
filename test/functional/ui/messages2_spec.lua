@@ -45,9 +45,9 @@ describe('messages2', function()
                                                            |
       {1:~                                                    }|*9
       {3:                                                     }|
-      fo^o                                                  |
+      ^foo                                                  |
       bar                                                  |
-                                          1,3           All|
+                                          1,1           All|
     ]])
     -- Multiple messages in same event loop iteration are appended and shown in full.
     feed([[q:echo "foo" | echo "bar\nbaz\n"->repeat(&lines)<CR>]])
@@ -100,10 +100,10 @@ describe('messages2', function()
                                                            |
       {1:~                                                    }|*8
       {3:                                                     }|
-      fo^o                                                  |
+      ^foo                                                  |
       bar                                                  |
         1 %a   "[No Name]"                    line 1       |
-                                          1,3           All|
+                                          1,1           All|
     ]])
     -- edit_unputchar() does not clear already updated screen #34515.
     feed('qix<Esc>dwi<C-r>')
@@ -143,7 +143,7 @@ describe('messages2', function()
                                                            |
       {1:~                                                    }|*10
       {3:                                                     }|
-      fo^o                                                  |
+      ^foo                                                  |
       foo                                                  |
     ]])
     command('bdelete | messages')
@@ -311,7 +311,7 @@ describe('messages2', function()
     local top = [[
                                                                              |
       {1:~                                                                      }|*4
-      {3:                                                                       }|
+      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
       0                                                                      |
       1                                                                      |
       2                                                                      |
@@ -327,7 +327,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*4
-      {3:                                                                       }|
+      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
       1 [+1]                                                                 |
       2                                                                      |
       3                                                                      |
@@ -343,7 +343,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*4
-      {3:                                                                       }|
+      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
       3 [+3]                                                                 |
       4                                                                      |
       5                                                                      |
@@ -359,7 +359,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*4
-      {3:                                                                       }|
+      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
       5 [+5]                                                                 |
       6                                                                      |
       7                                                                      |
@@ -375,7 +375,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*4
-      {3:                                                                       }|
+      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
       93 [+93]                                                               |
       94                                                                     |
       95                                                                     |
@@ -390,7 +390,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*3
-      {3:                                                                       }|
+      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
       93 [+93]                                                               |
       94                                                                     |
       95                                                                     |
@@ -403,6 +403,21 @@ describe('messages2', function()
     ]])
     feed('<Backspace>g')
     screen:expect(top)
+    feed('<Esc>f')
+    screen:expect([[
+                                                                             |
+      {1:~                                                                      }|*3
+      {3:                                                                       }|
+      0                                                                      |
+      1                                                                      |
+      2                                                                      |
+      3                                                                      |
+      4                                                                      |
+      5                                                                      |
+      6 [+93]                                                                |
+      Type number and <Enter> or click with the mouse (q or empty cancels): f|
+      ^                                                                       |
+    ]])
   end)
 
   it('FileType is fired after default options are set', function()
@@ -417,7 +432,7 @@ describe('messages2', function()
                                                            |
       {1:~                                                    }|*10
       {3:                                                     }|
-      foofoofoofoofoofoofoofoofo^o                          |
+      ^foofoofoofoofoofoofoofoofoofoofoofoofoofoofoofoofoofo|
                                                            |
     ]])
     t.eq({ filetype = 5 }, n.eval('g:set')) -- still fires for 'filetype'
@@ -448,7 +463,7 @@ describe('messages2', function()
                                                            |
       {1:~                                                    }|*11
       {3:                                                     }|
-      {101:fo^o}{100:                                                  }|
+      {101:^foo}{100:                                                  }|
     ]])
   end)
 
@@ -564,7 +579,7 @@ describe('messages2', function()
                                                            |
       {1:~                                                    }|*8
       {3:                                                     }|
-      x^!                                                   |
+      ^x!                                                   |
       x!                                                   |
       i hate locks so much!!!!                             |*2
     ]])
@@ -647,7 +662,7 @@ describe('messages2', function()
       foo                                                  |*2
       {14:f}oo                                                  |
     ]])
-    feed('<CR>')
+    feed('<Esc>')
     screen:expect([[
       ^                                                     |
       {1:~                                                    }|*5
