@@ -122,6 +122,8 @@ PLUGINS
 
 TREESITTER
 
+• The |vim.treesitter.query.lint()| is no longer enabled by default in the
+  |ft-query-plugin|.
 • |treesitter-directive-offset!| can now be applied to quantified captures. It
   no longer sets `metadata[capture_id].range`; it instead sets
   `metadata[capture_id].offset`. The offset will be applied in
@@ -246,6 +248,8 @@ HIGHLIGHTS
 • |hl-OkMsg| |hl-StderrMsg| |hl-StdoutMsg|
 • |hl-SnippetTabstopActive| highlights the currently active tabstop.
 • |hl-PmenuBorder| |hl-PmenuShadow| |hl-PmenuShadowThrough| see 'pumborder'.
+• |nvim_set_hl()| and |nvim_get_hl()| support the SGR attributes "dim",
+  "blink", "conceal", and "overline".
 
 LSP
 
@@ -402,6 +406,8 @@ TUI
 • |TermResponse| now supports DA1 and APC query responses.
 • Native progress bars are displayed for |Progress| events using the OSC 9;4
   sequence.
+• The TUI now renders the SGR dim (faint), blink, conceal, and overline
+  attributes.
 
 UI
 
