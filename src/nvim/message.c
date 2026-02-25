@@ -3779,7 +3779,7 @@ static char *console_dialog_alloc(const char *message, const char *buttons, bool
 
   // Now allocate space for the strings
   confirm_msg = xmalloc((size_t)msg_len);
-  snprintf(confirm_msg, (size_t)msg_len, "\n%s\n", message);
+  snprintf(confirm_msg, (size_t)msg_len, ui_has(kUIMessages) ? "%s" : "\n%s\n", message);
 
   xfree(confirm_buttons);
   confirm_buttons = xmalloc((size_t)button_len);
@@ -3944,7 +3944,7 @@ void msg_delay(uint64_t ms, bool ignoreinput)
   }
 
   if (nvim_testing) {
-    // XXX: Skip non-functional (UI only) delay in tests/CI.
+    // XXX: Reduce non-functional (UI only) delay in tests/CI.
     ms = 100;
   }
 

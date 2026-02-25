@@ -6,9 +6,10 @@ local Screen = require('test.functional.ui.screen')
 
 local clear, command, exec_lua, feed = n.clear, n.command, n.exec_lua, n.feed
 
+local msg_timeout = 200
 local function set_msg_target_zero_ch()
   exec_lua(function()
-    require('vim._core.ui2').enable({ msg = { target = 'msg' } })
+    require('vim._core.ui2').enable({ msg = { target = 'msg', timeout = msg_timeout } })
     vim.o.cmdheight = 0
   end)
 end
@@ -141,6 +142,31 @@ describe('messages2', function()
       ^x                                                    |
       {1:~                                                    }|*11
       foo [+1]                            1,1           All|
+    ]])
+    -- Changing 'laststatus' reveals the global statusline with a pager height
+    -- exceeding the available lines: #38008.
+    command('tabonly | call nvim_echo([["foo\n"]]->repeat(&lines), 1, {})')
+    screen:expect([[
+      ^x                                                    |
+      {1:~                                                    }|*5
+      {3:                                                     }|
+      foo                                                  |*6
+      foo [+8]                                             |
+    ]])
+    feed('<CR>')
+    screen:expect([[
+      {3:                                                     }|
+      ^foo                                                  |
+      foo                                                  |*11
+                                          1,1           Top|
+    ]])
+    command('set laststatus=3')
+    screen:expect([[
+      {3:                                                     }|
+      ^foo                                                  |
+      foo                                                  |*10
+      {3:[Pager]                            1,1            Top}|
+                                                           |
     ]])
   end)
 
@@ -290,7 +316,7 @@ describe('messages2', function()
     screen:expect([[
       ^                                                     |
       {1:~                                                    }|*12
-      foo [+1]                                             |
+                                                           |
     ]])
   end)
 
@@ -442,7 +468,7 @@ describe('messages2', function()
       ^foofoofoofoofoofoofoofoofoofoofoofoofoofoofoofoofoofo|
                                                            |
     ]])
-    t.eq({ filetype = 5 }, n.eval('g:set')) -- still fires for 'filetype'
+    t.eq(5, n.eval('g:set').filetype) -- still fires for 'filetype'
   end)
 
   it('Search highlights only apply to pager', function()
@@ -598,6 +624,9 @@ describe('messages2', function()
       vim.api.nvim_echo({ { 'foo' } }, true, { id = 1 })
       vim.api.nvim_echo({ { 'bar\nbaz' } }, true, { id = 2 })
       vim.api.nvim_echo({ { 'foo' } }, true, { id = 3 })
+      vim.keymap.set('n', 'Q', function()
+        vim.api.nvim_echo({ { 'Syntax', 23 }, { '\n  - ', 0 }, { 'cCommentL', 439 } }, false, {})
+      end)
     end)
     screen:expect([[
       ^                                                     |
@@ -628,6 +657,19 @@ describe('messages2', function()
       baz                                                  |
       foo                                                  |*2
     ]])
+    -- Pressing a key immediately dismisses an expanded cmdline, and
+    -- replacing a multiline, multicolored message doesn't error due
+    -- to unneccesarily inserted lines #37994.
+    feed('Q')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*10
+      {3:                                                     }|
+      {100:Syntax}                                               |
+        - cCommentL                                        |
+    ]])
+    feed('Q')
+    screen:expect_unchanged()
     set_msg_target_zero_ch()
     exec_lua(function()
       vim.api.nvim_echo({ { 'foo' } }, true, { id = 1 })
@@ -710,13 +752,41 @@ describe('messages2', function()
     feed('<CR>')
     screen:expect([[
                                                            |
-      {1:~                                                    }|*7
+      {1:~                                                    }|*8
+      {1:~            }{9:E5108: Lua: [string ":lua"]:1: foo}{4:      }|
       {3:                                                     }|
-                                                           |
       {6:foo}                                                  |
       {6:bar}                                                  |
-                                                           |
       {6:[O]k: }^                                               |
+    ]])
+  end)
+
+  it('no search_cmd with cmdheight=0', function()
+    set_msg_target_zero_ch()
+    feed('ifoo<Esc>?foo<CR>')
+    screen:expect([[
+      {10:^foo}                                                  |
+      {1:~                                                    }|*13
+    ]])
+  end)
+
+  it('closed msg window timer removes empty lines', function()
+    set_msg_target_zero_ch()
+    command('echo "foo" | echo "bar\n"')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*10
+      {1:~                                                 }{4:foo}|
+      {1:~                                                 }{4:bar}|
+      {1:~                                                 }{4:   }|
+    ]])
+    command('fclose!')
+    screen:sleep(msg_timeout + 50)
+    command('echo "baz"')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*12
+      {1:~                                                 }{4:baz}|
     ]])
   end)
 end)

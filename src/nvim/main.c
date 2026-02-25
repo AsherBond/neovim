@@ -301,6 +301,8 @@ int main(int argc, char **argv)
   // argument list "global_alist".
   command_line_scan(&params);
 
+  set_argf_var();
+
   nlua_init(argv, argc, params.lua_arg0);
   TIME_MSG("init lua interpreter");
 
@@ -928,7 +930,7 @@ static uint64_t server_connect(char *server_addr, const char **errmsg)
   }
   CallbackReader on_data = CALLBACK_READER_INIT;
   const char *error = NULL;
-  bool is_tcp = socket_address_is_tcp(server_addr);
+  bool is_tcp = socket_address_tcp_host_end(server_addr) != NULL;
   // connected to channel
   uint64_t chan = channel_connect(is_tcp, server_addr, true, on_data, 500, &error);
   if (error) {
@@ -1504,6 +1506,22 @@ scripterror:
   }
 
   TIME_MSG("parsing arguments");
+}
+
+static void set_argf_var(void)
+{
+  list_T *list = tv_list_alloc(kListLenMayKnow);
+
+  for (int i = 0; i < GARGCOUNT; i++) {
+    char *fname = alist_name(&GARGLIST[i]);
+    if (fname != NULL) {
+      (void)vim_FullName(fname, NameBuff, sizeof(NameBuff), false);
+      tv_list_append_string(list, NameBuff, -1);
+    }
+  }
+
+  tv_list_set_lock(list, VAR_FIXED);
+  set_vim_var_list(VV_ARGF, list);
 }
 
 // Many variables are in "params" so that we can pass them to invoked
