@@ -405,8 +405,7 @@ Channel *channel_job_start(char **argv, const char *exepath, CallbackReader on_s
     has_err = false;
   } else {
     has_out = rpc || callback_reader_set(chan->on_data);
-    has_err = callback_reader_set(chan->on_stderr);
-    proc->fwd_err = chan->on_stderr.fwd_err;
+    has_err = chan->on_stderr.fwd_err || callback_reader_set(chan->on_stderr);
   }
 
   bool has_in = stdin_mode == kChannelStdinPipe;
@@ -536,8 +535,18 @@ uint64_t channel_from_stdio(bool rpc, CallbackReader on_output, const char **err
   // stdin and stdout with CONIN$ and CONOUT$, respectively.
   if (embedded_mode && os_has_conpty_working()) {
     stdin_dup_fd = os_dup(STDIN_FILENO);
-    os_replace_stdin_to_conin();
+    os_set_cloexec(stdin_dup_fd);
     stdout_dup_fd = os_dup(STDOUT_FILENO);
+    os_set_cloexec(stdout_dup_fd);
+
+    // The server may have no console (spawned with UV_PROCESS_DETACHED for
+    // :detach support). Allocate a hidden one so CONIN$/CONOUT$ and ConPTY
+    // (:terminal) work.
+    if (!GetConsoleWindow()) {
+      AllocConsole();
+      ShowWindow(GetConsoleWindow(), SW_HIDE);
+    }
+    os_replace_stdin_to_conin();
     os_replace_stdout_and_stderr_to_conout();
   }
 #else
@@ -666,6 +675,11 @@ static size_t on_channel_output(RStream *stream, Channel *chan, const char *buf,
 
   if (eof) {
     reader->eof = true;
+  }
+
+  if (reader->fwd_err && count > 0) {
+    ptrdiff_t wres = os_write(STDERR_FILENO, buf, count, false);
+    return (size_t)MAX(wres, 0);
   }
 
   if (callback_reader_set(*reader)) {

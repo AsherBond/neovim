@@ -176,6 +176,7 @@ error('Cannot require a meta file')
 --- |'SafeState'
 --- |'SearchWrapped'
 --- |'SessionLoadPost'
+--- |'SessionLoadPre'
 --- |'SessionWritePost'
 --- |'ShellCmdPost'
 --- |'ShellFilterPost'
@@ -461,7 +462,7 @@ error('Cannot require a meta file')
 --- @field mouse? boolean
 --- @field relative? "cursor"|"editor"|"laststatus"|"mouse"|"tabline"|"win"
 --- @field row? number
---- @field style? "minimal"
+--- @field style? ""|"minimal"
 --- @field noautocmd? boolean
 --- @field vertical? boolean
 --- @field win? integer

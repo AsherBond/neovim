@@ -2856,13 +2856,16 @@ void get_winopts(buf_T *buf)
 
   WinInfo *const wip = find_wininfo(buf, true, true);
   if (wip != NULL && wip->wi_win != curwin && wip->wi_win != NULL
-      && wip->wi_win->w_buffer == buf) {
+      && wip->wi_win->w_buffer == buf
+      && wip->wi_win->w_config.style != kWinStyleMinimal) {
     win_T *wp = wip->wi_win;
     copy_winopt(&wp->w_onebuf_opt, &curwin->w_onebuf_opt);
     curwin->w_fold_manual = wp->w_fold_manual;
     curwin->w_foldinvalid = true;
     cloneFoldGrowArray(&wp->w_folds, &curwin->w_folds);
-  } else if (wip != NULL && wip->wi_optset) {
+  } else if (wip != NULL && wip->wi_optset
+             && (wip->wi_win == NULL || wip->wi_win == curwin
+                 || wip->wi_win->w_config.style != kWinStyleMinimal)) {
     copy_winopt(&wip->wi_opt, &curwin->w_onebuf_opt);
     curwin->w_fold_manual = wip->wi_fold_manual;
     curwin->w_foldinvalid = true;

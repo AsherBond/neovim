@@ -1632,6 +1632,7 @@ void msgmore(int n)
   }
 }
 
+static int redir_col = 0;  // Message column used in redir_write().
 void msg_ext_set_kind(const char *msg_kind)
 {
   // Don't change the label of an existing batch:
@@ -1641,6 +1642,12 @@ void msg_ext_set_kind(const char *msg_kind)
   // need refactoring the msg_ interface to not be "please pretend nvim is
   // a terminal for a moment"
   msg_ext_kind = msg_kind;
+
+  // Need to reset the redirection column at the start of a message, for which
+  // leading newlines are responsible without kUIMessages. Unrelated to setting
+  // the kind but this is called more consistently at the start of a message
+  // than msg_start() at this point.
+  redir_col = msg_ext_append ? redir_col : 0;
 }
 
 /// Prepare for outputting characters in the command line.
@@ -2094,7 +2101,9 @@ void msg_prt_line(const char *s, bool list)
       }
     }
     // find end of leading whitespace
-    if (curwin->w_p_lcs_chars.lead || curwin->w_p_lcs_chars.leadmultispace != NULL) {
+    if (curwin->w_p_lcs_chars.lead
+        || curwin->w_p_lcs_chars.leadmultispace != NULL
+        || curwin->w_p_lcs_chars.leadtab1 != NUL) {
       lead = s;
       while (ascii_iswhite(lead[0])) {
         lead++;
@@ -2162,11 +2171,18 @@ void msg_prt_line(const char *s, bool list)
           sc = schar_from_ascii(' ');
           sc_extra = schar_from_ascii(' ');
         } else {
-          sc = (n_extra == 0 && curwin->w_p_lcs_chars.tab3)
-               ? curwin->w_p_lcs_chars.tab3
-               : curwin->w_p_lcs_chars.tab1;
-          sc_extra = curwin->w_p_lcs_chars.tab2;
-          sc_final = curwin->w_p_lcs_chars.tab3;
+          schar_T lcs_tab1 = curwin->w_p_lcs_chars.tab1;
+          schar_T lcs_tab2 = curwin->w_p_lcs_chars.tab2;
+          schar_T lcs_tab3 = curwin->w_p_lcs_chars.tab3;
+          // check if leadtab is set in 'listchars'
+          if (lead != NULL && s <= lead && curwin->w_p_lcs_chars.leadtab1 != NUL) {
+            lcs_tab1 = curwin->w_p_lcs_chars.leadtab1;
+            lcs_tab2 = curwin->w_p_lcs_chars.leadtab2;
+            lcs_tab3 = curwin->w_p_lcs_chars.leadtab3;
+          }
+          sc = (n_extra == 0 && lcs_tab3) ? lcs_tab3 : lcs_tab1;
+          sc_extra = lcs_tab2;
+          sc_final = lcs_tab3;
           hl_id = HLF_0;
         }
       } else if (c == NUL && list && curwin->w_p_lcs_chars.eol != NUL) {
@@ -3371,7 +3387,6 @@ void msg_check(void)
 static void redir_write(const char *const str, const ptrdiff_t maxlen)
 {
   const char *s = str;
-  static int cur_col = 0;
 
   if (maxlen == 0) {
     return;
@@ -3390,7 +3405,7 @@ static void redir_write(const char *const str, const ptrdiff_t maxlen)
   if (redirecting()) {
     // If the string doesn't start with CR or NL, go to msg_col
     if (*s != '\n' && *s != '\r') {
-      while (cur_col < msg_col) {
+      while (redir_col < msg_col) {
         if (capture_ga) {
           ga_concat_len(capture_ga, " ", 1);
         }
@@ -3404,7 +3419,7 @@ static void redir_write(const char *const str, const ptrdiff_t maxlen)
         if (verbose_fd != NULL) {
           fputs(" ", verbose_fd);
         }
-        cur_col++;
+        redir_col++;
       }
     }
 
@@ -3431,17 +3446,17 @@ static void redir_write(const char *const str, const ptrdiff_t maxlen)
         putc(*s, verbose_fd);
       }
       if (*s == '\r' || *s == '\n') {
-        cur_col = 0;
+        redir_col = 0;
       } else if (*s == '\t') {
-        cur_col += (8 - cur_col % 8);
+        redir_col += (8 - redir_col % 8);
       } else {
-        cur_col++;
+        redir_col++;
       }
       s++;
     }
 
     if (msg_silent != 0) {      // should update msg_col
-      msg_col = cur_col;
+      msg_col = redir_col;
     }
   }
 }

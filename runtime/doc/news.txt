@@ -164,6 +164,7 @@ API
   `style='minimal'` or `:setlocal statusline=` to hide the statusline.
 • Added experimental |nvim__exec_lua_fast()| to allow remote API clients to
   execute code while nvim is blocking for input.
+• |vim.secure.trust()| accepts `path` for the `allow` action.
 
 BUILD
 
@@ -239,6 +240,7 @@ EVENTS
 • Creating or updating a progress message with |nvim_echo()| triggers a |Progress| event.
 • |MarkSet| is triggered after a |mark| is set by the user (currently doesn't
   support implicit marks like |'[| or |'<|, …).
+• |SessionLoadPre| is triggered before loading a |Session| file.
 • |TabClosedPre| is triggered before closing a |tabpage|.
 • New `terminator` parameter for |TermRequest| event.
 
@@ -313,6 +315,7 @@ LSP
 • Support for `workspace/codeLens/refresh`:
   https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#codeLens_refresh
 • `gx` will use `textDocument/documentLink` if available.
+• |vim.lsp.completion.enable()| adds colored symbol preview for color items.
 
 LUA
 
@@ -351,6 +354,7 @@ OPTIONS
 • 'diffopt' `inline:` configures diff highlighting for changes within a line.
 • 'fillchars' has new flag "foldinner".
 • 'fsync' and 'grepformat' are now |global-local| options.
+• 'listchars' has new flag "leadtab".
 • 'jumpoptions' flag "view" now applies when popping the |tagstack|.
 • 'maxsearchcount' sets maximum value for |searchcount()| and defaults to 999.
 • 'pummaxwidth' sets maximum width for the completion popup menu.
@@ -372,6 +376,10 @@ PERFORMANCE
 • |i_CTRL-R| inserts named/clipboard registers literally, 10x speedup.
 • LSP `textDocument/semanticTokens/range` is supported, which requests tokens
   for the viewport (visible screen) only.
+• |:packadd| doesn't invalidate the cached Lua package path. Instead the cache
+  gets updated in place. This might make a big startuptime difference for
+  certain |init.lua| patterns where multiple |:packadd| or |vim.pack.add()|
+  calls are interspersed with other code.
 
 PLUGINS
 
