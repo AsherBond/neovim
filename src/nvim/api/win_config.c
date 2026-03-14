@@ -24,6 +24,7 @@
 #include "nvim/mbyte.h"
 #include "nvim/memory.h"
 #include "nvim/memory_defs.h"
+#include "nvim/move.h"
 #include "nvim/option.h"
 #include "nvim/option_vars.h"
 #include "nvim/pos_defs.h"
@@ -38,26 +39,19 @@
 
 #include "api/win_config.c.generated.h"
 
-/// Opens a new split window, or a floating window if `relative` is specified,
-/// or an external window (managed by the UI) if `external` is specified.
+/// Opens a new split window, floating window, or external window.
 ///
-/// Floats are windows that are drawn above the split layout, at some anchor
-/// position in some other window. Floats can be drawn internally or by external
-/// GUI with the |ui-multigrid| extension. External windows are only supported
-/// with multigrid GUIs, and are displayed as separate top-level windows.
-///
-/// For a general overview of floats, see |api-floatwin|.
-///
-/// The `width` and `height` of the new window must be specified when opening
-/// a floating window, but are optional for normal windows.
-///
-/// If `relative` and `external` are omitted, a normal "split" window is created.
-/// The `win` property determines which window will be split. If no `win` is
-/// provided or `win == 0`, a window will be created adjacent to the current window.
-/// If -1 is provided, a top-level split will be created. `vertical` and `split` are
-/// only valid for normal windows, and are used to control split direction. For `vertical`,
-/// the exact direction is determined by 'splitright' and 'splitbelow'.
-/// Split windows cannot have `bufpos`, `row`, `col`, `border`, `title`, `footer` properties.
+/// - Specify `relative` to create a floating window. Floats are drawn over the split layout,
+///   relative to a position in some other window. See |api-floatwin|.
+///   - Floats must specify `width` and `height`.
+/// - Specify `external` to create an external window. External windows are displayed as separate
+///   top-level windows managed by the |ui-multigrid| UI (not Nvim).
+/// - If `relative` and `external` are omitted, a normal "split" window is created.
+///   - The `win` key decides which window to split. If nil or 0, the split will be adjacent to
+///     the current window. If -1, a top-level split will be created.
+///   - Use `vertical` and `split` to control split direction. For `vertical`, the exact direction
+///     is determined by 'splitright' and 'splitbelow'.
+///   - Split windows cannot have `bufpos`, `row`, `col`, `border`, `title`, `footer`.
 ///
 /// With relative=editor (row=0,col=0) refers to the top-left corner of the
 /// screen-grid and (row=Lines-1,col=Columns-1) refers to the bottom-right
@@ -345,6 +339,7 @@ Window nvim_open_win(Buffer buffer, Boolean enter, Dict(win_config) *config, Err
   if (fconfig.style == kWinStyleMinimal) {
     win_set_minimal_style(wp);
     didset_window_options(wp, true);
+    changed_window_setting(wp);
   }
   rv = wp->handle;
 
@@ -390,6 +385,25 @@ static bool win_config_split(win_T *win, Dict(win_config) *config, WinConfig *fc
   FUNC_ATTR_NONNULL_ALL
 {
 #define HAS_KEY_X(d, key) HAS_KEY(d, win_config, key)
+  bool was_split = !win->w_floating;
+  bool has_split = HAS_KEY_X(config, split);
+  bool has_vertical = HAS_KEY_X(config, vertical);
+  WinSplit old_split = win_split_dir(win);
+  if (has_vertical && !has_split) {
+    if (config->vertical) {
+      fconfig->split = (old_split == kWinSplitRight || p_spr) ? kWinSplitRight : kWinSplitLeft;
+    } else {
+      fconfig->split = (old_split == kWinSplitBelow || p_sb) ? kWinSplitBelow : kWinSplitAbove;
+    }
+  }
+
+  // If there's no "vertical" or "split" set, or if "split" is unchanged, then we can just change
+  // the size of the window.
+  if ((!has_vertical && !has_split)
+      || (was_split && !HAS_KEY_X(config, win) && old_split == fconfig->split)) {
+    goto resize;
+  }
+
   win_T *parent = NULL;
   tabpage_T *parent_tp = NULL;
   if (config->win == 0) {
@@ -418,25 +432,6 @@ static bool win_config_split(win_T *win, Dict(win_config) *config, WinConfig *fc
       api_set_error(err, kErrorTypeException, "%s", e_cmdwin);
       return false;
     }
-  }
-
-  bool was_split = !win->w_floating;
-  bool has_split = HAS_KEY_X(config, split);
-  bool has_vertical = HAS_KEY_X(config, vertical);
-  WinSplit old_split = win_split_dir(win);
-  if (has_vertical && !has_split) {
-    if (config->vertical) {
-      fconfig->split = (old_split == kWinSplitRight || p_spr) ? kWinSplitRight : kWinSplitLeft;
-    } else {
-      fconfig->split = (old_split == kWinSplitBelow || p_sb) ? kWinSplitBelow : kWinSplitAbove;
-    }
-  }
-
-  // If there's no "vertical" or "split" set, or if "split" is unchanged, then we can just change
-  // the size of the window.
-  if ((!has_vertical && !has_split)
-      || (was_split && !HAS_KEY_X(config, win) && old_split == fconfig->split)) {
-    goto resize;
   }
 
   if (!check_split_disallowed_err(win, err)) {
@@ -616,11 +611,11 @@ resize:
 #undef HAS_KEY_X
 }
 
-/// Reconfigures the layout of a window.
+/// Reconfigures the layout and properties of a window.
 ///
-/// - Absent (`nil`) keys will not be changed.
-/// - `row` / `col` / `relative` must be reconfigured together.
-/// - Cannot be used to move the last window in a tabpage to a different one.
+/// - Updates only the given keys; unspecified (`nil`) keys will not be changed.
+/// - Keys `row` / `col` / `relative` must be specified together.
+/// - Cannot move the last window in a tabpage to a different one.
 ///
 /// Example: to convert a floating window to a "normal" split window, specify the `win` field:
 ///
@@ -645,6 +640,7 @@ void nvim_win_set_config(Window window, Dict(win_config) *config, Error *err)
   bool was_split = !win->w_floating;
   bool has_split = HAS_KEY_X(config, split);
   bool has_vertical = HAS_KEY_X(config, vertical);
+  WinStyle old_style = win->w_config.style;
   // reuse old values, if not overridden
   WinConfig fconfig = win->w_config;
 
@@ -669,9 +665,10 @@ void nvim_win_set_config(Window window, Dict(win_config) *config, Error *err)
     win_config_float(win, fconfig);
   }
 
-  if (HAS_KEY_X(config, style) && fconfig.style == kWinStyleMinimal) {
+  if (fconfig.style == kWinStyleMinimal && old_style != fconfig.style) {
     win_set_minimal_style(win);
     didset_window_options(win, true);
+    changed_window_setting(win);
   }
   if (fconfig._cmdline_offset < INT_MAX) {
     cmdline_win = win;

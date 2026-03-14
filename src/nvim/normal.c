@@ -1330,7 +1330,7 @@ static void normal_check_text_changed(NormalState *s)
 
 static void normal_check_buffer_modified(NormalState *s)
 {
-  // Trigger BufModified if b_modified changed
+  // Trigger BufModified if 'modified' changed.
   if (!finish_op && has_event(EVENT_BUFMODIFIEDSET)
       && curbuf->b_changed_invalid == true) {
     apply_autocmds(EVENT_BUFMODIFIEDSET, NULL, NULL, false, curbuf);
@@ -1973,7 +1973,7 @@ bool add_to_showcmd(int c)
     0
   };
 
-  if (!p_sc || msg_silent != 0) {
+  if (!p_sc || msg_silent != 0 || ex_normal_busy) {
     return false;
   }
 
@@ -3186,9 +3186,9 @@ static void nv_colon(cmdarg_T *cap)
     }
   }
 
-  // When typing, don't type below an old message
   if (KeyTyped) {
-    compute_cmdrow();
+    msg_ext_set_trigger("typed_cmd");  // distinguish msg_show emitted for typed cmd
+    compute_cmdrow();                  // when typing, don't type below an old message
   }
 
   if (is_lua) {
@@ -3198,6 +3198,7 @@ static void nv_colon(cmdarg_T *cap)
     cmd_result = do_cmdline(NULL, is_cmdkey ? getcmdkeycmd : getexline, NULL,
                             cap->oap->op_type != OP_NOP ? DOCMD_KEEPLINE : 0);
   }
+  msg_ext_set_trigger("");
 
   if (cmd_result == false) {
     // The Ex command failed, do not execute the operator.
@@ -5857,7 +5858,7 @@ static void set_op_var(int optype)
     opchars[1] = (char)opchar1;
 
     opchars[2] = NUL;
-    set_vim_var_string(VV_OP, opchars, -1);
+    set_vim_var_string(VV_OP, opchars, 2);
   }
 }
 

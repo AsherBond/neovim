@@ -3985,6 +3985,7 @@ local options = {
 
         Examples of cursor highlighting: >vim
             highlight Cursor gui=reverse guifg=NONE guibg=NONE
+            " Note: gui=reverse overrides colors.
             highlight Cursor gui=NONE guifg=bg guibg=fg
         <
       ]=],
@@ -4000,10 +4001,11 @@ local options = {
       abbreviation = 'gfn',
       defaults = {
         if_true = macros('DFLT_GFN', 'string'),
-        doc = [[(MS-Windows) "Cascadia Code,Cascadia Mono,Consolas,Courier New,monospace"
-                     (Mac) "SF Mono,Menlo,Monaco,Courier New,monospace"
-                   (Linux) "Source Code Pro,DejaVu Sans Mono,Courier New,monospace"
-                  (others) "DejaVu Sans Mono,Courier New,monospace"]],
+        doc = [["DejaVu Sans Mono,Courier New,monospace"
+          Mac: "SF Mono,Menlo,Monaco,Courier New,monospace"
+          Linux: "Source Code Pro,DejaVu Sans Mono,Courier New,monospace"
+          MS-Windows: "Cascadia Code,Cascadia Mono,Consolas,Courier New,monospace"]],
+        meta = 'DFLT_GFN',
       },
       desc = [=[
         This is a list of fonts which will be used for the GUI version of Vim.
@@ -5933,8 +5935,13 @@ local options = {
         result of a BufNewFile, BufRead/BufReadPost, BufWritePost,
         FileAppendPost or VimLeave autocommand event.  See |gzip-example| for
         an explanation.
-        When 'buftype' is "nowrite" or "nofile" this option may be set, but
+
+        When 'buftype' is "prompt", 'modified' is not implicitly set when the
+        buffer is changed, but a user or plugin may explicitly set it.
+
+        When 'buftype' is "nowrite" or "nofile", this option may be set, but
         will be ignored.
+
         Note that the text may actually be the same, e.g. 'modified' is set
         when using "rA" on an "A".
       ]=],
@@ -8774,6 +8781,7 @@ local options = {
         if_true = table.concat({
           '%<',
           '%f %h%w%m%r ',
+          "%{% v:lua.require('vim._core.util').term_exitcode() %}",
           '%=',
           "%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}",
           "%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}",

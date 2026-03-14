@@ -3159,6 +3159,7 @@ vim.go.gp = vim.go.grepprg
 ---
 --- ```vim
 ---     highlight Cursor gui=reverse guifg=NONE guibg=NONE
+---     " Note: gui=reverse overrides colors.
 ---     highlight Cursor gui=NONE guifg=bg guibg=fg
 --- ```
 ---
@@ -3240,7 +3241,7 @@ vim.go.gcr = vim.go.guicursor
 ---
 ---
 --- @type string
-vim.o.guifont = "Source Code Pro,DejaVu Sans Mono,Courier New,monospace"
+vim.o.guifont = "DFLT_GFN"
 vim.o.gfn = vim.o.guifont
 vim.go.guifont = vim.o.guifont
 vim.go.gfn = vim.go.guifont
@@ -4564,8 +4565,13 @@ vim.bo.ma = vim.bo.modifiable
 --- result of a BufNewFile, BufRead/BufReadPost, BufWritePost,
 --- FileAppendPost or VimLeave autocommand event.  See `gzip-example` for
 --- an explanation.
---- When 'buftype' is "nowrite" or "nofile" this option may be set, but
+---
+--- When 'buftype' is "prompt", 'modified' is not implicitly set when the
+--- buffer is changed, but a user or plugin may explicitly set it.
+---
+--- When 'buftype' is "nowrite" or "nofile", this option may be set, but
 --- will be ignored.
+---
 --- Note that the text may actually be the same, e.g. 'modified' is set
 --- when using "rA" on an "A".
 ---
@@ -6964,7 +6970,7 @@ vim.wo.stc = vim.wo.statuscolumn
 ---
 ---
 --- @type string
-vim.o.statusline = "%<%f %h%w%m%r %=%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}%{% &busy > 0 ? '◐ ' : '' %}%{% luaeval('(package.loaded[''vim.diagnostic''] and #vim.diagnostic.count() ~= 0 and vim.diagnostic.status() .. '' '') or '''' ') %}%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}"
+vim.o.statusline = "%<%f %h%w%m%r %{% v:lua.require('vim._core.util').term_exitcode() %}%=%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}%{% &busy > 0 ? '◐ ' : '' %}%{% luaeval('(package.loaded[''vim.diagnostic''] and #vim.diagnostic.count() ~= 0 and vim.diagnostic.status() .. '' '') or '''' ') %}%{% &ruler ? ( &rulerformat == '' ? '%-14.(%l,%c%V%) %P' : &rulerformat ) : '' %}"
 vim.o.stl = vim.o.statusline
 vim.wo.statusline = vim.o.statusline
 vim.wo.stl = vim.wo.statusline

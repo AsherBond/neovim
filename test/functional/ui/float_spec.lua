@@ -407,15 +407,11 @@ describe('float window', function()
     assert_alive()
   end)
 
-  it("should re-apply 'style' when present and not leak to normal windows", function()
+  it("should not leak 'style' option values to normal windows", function()
     local buf = api.nvim_create_buf(true, false)
     local buf2 = api.nvim_create_buf(true, false)
     local float_opts = { style = 'minimal', relative = 'editor', row = 1, col = 1, width = 1, height = 1 }
     local float_win = api.nvim_open_win(buf, true, float_opts)
-    api.nvim_set_option_value('number', true, { win = float_win })
-    float_opts.row = 2
-    api.nvim_win_set_config(float_win, float_opts)
-    eq(false, api.nvim_get_option_value('number', { win = float_win }))
     -- minimal float should preserve its own options when switching buffers
     api.nvim_set_option_value('listchars', 'extends:…,precedes:…', { win = float_win, scope = 'local' })
     api.nvim_win_set_buf(float_win, buf2)
@@ -1128,6 +1124,30 @@ describe('float window', function()
     eq(false, api.nvim_win_is_valid(w5))
     eq(true, api.nvim_win_is_valid(w6))
     neq(tp1, api.nvim_win_get_tabpage(w6))
+  end)
+
+  it('compositor clears old position when configuring reallocates grid #38143', function()
+    local screen = Screen.new()
+    local w1 = api.nvim_open_win(0, true, { relative = 'editor', border = 'single', row = 0, col = 0, width = 5, height = 5 })
+    screen:expect([[
+      {2:┌─────┐}                                              |
+      {2:│}{4:^     }{2:│}{1:                                              }|
+      {2:│}{11:~    }{2:│}{1:                                              }|*4
+      {2:└─────┘}{1:                                              }|
+      {1:~                                                    }|*6
+                                                           |
+    ]])
+    api.nvim_win_set_config(w1, { relative = 'cursor', row = 1, col = 1, height = 4, width = 4 })
+    screen:expect([[
+                                                           |
+      {1:~                                                    }|
+      {1:~ }{2:┌────┐}{1:                                             }|
+      {1:~ }{2:│}{4:^    }{2:│}{1:                                             }|
+      {1:~ }{2:│}{11:~   }{2:│}{1:                                             }|*3
+      {1:~ }{2:└────┘}{1:                                             }|
+      {1:~                                                    }|*5
+                                                           |
+    ]])
   end)
 
   local function with_ext_multigrid(multigrid, send_mouse_grid)
