@@ -44,6 +44,169 @@ describe('float window', function()
     eq(1000, fn.win_getid())
   end)
 
+  it('validation', function()
+    local buf = api.nvim_create_buf(false, false)
+    eq("Invalid key: 'bork'", pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, bork = true }))
+    eq("Required: 'relative' or 'external' when creating a float", pcall_err(api.nvim_open_win, buf, false, { win = 0 }))
+    eq(
+      "Conflict: 'vertical' not allowed with floating windows",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, vertical = true })
+    )
+    eq(
+      "Conflict: 'split' not allowed with floating windows",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, split = 'left' })
+    )
+    eq(
+      "Conflict: 'relative' not allowed with 'external'",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, external = true })
+    )
+    eq(
+      "Invalid 'relative': 'shell'",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'shell', row = 0, col = 0 })
+    )
+    eq(
+      "Invalid 'anchor': 'bottom'",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, anchor = 'bottom' })
+    )
+    eq(
+      "Required: 'relative' requires 'row'/'col' or 'bufpos'",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor' })
+    )
+    eq(
+      "Invalid 'width': expected positive Integer",
+      pcall_err(api.nvim_open_win, buf, false, { width = -1, height = 2, relative = 'editor', row = 0, col = 0 })
+    )
+    eq(
+      "Invalid 'height': expected positive Integer",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = -1, relative = 'editor', row = 0, col = 0 })
+    )
+    eq(
+      "Invalid 'height': expected positive Integer",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 0, relative = 'editor', row = 0, col = 0 })
+    )
+    eq("Required: 'width'", pcall_err(api.nvim_open_win, buf, false, { relative = 'editor', row = 0, col = 0 }))
+    eq("Required: 'height'", pcall_err(api.nvim_open_win, buf, false, { relative = 'editor', row = 0, col = 0, width = 2 }))
+
+    eq("Invalid 'split': 'up'", pcall_err(api.nvim_open_win, buf, false, { split = 'up' }))
+    eq(
+      "Invalid 'bufpos': expected [row, col] array",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, bufpos = { 0 } })
+    )
+    eq(
+      "Invalid 'zindex': expected positive Integer",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, zindex = 0 })
+    )
+    eq(
+      "Invalid 'zindex': expected positive Integer",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, zindex = -1 })
+    )
+    eq(
+      "Invalid 'style': 'bogus'",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, style = 'bogus' })
+    )
+    eq(
+      "Invalid 'border': 'bogus'",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, border = 'bogus' })
+    )
+    eq(
+      "Invalid 'border': expected 1, 2, 4, or 8 chars",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, border = { '', '', '' } })
+    )
+    eq(
+      "Invalid 'border': expected 1 or 2-item Array",
+      pcall_err(
+        api.nvim_open_win,
+        buf,
+        false,
+        { width = 20, height = 2, relative = 'editor', row = 0, col = 0, border = { { 'a', 'b', 'c' } } }
+      )
+    )
+    eq(
+      "Invalid 'border': expected Array of Strings",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, border = { { 1 } } })
+    )
+    eq(
+      "Invalid 'border': expected String or Array, got Integer",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, border = { 42 } })
+    )
+    eq(
+      "Invalid 'border': expected only one-cell chars",
+      pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, border = { 'aa' } })
+    )
+    eq(
+      "Invalid 'border': expected corner char between edge chars",
+      pcall_err(
+        api.nvim_open_win,
+        buf,
+        false,
+        { width = 20, height = 2, relative = 'editor', row = 0, col = 0, border = { '', '-', '', '|', '', '-', '', '|' } }
+      )
+    )
+
+    -- title_pos/footer_pos validation
+    eq(
+      "Invalid 'title_pos': 'bogus'",
+      pcall_err(
+        api.nvim_open_win,
+        buf,
+        false,
+        { width = 20, height = 2, relative = 'editor', row = 0, col = 0, border = 'single', title = 'T', title_pos = 'bogus' }
+      )
+    )
+    eq(
+      "Invalid 'footer_pos': 'bogus'",
+      pcall_err(
+        api.nvim_open_win,
+        buf,
+        false,
+        { width = 20, height = 2, relative = 'editor', row = 0, col = 0, border = 'single', footer = 'F', footer_pos = 'bogus' }
+      )
+    )
+    eq(
+      "Required: 'footer' requires 'footer_pos'",
+      pcall_err(
+        api.nvim_open_win,
+        buf,
+        false,
+        { relative = 'editor', width = 9, height = 2, row = 2, col = 5, border = 'single', footer_pos = 'left' }
+      )
+    )
+    eq(
+      "Required: 'title' requires 'title_pos'",
+      pcall_err(
+        api.nvim_open_win,
+        buf,
+        false,
+        { relative = 'editor', width = 9, height = 2, row = 2, col = 5, border = 'single', title_pos = 'left' }
+      )
+    )
+  end)
+
+  it('validation: split window', function()
+    local buf = api.nvim_create_buf(false, true)
+    eq("Conflict: 'zindex' not allowed with non-float window", pcall_err(api.nvim_open_win, buf, false, { split = 'left', zindex = 100 }))
+    eq("Conflict: 'title' not allowed with non-float window", pcall_err(api.nvim_open_win, buf, false, { split = 'left', title = 'T' }))
+    eq("Conflict: 'footer' not allowed with non-float window", pcall_err(api.nvim_open_win, buf, false, { split = 'left', footer = 'F' }))
+    eq(
+      "Conflict: 'border' not allowed with non-float window",
+      pcall_err(api.nvim_open_win, buf, false, { split = 'left', border = 'single' })
+    )
+    eq("Conflict: 'row' not allowed with non-float window", pcall_err(api.nvim_open_win, buf, true, { split = 'right', row = 10 }))
+    eq("Conflict: 'col' not allowed with non-float window", pcall_err(api.nvim_open_win, buf, true, { split = 'right', col = 10 }))
+    eq(
+      "Conflict: 'bufpos' not allowed with non-float window",
+      pcall_err(api.nvim_open_win, buf, true, { split = 'right', bufpos = { 0, 0 } })
+    )
+
+    local winid = api.nvim_open_win(buf, true, { split = 'right' })
+    eq("Conflict: 'row' not allowed with non-float window", pcall_err(api.nvim_win_set_config, winid, { split = 'right', row = 10 }))
+    eq("Conflict: 'col' not allowed with non-float window", pcall_err(api.nvim_win_set_config, winid, { split = 'right', col = 10 }))
+    eq(
+      "Conflict: 'bufpos' not allowed with non-float window",
+      pcall_err(api.nvim_win_set_config, winid, { split = 'right', bufpos = { 0, 0 } })
+    )
+  end)
+
   it('win_execute() should work', function()
     local buf = api.nvim_create_buf(false, false)
     api.nvim_buf_set_lines(buf, 0, -1, true, { 'the floatwin', 'abc', 'def' })
@@ -221,23 +384,12 @@ describe('float window', function()
     eq({ 14, 12 }, { pos[1], pos[2] })
   end)
 
-  it('error message when invalid field specified for split', function()
-    local bufnr = api.nvim_create_buf(false, true)
-    eq("non-float cannot have 'row'", pcall_err(api.nvim_open_win, bufnr, true, { split = 'right', row = 10 }))
-    eq("non-float cannot have 'col'", pcall_err(api.nvim_open_win, bufnr, true, { split = 'right', col = 10 }))
-    eq("non-float cannot have 'bufpos'", pcall_err(api.nvim_open_win, bufnr, true, { split = 'right', bufpos = { 0, 0 } }))
-    local winid = api.nvim_open_win(bufnr, true, { split = 'right' })
-    eq("non-float cannot have 'row'", pcall_err(api.nvim_win_set_config, winid, { split = 'right', row = 10 }))
-    eq("non-float cannot have 'col'", pcall_err(api.nvim_win_set_config, winid, { split = 'right', col = 10 }))
-    eq("non-float cannot have 'bufpos'", pcall_err(api.nvim_win_set_config, winid, { split = 'right', bufpos = { 0, 0 } }))
-  end)
-
-  it('error message when reconfig missing relative field', function()
+  it('error when reconfig missing relative field', function()
     local bufnr = api.nvim_create_buf(false, true)
     local opts = { width = 10, height = 10, col = 5, row = 5, relative = 'editor', style = 'minimal' }
     local winid = api.nvim_open_win(bufnr, true, opts)
     eq(
-      "Missing 'relative' field when reconfiguring floating window 1001",
+      "Required: 'relative' when reconfiguring floating window 1001",
       pcall_err(api.nvim_win_set_config, winid, { width = 3, height = 3, row = 10, col = 10 })
     )
   end)
@@ -2093,23 +2245,7 @@ describe('float window', function()
       end
     end)
 
-    it('validates title title_pos', function()
-      local buf = api.nvim_create_buf(false, false)
-      eq(
-        'title_pos requires title to be set',
-        pcall_err(api.nvim_open_win, buf, false, {
-          relative = 'editor',
-          width = 9,
-          height = 2,
-          row = 2,
-          col = 5,
-          border = 'single',
-          title_pos = 'left',
-        })
-      )
-    end)
-
-    it('validate title_pos in nvim_win_get_config', function()
+    it('nvim_win_get_config.title_pos', function()
       local title_pos = exec_lua([[
         local bufnr = vim.api.nvim_create_buf(false, false)
         local opts = {
@@ -2130,23 +2266,7 @@ describe('float window', function()
       eq('center', title_pos)
     end)
 
-    it('validates footer footer_pos', function()
-      local buf = api.nvim_create_buf(false, false)
-      eq(
-        'footer_pos requires footer to be set',
-        pcall_err(api.nvim_open_win, buf, false, {
-          relative = 'editor',
-          width = 9,
-          height = 2,
-          row = 2,
-          col = 5,
-          border = 'single',
-          footer_pos = 'left',
-        })
-      )
-    end)
-
-    it('validate footer_pos in nvim_win_get_config', function()
+    it('nvim_win_get_config.footer_pos', function()
       local footer_pos = exec_lua([[
         local bufnr = vim.api.nvim_create_buf(false, false)
         local opts = {
@@ -3779,51 +3899,19 @@ describe('float window', function()
       end)
     end)
 
-    it('API has proper error messages', function()
-      local buf = api.nvim_create_buf(false, false)
-      eq("Invalid key: 'bork'", pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, bork = true }))
-      eq(
-        "'win' key is only valid with relative='win' and relative=''",
-        pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, win = 0 })
-      )
-      eq(
-        "floating windows cannot have 'vertical'",
-        pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, vertical = true })
-      )
-      eq(
-        "floating windows cannot have 'split'",
-        pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, split = 'left' })
-      )
-      eq(
-        "Only one of 'relative' and 'external' must be used",
-        pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, external = true })
-      )
-      eq(
-        "Invalid value of 'relative' key",
-        pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'shell', row = 0, col = 0 })
-      )
-      eq(
-        "Invalid value of 'anchor' key",
-        pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor', row = 0, col = 0, anchor = 'bottom' })
-      )
-      eq(
-        "'relative' requires 'row'/'col' or 'bufpos'",
-        pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 2, relative = 'editor' })
-      )
-      eq(
-        "'width' key must be a positive Integer",
-        pcall_err(api.nvim_open_win, buf, false, { width = -1, height = 2, relative = 'editor', row = 0, col = 0 })
-      )
-      eq(
-        "'height' key must be a positive Integer",
-        pcall_err(api.nvim_open_win, buf, false, { width = 20, height = -1, relative = 'editor', row = 0, col = 0 })
-      )
-      eq(
-        "'height' key must be a positive Integer",
-        pcall_err(api.nvim_open_win, buf, false, { width = 20, height = 0, relative = 'editor', row = 0, col = 0 })
-      )
-      eq("Must specify 'width'", pcall_err(api.nvim_open_win, buf, false, { relative = 'editor', row = 0, col = 0 }))
-      eq("Must specify 'height'", pcall_err(api.nvim_open_win, buf, false, { relative = 'editor', row = 0, col = 0, width = 2 }))
+    it('validation: multigrid', function()
+      if multigrid then
+        local buf = api.nvim_create_buf(false, false)
+        eq(
+          "Conflict: 'win' not allowed with external window",
+          pcall_err(api.nvim_open_win, buf, false, { external = true, win = 0, width = 10, height = 10 })
+        )
+        api.nvim_open_win(buf, true, { external = true, width = 10, height = 10 })
+        eq("Conflict: 'win' not allowed with external window", pcall_err(api.nvim_win_set_config, 0, { win = 0 }))
+        -- OK to include "win" if external window is also reconfigured to a normal float.
+        api.nvim_win_set_config(0, { relative = 'editor', win = 0, row = 0, col = 0, width = 5, height = 5 })
+        eq('editor', api.nvim_win_get_config(0).relative)
+      end
     end)
 
     it('can be placed relative window or cursor', function()
@@ -7758,12 +7846,11 @@ describe('float window', function()
           screen:expect {
             grid = [[
           ## grid 1
-            [2:----------------------------------------]|*5
-            {5:[No Name] [+]                           }|
+            [2:----------------------------------------]|*6
             [3:----------------------------------------]|
           ## grid 2
             x                                       |
-            {0:~                                       }|*4
+            {0:~                                       }|*5
           ## grid 3
                                                     |
           ## grid 4
@@ -11191,6 +11278,19 @@ describe('float window', function()
       local winid = api.nvim_open_win(buf, false, config)
       api.nvim_set_current_win(winid)
       eq('floating window cannot be relative to itself', pcall_err(api.nvim_win_set_config, winid, config))
+      eq('floating window cannot be relative to itself', pcall_err(api.nvim_win_set_config, winid, { win = winid }))
+      -- Don't assume win=0 if no win given for existing relative=win float; so no error.
+      api.nvim_win_set_config(winid, { width = 7 })
+      eq(7, api.nvim_win_get_config(winid).width)
+      -- Don't expect the error when configuring to something other than relative=win, as win=self
+      -- is fine in those cases. (though maybe pointless) Other errors might be expected, though.
+      eq('Cannot split a floating window', pcall_err(api.nvim_win_set_config, winid, { split = 'above', win = winid }))
+      eq('win', api.nvim_win_get_config(winid).relative)
+      api.nvim_win_set_config(winid, { relative = 'editor', win = winid, row = 3, col = 3 })
+      eq('editor', api.nvim_win_get_config(winid).relative)
+      -- An error when configuring split into relative=win float.
+      command('split')
+      eq('floating window cannot be relative to itself', pcall_err(api.nvim_win_set_config, 0, config))
     end)
 
     it('bufpos out of range', function()
@@ -11866,6 +11966,485 @@ describe('float window', function()
           {5:│}{2:~         }{5:││}{2:~         }{5:│}{0:                }|*3
           {5:└──────────┘│}{2:~         }{5:│}{0:                }|
           cmdline     {5:└──────────┘}                |
+        ]])
+      end
+    end)
+
+    it('redrawn after moving tabpages via nvim_win_set_config()', function()
+      local tab1_win = api.nvim_get_current_win()
+      fn.setline(1, 'hello')
+      command('tab split')
+      local tab2_win = api.nvim_get_current_win()
+      -- Schedule an UPD_NOT_VALID redraw, but in one event move the float out of curtab before it's
+      -- handled. Do not flush before then.
+      local float = exec_lua(function()
+        local float = vim.api.nvim_open_win(0, true, { relative = 'editor', width = 10, height = 5, row = 1, col = 1 })
+        vim.api.nvim__redraw({ valid = false, flush = false })
+        vim.api.nvim_win_set_config(float, { win = tab1_win })
+        return float
+      end)
+
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {9: }{10:2}{9:+ [No Name] }{3: + [No Name] }{5:            }{9:X}|
+            [4:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2 (hidden)
+            hello                                   |
+            {0:~                                       }|*5
+          ## grid 3
+                                                    |
+          ## grid 4
+            ^hello                                   |
+            {0:~                                       }|*4
+          ]],
+        })
+      else
+        screen:expect([[
+          {9: }{10:2}{9:+ [No Name] }{3: + [No Name] }{5:            }{9:X}|
+          ^hello                                   |
+          {0:~                                       }|*4
+                                                  |
+        ]])
+      end
+
+      -- Importantly, want tabline redrawn and float's hl attribs to be correct here.
+      api.nvim_win_set_config(float, { win = 0 })
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {9: + [No Name] }{3: }{11:2}{3:+ [No Name] }{5:            }{9:X}|
+            [4:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2 (hidden)
+            hello                                   |
+            {0:~                                       }|*5
+          ## grid 3
+                                                    |
+          ## grid 4
+            ^hello                                   |
+            {0:~                                       }|*4
+          ## grid 5
+            {1:hello     }|
+            {2:~         }|*4
+          ]],
+          float_pos = {
+            [5] = { 1002, 'NW', 1, 1, 1, true, 50, 1, 1, 1 },
+          },
+        })
+      else
+        screen:expect([[
+          {9: + [No Name] }{3: }{11:2}{3:+ [No Name] }{5:            }{9:X}|
+          ^h{1:hello     }                             |
+          {0:~}{2:~         }{0:                             }|*4
+                                                  |
+        ]])
+      end
+
+      -- Autocommand runs within the first tabpage, but won't refresh grids when switching to it due
+      -- to switch_win_noblock having no_display set.
+      command(
+        ('autocmd OptionSet rightleft ++once call nvim_win_set_config(%d, #{relative: "win", win: %d, row: 0, col: 0})'):format(
+          float,
+          tab1_win
+        )
+      )
+      api.nvim_set_option_value('rightleft', true, { win = tab1_win })
+      -- Stale grids should not have caused issues with removing the float's grid.
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {9: }{10:2}{9:+ [No Name] }{3: + [No Name] }{5:            }{9:X}|
+            [4:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2 (hidden)
+            hello                                   |
+            {0:~                                       }|*5
+          ## grid 3
+                                                    |
+          ## grid 4
+            ^hello                                   |
+            {0:~                                       }|*4
+          ## grid 5 (hidden)
+            {1:hello     }|
+            {2:~         }|*4
+          ]],
+        })
+      else
+        screen:expect([[
+          {9: }{10:2}{9:+ [No Name] }{3: + [No Name] }{5:            }{9:X}|
+          ^hello                                   |
+          {0:~                                       }|*4
+                                                  |
+        ]])
+      end
+
+      command('tabfirst')
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {3: }{11:2}{3:+ [No Name] }{9: + [No Name] }{5:            }{9:X}|
+            [2:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2
+                                               olle^h|
+            {0:                                       ~}|*4
+          ## grid 3
+                                                    |
+          ## grid 4 (hidden)
+            hello                                   |
+            {0:~                                       }|*4
+          ## grid 5
+            {1:hello     }|
+            {2:~         }|*4
+          ]],
+          float_pos = {
+            [5] = { 1002, 'NW', 2, 0, 0, true, 50, 1, 1, 0 },
+          },
+        })
+      else
+        screen:expect([[
+          {3: }{11:2}{3:+ [No Name] }{9: + [No Name] }{5:            }{9:X}|
+          {1:hello     }                         olle^h|
+          {2:~         }{0:                             ~}|*4
+                                                  |
+        ]])
+      end
+
+      -- Check tablines are redrawn even when moving floats between two non-current tabpages.
+      command('tabnew')
+      local tab3_win = api.nvim_get_current_win()
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {9: }{10:2}{9:+ No Name] }{3: [No Name] }{9: + [No Name] }{5:  }{9:X}|
+            [6:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2 (hidden)
+                                               olleh|
+            {0:                                       ~}|*4
+          ## grid 3
+                                                    |
+          ## grid 4 (hidden)
+            hello                                   |
+            {0:~                                       }|*4
+          ## grid 5 (hidden)
+            {1:hello     }|
+            {2:~         }|*4
+          ## grid 6
+                                                   ^ |
+            {0:                                       ~}|*4
+          ]],
+        })
+      else
+        screen:expect([[
+          {9: }{10:2}{9:+ No Name] }{3: [No Name] }{9: + [No Name] }{5:  }{9:X}|
+                                                 ^ |
+          {0:                                       ~}|*4
+                                                  |
+        ]])
+      end
+
+      api.nvim_win_set_config(float, { win = tab2_win })
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {9: + [No Name] }{3: [No Name] }{9: }{10:2}{9:+ No Name] }{5:  }{9:X}|
+            [6:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2 (hidden)
+                                               olleh|
+            {0:                                       ~}|*4
+          ## grid 3
+                                                    |
+          ## grid 4 (hidden)
+            hello                                   |
+            {0:~                                       }|*4
+          ## grid 5 (hidden)
+            {1:hello     }|
+            {2:~         }|*4
+          ## grid 6
+                                                   ^ |
+            {0:                                       ~}|*4
+          ]],
+        })
+      else
+        screen:expect([[
+          {9: + [No Name] }{3: [No Name] }{9: }{10:2}{9:+ No Name] }{5:  }{9:X}|
+                                                 ^ |
+          {0:                                       ~}|*4
+                                                  |
+        ]])
+      end
+
+      -- Try converting a split to a float, then moving it to another tabpage in one call.
+      command('set norightleft | new')
+      fn.setline(1, 'floaty mcfloatface')
+      api.nvim_win_set_config(0, { relative = 'editor', win = tab1_win, row = 3, col = 3, width = 15, height = 5 })
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {9: }{10:2}{9:+ No Name] }{3: [No Name] }{9: }{10:2}{9:+ No Name] }{5:  }{9:X}|
+            [6:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2 (hidden)
+                                               olleh|
+            {0:                                       ~}|*4
+          ## grid 3
+                                                    |
+          ## grid 4 (hidden)
+            hello                                   |
+            {0:~                                       }|*4
+          ## grid 5 (hidden)
+            {1:hello     }|
+            {2:~         }|*4
+          ## grid 6
+            ^                                        |
+            {0:~                                       }|*4
+          ## grid 7 (hidden)
+            floaty mcfloatface                      |
+            {0:~                                       }|
+          ]],
+        })
+      else
+        screen:expect([[
+          {9: }{10:2}{9:+ No Name] }{3: [No Name] }{9: }{10:2}{9:+ No Name] }{5:  }{9:X}|
+          ^                                        |
+          {0:~                                       }|*4
+                                                  |
+        ]])
+      end
+
+      command('tabfirst')
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {3: }{11:2}{3:+ No Name] }{9: [No Name]  }{10:2}{9:+ No Name] }{5:  }{9:X}|
+            [2:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2
+                                               olle^h|
+            {0:                                       ~}|*4
+          ## grid 3
+                                                    |
+          ## grid 4 (hidden)
+            hello                                   |
+            {0:~                                       }|*4
+          ## grid 5 (hidden)
+            {1:hello     }|
+            {2:~         }|*4
+          ## grid 6 (hidden)
+                                                    |
+            {0:~                                       }|*4
+          ## grid 7
+            {1:floaty mcfloatf}|
+            {1:ace            }|
+            {2:~              }|*3
+          ]],
+          float_pos = {
+            [7] = { 1004, 'NW', 1, 3, 3, true, 50, 1, 1, 3 },
+          },
+        })
+      else
+        screen:expect([[
+          {3: }{11:2}{3:+ No Name] }{9: [No Name]  }{10:2}{9:+ No Name] }{5:  }{9:X}|
+             {1:floaty mcfloatf}                 olle^h|
+          {0:   }{1:ace            }{0:                     ~}|
+          {0:   }{2:~              }{0:                     ~}|*3
+                                                  |
+        ]])
+      end
+
+      -- Works when doing the same between two non-current tabpages.
+      local float2 = api.nvim_open_win(0, false, { split = 'below', win = tab3_win })
+      api.nvim_win_set_config(float2, { relative = 'win', win = tab2_win, row = 2, col = 7, width = 4, height = 4, border = 'single' })
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {3: }{11:2}{3:+ No Name] }{9: [No Name]  }{10:3}{9:+ No Name] }{5:  }{9:X}|
+            [2:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2
+                                               olle^h|
+            {0:                                       ~}|*4
+          ## grid 3
+                                                    |
+          ## grid 4 (hidden)
+            hello                                   |
+            {0:~                                       }|*4
+          ## grid 5 (hidden)
+            {1:hello     }|
+            {2:~         }|*4
+          ## grid 6 (hidden)
+                                                    |
+            {0:~                                       }|*4
+          ## grid 7
+            {1:floaty mcfloatf}|
+            {1:ace            }|
+            {2:~              }|*3
+          ]],
+          float_pos = {
+            [7] = { 1004, 'NW', 1, 3, 3, true, 50, 1, 1, 3 },
+          },
+        })
+      else
+        screen:expect([[
+          {3: }{11:2}{3:+ No Name] }{9: [No Name]  }{10:3}{9:+ No Name] }{5:  }{9:X}|
+             {1:floaty mcfloatf}                 olle^h|
+          {0:   }{1:ace            }{0:                     ~}|
+          {0:   }{2:~              }{0:                     ~}|*3
+                                                  |
+        ]])
+      end
+
+      command('tabnext')
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {9: }{10:2}{9:+ No Name] }{3: [No Name] }{9: }{10:3}{9:+ No Name] }{5:  }{9:X}|
+            [6:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2 (hidden)
+                                               olleh|
+            {0:                                       ~}|*4
+          ## grid 3
+                                                    |
+          ## grid 4 (hidden)
+            hello                                   |
+            {0:~                                       }|*4
+          ## grid 5 (hidden)
+            {1:hello     }|
+            {2:~         }|*4
+          ## grid 6
+            ^                                        |
+            {0:~                                       }|*4
+          ## grid 7 (hidden)
+            {1:floaty mcfloatf}|
+            {1:ace            }|
+            {2:~              }|*3
+          ]],
+        })
+      else
+        screen:expect([[
+          {9: }{10:2}{9:+ No Name] }{3: [No Name] }{9: }{10:3}{9:+ No Name] }{5:  }{9:X}|
+          ^                                        |
+          {0:~                                       }|*4
+                                                  |
+        ]])
+      end
+
+      command('tabnext')
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {9: }{10:2}{9:+ No Name]  [No Name] }{3: }{11:3}{3:+ No Name] }{5:  }{9:X}|
+            [4:----------------------------------------]|*5
+            [3:----------------------------------------]|
+          ## grid 2 (hidden)
+                                               olleh|
+            {0:                                       ~}|*4
+          ## grid 3
+                                                    |
+          ## grid 4
+            ^hello                                   |
+            {0:~                                       }|*4
+          ## grid 5
+            {1:hello     }|
+            {2:~         }|*4
+          ## grid 6 (hidden)
+                                                    |
+            {0:~                                       }|*4
+          ## grid 7 (hidden)
+            {1:floaty mcfloatf}|
+            {1:ace            }|
+            {2:~              }|*3
+          ## grid 8
+            {5:┌────┐}|
+            {5:│}{1:lleh}{5:│}|
+            {5:│}{1:   o}{5:│}|
+            {5:│}{2:   ~}{5:│}|*2
+            {5:└────┘}|
+          ]],
+          float_pos = {
+            [5] = { 1002, 'NW', 4, 0, 0, true, 50, 1, 1, 0 },
+            [8] = { 1005, 'NW', 4, 2, 7, true, 50, 2, 0, 7 },
+          },
+        })
+      else
+        screen:expect([[
+          {9: }{10:2}{9:+ No }{5:┌────┐}{9: [No Name] }{3: }{11:3}{3:+ No Name] }{5:  }{9:X}|
+          {1:^hello  }{5:│}{1:lleh}{5:│}                           |
+          {2:~      }{5:│}{1:   o}{5:│}{0:                           }|
+          {2:~      }{5:│}{2:   ~}{5:│}{0:                           }|*2
+          {2:~      }{5:└────┘}{0:                           }|
+                                                  |
+        ]])
+      end
+
+      -- Used relative=win on two floats relative to this window.
+      -- Split it to the right to ensure both follow.
+      command('topleft vsplit')
+      if multigrid then
+        screen:expect({
+          grid = [[
+          ## grid 1
+            {9: }{10:2}{9:+ No Name]  [No Name] }{3: }{11:4}{3:+ No Name] }{5:  }{9:X}|
+            [9:--------------------]{5:│}[4:-------------------]|*4
+            {4:[No Name] [+]        }{5:[No Name] [+]      }|
+            [3:----------------------------------------]|
+          ## grid 2 (hidden)
+                                               olleh|
+            {0:                                       ~}|*4
+          ## grid 3
+                                                    |
+          ## grid 4
+            hello              |
+            {0:~                  }|*3
+          ## grid 5
+            {1:hello     }|
+            {2:~         }|*4
+          ## grid 6 (hidden)
+                                                    |
+            {0:~                                       }|*4
+          ## grid 7 (hidden)
+            {1:floaty mcfloatf}|
+            {1:ace            }|
+            {2:~              }|*3
+          ## grid 8
+            {5:┌────┐}|
+            {5:│}{1:lleh}{5:│}|
+            {5:│}{1:   o}{5:│}|
+            {5:│}{2:   ~}{5:│}|*2
+            {5:└────┘}|
+          ## grid 9
+            ^hello               |
+            {0:~                   }|*3
+          ]],
+          float_pos = {
+            [5] = { 1002, 'NW', 4, 0, 0, true, 50, 1, 1, 21 },
+            [8] = { 1005, 'NW', 4, 2, 7, true, 50, 2, 0, 28 },
+          },
+        })
+      else
+        screen:expect([[
+          {9: }{10:2}{9:+ No Name]  [No Name] }{3: }{11:4}{3:+ }{5:┌────┐}{3:e] }{5:  }{9:X}|
+          ^hello               {5:│}{1:hello  }{5:│}{1:lleh}{5:│}      |
+          {0:~                   }{5:│}{2:~      }{5:│}{1:   o}{5:│}{0:      }|
+          {0:~                   }{5:│}{2:~      }{5:│}{2:   ~}{5:│}{0:      }|*2
+          {4:[No Name] [+]        }{2:~      }{5:└────┘      }|
+                                                  |
         ]])
       end
     end)

@@ -28,7 +28,6 @@
 #include "nvim/eval/window.h"
 #include "nvim/ex_cmds.h"
 #include "nvim/ex_cmds2.h"
-#include "nvim/ex_cmds_defs.h"
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_eval.h"
 #include "nvim/ex_getln.h"
@@ -144,11 +143,25 @@ bool frames_locked(void)
 /// passing CMD_SIZE will also work.
 bool window_layout_locked(cmdidx_T cmd)
 {
+  Error err = ERROR_INIT;
+  const bool locked = window_layout_locked_err(cmd, &err);
+  if (ERROR_SET(&err)) {
+    emsg(_(err.msg));
+    api_clear_error(&err);
+  }
+  return locked;
+}
+
+/// Like `window_layout_locked`, but set `err` to the (untranslated) error message when locked.
+/// @see window_layout_locked
+bool window_layout_locked_err(cmdidx_T cmd, Error *err)
+{
   if (split_disallowed > 0 || close_disallowed > 0) {
     if (close_disallowed == 0 && cmd == CMD_tabnew) {
-      emsg(_(e_cannot_split_window_when_closing_buffer));
+      api_set_error(err, kErrorTypeException, "%s", e_cannot_split_window_when_closing_buffer);
     } else {
-      emsg(_(e_not_allowed_to_change_window_layout_in_this_autocmd));
+      api_set_error(err, kErrorTypeException, "%s",
+                    e_not_allowed_to_change_window_layout_in_this_autocmd);
     }
     return true;
   }
@@ -481,8 +494,7 @@ newwindow:
       // First create a new tab with the window, then go back to
       // the old tab and close the window there.
       win_T *wp = curwin;
-      if (win_new_tabpage(Prenum, NULL) == OK
-          && valid_tabpage(oldtab)) {
+      if (win_new_tabpage(Prenum, NULL, true, NULL) && valid_tabpage(oldtab)) {
         tabpage_T *newtab = curtab;
         goto_tabpage_tp(oldtab, true, true);
         if (curwin == wp) {
@@ -505,7 +517,7 @@ newwindow:
   // cursor to bottom-right window
   case 'b':
   case Ctrl_B:
-    win_goto(lastwin_nofloating());
+    win_goto(lastwin_nofloating(NULL));
     break;
 
   // cursor to last accessed (previous) window
@@ -680,7 +692,7 @@ wingotofile:
     CHECK_CMDWIN;
     size_t len;
     char *ptr;
-    if ((len = find_ident_under_cursor(&ptr, FIND_IDENT)) == 0) {
+    if ((len = find_ident_under_cursor(&ptr, FIND_IDENT, NULL)) == 0) {
       break;
     }
 
@@ -1158,7 +1170,7 @@ win_T *win_split_ins(int size, int flags, win_T *new_wp, int dir, frame_T *to_fl
     oldwin = firstwin;
   } else if (flags & WSP_BOT || curwin->w_floating) {
     // can't split float, use last nonfloating window instead
-    oldwin = lastwin_nofloating();
+    oldwin = lastwin_nofloating(NULL);
   } else {
     oldwin = curwin;
   }
@@ -4458,28 +4470,41 @@ void free_tabpage(tabpage_T *tp)
 /// are not completely setup yet and could cause dereferencing
 /// NULL pointers
 ///
+/// NOTE: `first` and the return value may have already been freed by autocmds!
+///
 /// @param after Put new tabpage after tabpage "after", or after the current
 ///              tabpage in case of 0.
 /// @param filename Will be passed to apply_autocmds().
-/// @return Was the new tabpage created successfully? FAIL or OK.
-int win_new_tabpage(int after, char *filename)
+/// @param enter Whether to enter the new tabpage.
+/// @param first If not NULL, set to the window opened for the new tabpage.
+/// @return pointer to new tabpage on success, NULL otherwise.
+tabpage_T *win_new_tabpage(int after, char *filename, bool enter, win_T **first)
 {
   tabpage_T *old_curtab = curtab;
 
-  if (cmdwin_type != 0) {
+  if (enter && cmdwin_type != 0) {
     emsg(_(e_cmdwin));
-    return FAIL;
+    return NULL;
   }
   if (window_layout_locked(CMD_tabnew)) {
-    return FAIL;
+    return NULL;
   }
 
   tabpage_T *newtp = alloc_tabpage();
 
   // Remember the current windows in this Tab page.
-  if (leave_tabpage(curbuf, true) == FAIL) {
-    xfree(newtp);
-    return FAIL;
+  // Avoid side-effects via unuse_tabpage when not entering.
+  if (enter) {
+    if (leave_tabpage(curbuf, true) == FAIL) {
+      xfree(newtp);
+      return NULL;
+    }
+  } else {
+    unuse_tabpage(curtab);
+    // Save this to tell if we need to make room for the tabline.
+    curtab->tp_old_Rows_avail = ROWS_AVAIL;
+    firstwin = NULL;
+    lastwin = NULL;
   }
 
   newtp->tp_localdir = old_curtab->tp_localdir
@@ -4488,59 +4513,79 @@ int win_new_tabpage(int after, char *filename)
   curtab = newtp;
 
   // Create a new empty window.
-  if (win_alloc_firstwin(old_curtab->tp_curwin) == OK) {
-    // Make the new Tab page the new topframe.
-    if (after == 1) {
-      // New tab page becomes the first one.
-      newtp->tp_next = first_tabpage;
-      first_tabpage = newtp;
-    } else {
-      tabpage_T *tp = old_curtab;
+  const int result = win_alloc_firstwin(old_curtab->tp_curwin);
+  assert(result == OK);  // does not fail for first window of new tabpage
+  (void)result;
+  if (first) {
+    *first = curwin;
+  }
 
-      if (after > 0) {
-        // Put new tab page before tab page "after".
-        int n = 2;
-        for (tp = first_tabpage; tp->tp_next != NULL
-             && n < after; tp = tp->tp_next) {
-          n++;
-        }
+  // Make the new Tab page the new topframe.
+  if (after == 1) {
+    // New tab page becomes the first one.
+    newtp->tp_next = first_tabpage;
+    first_tabpage = newtp;
+  } else {
+    tabpage_T *tp = old_curtab;
+
+    if (after > 0) {
+      // Put new tab page before tab page "after".
+      int n = 2;
+      for (tp = first_tabpage; tp->tp_next != NULL
+           && n < after; tp = tp->tp_next) {
+        n++;
       }
-      newtp->tp_next = tp->tp_next;
-      tp->tp_next = newtp;
     }
-    newtp->tp_firstwin = newtp->tp_lastwin = newtp->tp_curwin = curwin;
+    newtp->tp_next = tp->tp_next;
+    tp->tp_next = newtp;
+  }
+  newtp->tp_firstwin = newtp->tp_lastwin = newtp->tp_curwin = curwin;
 
-    win_init_size();
-    firstwin->w_winrow = tabline_height();
-    firstwin->w_prev_winrow = firstwin->w_winrow;
-    win_comp_scroll(curwin);
+  win_init_size();
+  firstwin->w_winrow = tabline_height();
+  firstwin->w_prev_winrow = firstwin->w_winrow;
+  win_comp_scroll(curwin);
 
-    newtp->tp_topframe = topframe;
-    last_status(false);
+  newtp->tp_topframe = topframe;
+  last_status(false);
 
-    if (curbuf->terminal) {
-      terminal_check_size(curbuf->terminal);
-    }
+  if (curbuf->terminal) {
+    terminal_check_size(curbuf->terminal);
+  }
 
+  if (enter) {
     redraw_all_later(UPD_NOT_VALID);
-
     tabpage_check_windows(old_curtab);
-
     lastused_tabpage = old_curtab;
-
     entering_window(curwin);
 
     apply_autocmds(EVENT_WINNEW, NULL, NULL, false, curbuf);
     apply_autocmds(EVENT_WINENTER, NULL, NULL, false, curbuf);
     apply_autocmds(EVENT_TABNEW, filename, filename, false, curbuf);
     apply_autocmds(EVENT_TABENTER, NULL, NULL, false, curbuf);
+  } else {
+    unuse_tabpage(curtab);
+    use_tabpage(old_curtab);
+    // Tabline maybe added, or its contents changed.
+    redraw_tabline = true;
+    if (curtab->tp_old_Rows_avail != ROWS_AVAIL) {
+      win_new_screen_rows();
+    }
 
-    return OK;
+    // Trigger autocommands in the context of the new window. Let switch_win_noblock handle stuff
+    // like temporarily resetting VIsual_active.
+    switchwin_T switchwin;
+    const int sw_result = switch_win_noblock(&switchwin, newtp->tp_curwin, newtp, true);
+    assert(sw_result == OK);  // tp_curwin is valid in newtp
+    (void)sw_result;
+
+    apply_autocmds(EVENT_WINNEW, NULL, NULL, false, curbuf);
+    apply_autocmds(EVENT_TABNEW, filename, filename, false, curbuf);
+
+    restore_win_noblock(&switchwin, true);
   }
 
-  // Failed, get back the previous Tab page
-  enter_tabpage(curtab, curbuf, true, true);
-  return FAIL;
+  return newtp;
 }
 
 // Open a new tab page if ":tab cmd" was used.  It will edit the same buffer,
@@ -4556,7 +4601,7 @@ static int may_open_tabpage(void)
 
   cmdmod.cmod_tab = 0;         // reset it to avoid doing it twice
   postponed_split_tab = 0;
-  int status = win_new_tabpage(n, NULL);
+  int status = win_new_tabpage(n, NULL, true, NULL) ? OK : FAIL;
   if (status == OK) {
     apply_autocmds(EVENT_TABNEWENTERED, NULL, NULL, false, curbuf);
   }
@@ -4578,7 +4623,7 @@ int make_tabpages(int maxcount)
 
   int todo;
   for (todo = count - 1; todo > 0; todo--) {
-    if (win_new_tabpage(0, NULL) == FAIL) {
+    if (!win_new_tabpage(0, NULL, true, NULL)) {
       break;
     }
   }
@@ -4800,7 +4845,7 @@ static void tabpage_check_windows(tabpage_T *old_curtab)
     if (wp->w_floating) {
       if (wp->w_config.external) {
         win_remove(wp, old_curtab);
-        win_append(lastwin_nofloating(), wp, NULL);
+        win_append(lastwin_nofloating(NULL), wp, NULL);
       } else {
         ui_comp_remove_grid(&wp->w_grid_alloc);
       }
@@ -5565,6 +5610,7 @@ void win_free(win_T *wp, tabpage_T *tp)
       // Discard saved options if the style is minimal.
       if (wp->w_config.style == kWinStyleMinimal && wip_wp->wi_optset) {
         clear_winopt(&wip_wp->wi_opt);
+        deleteFoldRecurse(buf, &wip_wp->wi_folds);
         wip_wp->wi_optset = false;
       }
       // If there already is an entry with "wi_win" set to NULL, only
@@ -6236,7 +6282,7 @@ static void frame_setheight(frame_T *curfrp, int height)
       if (curfrp->fr_width != Columns) {
         room_cmdline = 0;
       } else {
-        win_T *wp = lastwin_nofloating();
+        win_T *wp = lastwin_nofloating(NULL);
         room_cmdline = Rows - (int)p_ch - global_stl_height()
                        - (wp->w_winrow + wp->w_height + wp->w_hsep_height + wp->w_status_height);
         room_cmdline = MAX(room_cmdline, 0);
@@ -6265,7 +6311,7 @@ static void frame_setheight(frame_T *curfrp, int height)
     }
     // If there is only a 'winfixheight' window and making the
     // window smaller, need to make the other window taller.
-    if (take < 0 && room - curfrp->fr_height < room_reserved) {
+    if (take < 0 && room - curfrp->fr_height <= room_reserved) {
       room_reserved = 0;
     }
 
@@ -7050,7 +7096,7 @@ void command_height(void)
   int old_p_ch = (int)curtab->tp_ch_used;
 
   // Find bottom frame with width of screen.
-  frame_T *frp = lastwin_nofloating()->w_frame;
+  frame_T *frp = lastwin_nofloating(NULL)->w_frame;
   while (frp->fr_width != Columns && frp->fr_parent != NULL) {
     frp = frp->fr_parent;
   }
@@ -7803,9 +7849,11 @@ void win_ui_flush(bool validate)
   msg_ui_flush();
 }
 
-win_T *lastwin_nofloating(void)
+/// @return last non-floating window in `tp`, or NULL for current tabpage.
+win_T *lastwin_nofloating(tabpage_T *tp)
 {
-  win_T *res = lastwin;
+  assert(tp != curtab || !tp);
+  win_T *res = tp ? tp->tp_lastwin : lastwin;
   while (res->w_floating) {
     res = res->w_prev;
   }

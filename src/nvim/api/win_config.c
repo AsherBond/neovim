@@ -8,6 +8,7 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/dispatch.h"
 #include "nvim/api/private/helpers.h"
+#include "nvim/api/private/validate.h"
 #include "nvim/api/win_config.h"
 #include "nvim/ascii_defs.h"
 #include "nvim/autocmd.h"
@@ -18,6 +19,8 @@
 #include "nvim/drawscreen.h"
 #include "nvim/errors.h"
 #include "nvim/eval/window.h"
+#include "nvim/ex_cmds_defs.h"
+#include "nvim/ex_docmd.h"
 #include "nvim/globals.h"
 #include "nvim/highlight_group.h"
 #include "nvim/macros_defs.h"
@@ -32,12 +35,15 @@
 #include "nvim/syntax.h"
 #include "nvim/types_defs.h"
 #include "nvim/ui.h"
+#include "nvim/ui_compositor.h"
 #include "nvim/ui_defs.h"
 #include "nvim/vim_defs.h"
 #include "nvim/window.h"
 #include "nvim/winfloat.h"
 
 #include "api/win_config.c.generated.h"
+
+#define HAS_KEY_X(d, key) HAS_KEY(d, win_config, key)
 
 /// Opens a new split window, floating window, or external window.
 ///
@@ -177,8 +183,9 @@
 ///       Default is `"left"`.
 ///   - vertical: Split vertically |:vertical|.
 ///   - width: Window width (in character cells). Minimum of 1.
-///   - win: |window-ID| window to split, or relative window when creating a float (relative="win").
-///       When splitting, negative value works like |:topleft|, |:botright|.
+///   - win: |window-ID| target window. Can be in a different tab page. Determines the window to
+///       split (negative values act like |:topleft|, |:botright|), the relative window for a
+///       `relative="win"` float, or just the target tab page (inferred from the window) for others.
 ///   - zindex: Stacking order. floats with higher `zindex` go on top on
 ///               floats with lower indices. Must be larger than zero. The
 ///               following screen elements have hard-coded z-indices:
@@ -197,7 +204,6 @@
 Window nvim_open_win(Buffer buffer, Boolean enter, Dict(win_config) *config, Error *err)
   FUNC_API_SINCE(6) FUNC_API_TEXTLOCK_ALLOW_CMDWIN
 {
-#define HAS_KEY_X(d, key) HAS_KEY(d, win_config, key)
   buf_T *buf = find_buffer_by_handle(buffer, err);
   if (!buf) {
     return 0;
@@ -348,7 +354,6 @@ cleanup:
     unblock_autocmds();
   }
   return rv;
-#undef HAS_KEY_X
 }
 
 static WinSplit win_split_dir(win_T *win)
@@ -381,10 +386,56 @@ static int win_split_flags(WinSplit split, bool toplevel)
   return flags;
 }
 
-static bool win_config_split(win_T *win, Dict(win_config) *config, WinConfig *fconfig, Error *err)
+/// Checks if window `wp` can be moved to tabpage `tp`.
+static bool win_can_move_tp(win_T *wp, tabpage_T *tp, Error *err)
   FUNC_ATTR_NONNULL_ALL
 {
-#define HAS_KEY_X(d, key) HAS_KEY(d, win_config, key)
+  if (one_window(wp, tp == curtab ? NULL : tp)) {
+    api_set_error(err, kErrorTypeException, "Cannot move last non-floating window");
+    return false;
+  }
+  // Like closing, moving windows between tabpages makes win_valid return false. Helpful when e.g:
+  // walking the window list, as w_next/w_prev can unexpectedly refer to windows in another tabpage!
+  // Check related locks, in case they were set to avoid checking win_valid.
+  if (win_locked(wp)) {
+    api_set_error(err, kErrorTypeException, "Cannot move window to another tabpage whilst in use");
+    return false;
+  }
+  if (window_layout_locked_err(CMD_SIZE, err)) {
+    return false;  // error already set
+  }
+  if (textlock || expr_map_locked()) {
+    api_set_error(err, kErrorTypeException, "%s", e_textlock);
+    return false;
+  }
+  if (is_aucmd_win(wp)) {
+    api_set_error(err, kErrorTypeException, "Cannot move autocmd window to another tabpage");
+    return false;
+  }
+  // Can't move the cmdwin or its old curwin to a different tabpage.
+  if (wp == cmdwin_win || wp == cmdwin_old_curwin) {
+    api_set_error(err, kErrorTypeException, "%s", e_cmdwin);
+    return false;
+  }
+  return true;
+}
+
+static win_T *win_find_altwin(win_T *win, tabpage_T *tp)
+  FUNC_ATTR_NONNULL_ALL
+{
+  if (win->w_floating) {
+    return win_float_find_altwin(win, tp == curtab ? NULL : tp);
+  } else {
+    int dir;
+    return winframe_find_altwin(win, &dir, tp == curtab ? NULL : tp, NULL);
+  }
+}
+
+/// Configures `win` into a split, also moving it to another tabpage if requested.
+static bool win_config_split(win_T *win, const Dict(win_config) *config, WinConfig *fconfig,
+                             Error *err)
+  FUNC_ATTR_NONNULL_ALL
+{
   bool was_split = !win->w_floating;
   bool has_split = HAS_KEY_X(config, split);
   bool has_vertical = HAS_KEY_X(config, vertical);
@@ -423,14 +474,8 @@ static bool win_config_split(win_T *win, Dict(win_config) *config, WinConfig *fc
       api_set_error(err, kErrorTypeException, "Cannot split a floating window");
       return false;
     }
-    if (is_aucmd_win(win) && win_tp != parent_tp) {
-      api_set_error(err, kErrorTypeException, "Cannot move autocmd window to another tabpage");
-      return false;
-    }
-    // Can't move the cmdwin or its old curwin to a different tabpage.
-    if ((win == cmdwin_win || win == cmdwin_old_curwin) && win_tp != parent_tp) {
-      api_set_error(err, kErrorTypeException, "%s", e_cmdwin);
-      return false;
+    if (win_tp != parent_tp && !win_can_move_tp(win, win_tp, err)) {
+      return false;  // error already set
     }
   }
 
@@ -443,24 +488,13 @@ static bool win_config_split(win_T *win, Dict(win_config) *config, WinConfig *fc
   // window list or remove its frame (if non-floating), so it's valid for autocommands.
   const bool curwin_moving_tp = win == curwin && parent && win_tp != parent_tp;
   if (curwin_moving_tp) {
-    if (was_split) {
-      int dir;
-      win_T *altwin = winframe_find_altwin(win, &dir, NULL, NULL);
-      // Autocommands may still make this the last non-float after this check.
-      // That case will be caught later when trying to move the window.
-      if (!altwin) {
-        api_set_error(err, kErrorTypeException, "Cannot move last non-floating window");
-        return false;
-      }
-      win_goto(altwin);
-    } else {
-      win_goto(win_float_find_altwin(win, NULL));
-    }
+    win_T *altwin = win_find_altwin(win, win_tp);
+    assert(altwin);  // win_can_move_tp ensures `win` is not the only window
+    win_goto(altwin);
 
     // Autocommands may have been a real nuisance and messed things up...
     if (curwin == win) {
-      api_set_error(err, kErrorTypeException, "Failed to switch away from window %d",
-                    win->handle);
+      api_set_error(err, kErrorTypeException, "Failed to switch away from window %d", win->handle);
       return false;
     }
     win_tp = win_find_tabpage(win);
@@ -608,12 +642,105 @@ resize:
   }
   merge_win_config(&win->w_config, *fconfig);
   return true;
-#undef HAS_KEY_X
+}
+
+/// Configures `win` into a float, also moving it to another tabpage if requested.
+static bool win_config_float_tp(win_T *win, const Dict(win_config) *config,
+                                const WinConfig *fconfig, Error *err)
+  FUNC_ATTR_NONNULL_ALL
+{
+  tabpage_T *win_tp = win_find_tabpage(win);
+  win_T *parent = win;
+  tabpage_T *parent_tp = win_tp;
+  if (HAS_KEY_X(config, win)) {
+    parent = find_window_by_handle(fconfig->window, err);
+    if (!parent) {
+      return false;  // error already set
+    }
+    parent_tp = win_find_tabpage(parent);
+  }
+
+  bool curwin_moving_tp = false;
+  win_T *altwin = NULL;
+
+  if (win_tp != parent_tp) {
+    if (!win_can_move_tp(win, win_tp, err)) {
+      return false;  // error already set
+    }
+    altwin = win_find_altwin(win, win_tp);
+    assert(altwin);  // win_can_move_tp ensures `win` is not the only window
+
+    // If we are moving curwin to another tabpage, switch windows *before* we remove it from the
+    // window list or remove its frame (if non-floating), so it's valid for autocommands.
+    if (curwin == win) {
+      curwin_moving_tp = true;
+      win_goto(altwin);
+
+      // Autocommands may have been a real nuisance and messed things up...
+      if (curwin == win) {
+        api_set_error(err, kErrorTypeException, "Failed to switch away from window %d",
+                      win->handle);
+        return false;
+      }
+      win_tp = win_find_tabpage(win);
+      parent_tp = win_find_tabpage(parent);
+
+      if (!win_tp || !parent_tp) {
+        api_set_error(err, kErrorTypeException, "Target windows were closed");
+        goto restore_curwin;
+      }
+      if (win_tp != parent_tp && !win_can_move_tp(win, win_tp, err)) {
+        goto restore_curwin;  // error already set
+      }
+      altwin = win_find_altwin(win, win_tp);
+      assert(altwin);  // win_can_move_tp ensures `win` is not the only window
+    }
+  }
+
+  // Convert the window to a float if needed.
+  if (!win->w_floating) {
+    if (!win_new_float(win, false, *fconfig, err)) {
+restore_curwin:
+      // If `win` was the original curwin, and autocommands didn't move it outside of curtab, be a
+      // good citizen and try to return to it.
+      if (curwin_moving_tp && win_valid(win)) {
+        win_goto(win);
+      }
+      return false;
+    }
+    redraw_later(win, UPD_NOT_VALID);
+  }
+
+  if (win_tp != parent_tp) {
+    win_remove(win, win_tp == curtab ? NULL : win_tp);
+    tabpage_T *append_tp = parent_tp == curtab ? NULL : parent_tp;
+    win_append(lastwin_nofloating(append_tp), win, append_tp);
+
+    // If `win` was the curwin of its old tabpage, select a new curwin for it.
+    if (win_tp != curtab && win_tp->tp_curwin == win) {
+      win_tp->tp_curwin = altwin;
+    }
+
+    // Remove grid if present. More reliable than checking curtab, as tabpage_check_windows may not
+    // run when temporarily switching tabpages, meaning grids may be stale from another tabpage!
+    // (e.g: switch_win_noblock with no_display=true)
+    ui_comp_remove_grid(&win->w_grid_alloc);
+
+    // Redraw tabline, update window's hl attribs, etc. Set must_redraw here, as redraw_later might
+    // not if w_redr_type >= UPD_NOT_VALID was set in the old tabpage.
+    redraw_later(win, UPD_NOT_VALID);
+    set_must_redraw(UPD_NOT_VALID);
+  }
+
+  win_config_float(win, *fconfig);
+  return true;
 }
 
 /// Reconfigures the layout and properties of a window.
 ///
 /// - Updates only the given keys; unspecified (`nil`) keys will not be changed.
+/// - Can move a window to another tabpage.
+/// - Can transform a window to/from a float.
 /// - Keys `row` / `col` / `relative` must be specified together.
 /// - Cannot move the last window in a tabpage to a different one.
 ///
@@ -631,7 +758,6 @@ resize:
 void nvim_win_set_config(Window window, Dict(win_config) *config, Error *err)
   FUNC_API_SINCE(6)
 {
-#define HAS_KEY_X(d, key) HAS_KEY(d, win_config, key)
   win_T *win = find_window_by_handle(window, err);
   if (!win) {
     return;
@@ -645,24 +771,21 @@ void nvim_win_set_config(Window window, Dict(win_config) *config, Error *err)
   WinConfig fconfig = win->w_config;
 
   bool to_split = config->relative.size == 0
-                  && !(HAS_KEY_X(config, external) ? config->external : fconfig.external)
+                  && !(HAS_KEY_X(config, external) && config->external)
                   && (has_split || has_vertical || was_split);
 
   if (!parse_win_config(win, config, &fconfig, !was_split || to_split, err)) {
     return;
   }
 
-  if (was_split && !to_split) {
-    if (!win_new_float(win, false, fconfig, err)) {
-      return;
-    }
-    redraw_later(win, UPD_NOT_VALID);
-  } else if (to_split) {
+  if (to_split) {
     if (!win_config_split(win, config, &fconfig, err)) {
       return;
     }
   } else {
-    win_config_float(win, fconfig);
+    if (!win_config_float_tp(win, config, &fconfig, err)) {
+      return;
+    }
   }
 
   if (fconfig.style == kWinStyleMinimal && old_style != fconfig.style) {
@@ -675,7 +798,6 @@ void nvim_win_set_config(Window window, Dict(win_config) *config, Error *err)
   } else if (win == cmdline_win && fconfig._cmdline_offset == INT_MAX) {
     cmdline_win = NULL;
   }
-#undef HAS_KEY_X
 }
 
 #define PUT_KEY_X(d, key, value) PUT_KEY(d, win_config, key, value)
@@ -891,15 +1013,15 @@ static bool parse_float_bufpos(Array bufpos, lpos_T *out)
 static void parse_bordertext(Object bordertext, BorderTextType bordertext_type, WinConfig *fconfig,
                              Error *err)
 {
-  if (bordertext.type != kObjectTypeString && bordertext.type != kObjectTypeArray) {
-    api_set_error(err, kErrorTypeValidation, "title/footer must be string or array");
+  VALIDATE_EXP(!(bordertext.type != kObjectTypeString && bordertext.type != kObjectTypeArray),
+               "title/footer", "String or Array", api_typename(bordertext.type), {
     return;
-  }
+  });
 
-  if (bordertext.type == kObjectTypeArray && bordertext.data.array.size == 0) {
-    api_set_error(err, kErrorTypeValidation, "title/footer cannot be an empty array");
+  VALIDATE_EXP(!(bordertext.type == kObjectTypeArray && bordertext.data.array.size == 0),
+               "title/footer", "non-empty Array", NULL, {
     return;
-  }
+  });
 
   bool *is_present;
   VirtText *chunks;
@@ -965,15 +1087,9 @@ static bool parse_bordertext_pos(win_T *wp, String bordertext_pos, BorderTextTyp
   } else if (strequal(pos, "right")) {
     *align = kAlignRight;
   } else {
-    switch (bordertext_type) {
-    case kBorderTextTitle:
-      api_set_error(err, kErrorTypeValidation, "invalid title_pos value");
-      break;
-    case kBorderTextFooter:
-      api_set_error(err, kErrorTypeValidation, "invalid footer_pos value");
-      break;
-    }
-    return false;
+    VALIDATE_S(false, (bordertext_type == kBorderTextTitle ? "title_pos" : "footer_pos"), pos, {
+      return false;
+    });
   }
   return true;
 }
@@ -1002,24 +1118,22 @@ void parse_border_style(Object style, WinConfig *fconfig, Error *err)
   if (style.type == kObjectTypeArray) {
     Array arr = style.data.array;
     size_t size = arr.size;
-    if (!size || size > 8 || (size & (size - 1))) {
-      api_set_error(err, kErrorTypeValidation, "invalid number of border chars");
+    VALIDATE_EXP(!(!size || size > 8 || (size & (size - 1))),
+                 "border", "1, 2, 4, or 8 chars", NULL, {
       return;
-    }
+    });
     for (size_t i = 0; i < size; i++) {
       Object iytem = arr.items[i];
       String string;
       int hl_id = 0;
       if (iytem.type == kObjectTypeArray) {
         Array iarr = iytem.data.array;
-        if (!iarr.size || iarr.size > 2) {
-          api_set_error(err, kErrorTypeValidation, "invalid border char");
+        VALIDATE_EXP(!(!iarr.size || iarr.size > 2), "border", "1 or 2-item Array", NULL, {
           return;
-        }
-        if (iarr.items[0].type != kObjectTypeString) {
-          api_set_error(err, kErrorTypeValidation, "invalid border char");
+        });
+        VALIDATE_EXP(iarr.items[0].type == kObjectTypeString, "border", "Array of Strings", NULL, {
           return;
-        }
+        });
         string = iarr.items[0].data.string;
         if (iarr.size == 2) {
           hl_id = object_to_hl_id(iarr.items[1], "border char highlight", err);
@@ -1030,13 +1144,14 @@ void parse_border_style(Object style, WinConfig *fconfig, Error *err)
       } else if (iytem.type == kObjectTypeString) {
         string = iytem.data.string;
       } else {
-        api_set_error(err, kErrorTypeValidation, "invalid border char");
-        return;
+        VALIDATE_EXP(false, "border", "String or Array", api_typename(iytem.type), {
+          return;
+        });
       }
-      if (string.size && mb_string2cells_len(string.data, string.size) > 1) {
-        api_set_error(err, kErrorTypeValidation, "border chars must be one cell");
+      VALIDATE_EXP(!(string.size && mb_string2cells_len(string.data, string.size) > 1),
+                   "border", "only one-cell chars", NULL, {
         return;
-      }
+      });
       size_t len = MIN(string.size, sizeof(*chars) - 1);
       if (len) {
         memcpy(chars[i], string.data, len);
@@ -1049,12 +1164,13 @@ void parse_border_style(Object style, WinConfig *fconfig, Error *err)
       memcpy(hl_ids + size, hl_ids, sizeof(*hl_ids) * size);
       size <<= 1;
     }
-    if ((chars[7][0] && chars[1][0] && !chars[0][0])
-        || (chars[1][0] && chars[3][0] && !chars[2][0])
-        || (chars[3][0] && chars[5][0] && !chars[4][0])
-        || (chars[5][0] && chars[7][0] && !chars[6][0])) {
-      api_set_error(err, kErrorTypeValidation, "corner between used edges must be specified");
-    }
+    VALIDATE_EXP(!((chars[7][0] && chars[1][0] && !chars[0][0])
+                   || (chars[1][0] && chars[3][0] && !chars[2][0])
+                   || (chars[3][0] && chars[5][0] && !chars[4][0])
+                   || (chars[5][0] && chars[7][0] && !chars[6][0])), "border",
+                 "corner char between edge chars", NULL, {
+      return;
+    });
   } else if (style.type == kObjectTypeString) {
     String str = style.data.string;
     if (str.size == 0 || strequal(str.data, "none")) {
@@ -1080,7 +1196,9 @@ void parse_border_style(Object style, WinConfig *fconfig, Error *err)
         return;
       }
     }
-    api_set_error(err, kErrorTypeValidation, "invalid border style \"%s\"", str.data);
+    VALIDATE_S(false, "border", str.data, {
+      return;
+    });
   }
 }
 
@@ -1088,10 +1206,10 @@ static void generate_api_error(win_T *wp, const char *attribute, Error *err)
 {
   if (wp != NULL && wp->w_floating) {
     api_set_error(err, kErrorTypeValidation,
-                  "Missing 'relative' field when reconfiguring floating window %d",
+                  "Required: 'relative' when reconfiguring floating window %d",
                   wp->handle);
   } else {
-    api_set_error(err, kErrorTypeValidation, "non-float cannot have '%s'", attribute);
+    VALIDATE_CON(false, attribute, "non-float window", {});
   }
 }
 
@@ -1144,19 +1262,17 @@ bool parse_winborder(WinConfig *fconfig, char *border_opt, Error *err)
 static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fconfig, bool reconf,
                              Error *err)
 {
-#define HAS_KEY_X(d, key) HAS_KEY(d, win_config, key)
   bool has_relative = false, relative_is_win = false, is_split = false;
   if (config->relative.size > 0) {
-    if (!parse_float_relative(config->relative, &fconfig->relative)) {
-      api_set_error(err, kErrorTypeValidation, "Invalid value of 'relative' key");
+    VALIDATE_S(parse_float_relative(config->relative, &fconfig->relative),
+               "relative", config->relative.data, {
       goto fail;
-    }
+    });
 
-    if (config->relative.size > 0 && !(HAS_KEY_X(config, row) && HAS_KEY_X(config, col))
-        && !HAS_KEY_X(config, bufpos)) {
-      api_set_error(err, kErrorTypeValidation, "'relative' requires 'row'/'col' or 'bufpos'");
+    VALIDATE_R(!(config->relative.size > 0 && !(HAS_KEY_X(config, row) && HAS_KEY_X(config, col))
+                 && !HAS_KEY_X(config, bufpos)), "'relative' requires 'row'/'col' or 'bufpos'", {
       goto fail;
-    }
+    });
 
     has_relative = true;
     fconfig->external = false;
@@ -1167,36 +1283,36 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
   } else if (!config->external) {
     if (HAS_KEY_X(config, vertical) || HAS_KEY_X(config, split)) {
       is_split = true;
+      fconfig->external = false;
     } else if (wp == NULL) {  // new win
-      api_set_error(err, kErrorTypeValidation,
-                    "Must specify 'relative' or 'external' when creating a float");
-      goto fail;
+      VALIDATE_R(false, "'relative' or 'external' when creating a float", {
+        goto fail;
+      });
     }
   }
 
-  if (HAS_KEY_X(config, vertical)) {
-    if (!is_split) {
-      api_set_error(err, kErrorTypeValidation, "floating windows cannot have 'vertical'");
-      goto fail;
-    }
-  }
+  VALIDATE_CON(!(HAS_KEY_X(config, vertical) && !is_split), "vertical", "floating windows", {
+    goto fail;
+  });
+
+  VALIDATE_CON(!(HAS_KEY_X(config, split) && !is_split), "split", "floating windows", {
+    goto fail;
+  });
 
   if (HAS_KEY_X(config, split)) {
-    if (!is_split) {
-      api_set_error(err, kErrorTypeValidation, "floating windows cannot have 'split'");
+    VALIDATE_CON(is_split, "split", "floating windows", {
       goto fail;
-    }
-    if (!parse_config_split(config->split, &fconfig->split)) {
-      api_set_error(err, kErrorTypeValidation, "Invalid value of 'split' key");
+    });
+    VALIDATE_S(parse_config_split(config->split, &fconfig->split), "split", config->split.data, {
       goto fail;
-    }
+    });
   }
 
   if (HAS_KEY_X(config, anchor)) {
-    if (!parse_float_anchor(config->anchor, &fconfig->anchor)) {
-      api_set_error(err, kErrorTypeValidation, "Invalid value of 'anchor' key");
+    VALIDATE_S(parse_float_anchor(config->anchor, &fconfig->anchor),
+               "anchor", config->anchor.data, {
       goto fail;
-    }
+    });
   }
 
   if (HAS_KEY_X(config, row)) {
@@ -1220,10 +1336,10 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
       generate_api_error(wp, "bufpos", err);
       goto fail;
     } else {
-      if (!parse_float_bufpos(config->bufpos, &fconfig->bufpos)) {
-        api_set_error(err, kErrorTypeValidation, "Invalid value of 'bufpos' key");
+      VALIDATE_EXP(parse_float_bufpos(config->bufpos, &fconfig->bufpos),
+                   "bufpos", "[row, col] array", NULL, {
         goto fail;
-      }
+      });
 
       if (!HAS_KEY_X(config, row)) {
         fconfig->row = (fconfig->anchor & kFloatAnchorSouth) ? 0 : 1;
@@ -1235,69 +1351,67 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
   }
 
   if (HAS_KEY_X(config, width)) {
-    if (config->width > 0) {
-      fconfig->width = (int)config->width;
-    } else {
-      api_set_error(err, kErrorTypeValidation, "'width' key must be a positive Integer");
+    VALIDATE_EXP((config->width > 0), "width", "positive Integer", NULL, {
       goto fail;
-    }
+    });
+    fconfig->width = (int)config->width;
   } else if (!reconf && !is_split) {
-    api_set_error(err, kErrorTypeValidation, "Must specify 'width'");
-    goto fail;
+    VALIDATE_R(false, "width", {
+      goto fail;
+    });
   }
 
   if (HAS_KEY_X(config, height)) {
-    if (config->height > 0) {
-      fconfig->height = (int)config->height;
-    } else {
-      api_set_error(err, kErrorTypeValidation, "'height' key must be a positive Integer");
+    VALIDATE_EXP((config->height > 0), "height", "positive Integer", NULL, {
       goto fail;
-    }
+    });
+    fconfig->height = (int)config->height;
   } else if (!reconf && !is_split) {
-    api_set_error(err, kErrorTypeValidation, "Must specify 'height'");
-    goto fail;
-  }
-
-  if (relative_is_win || is_split) {
-    if (reconf && relative_is_win) {
-      win_T *target_win = find_window_by_handle(config->win, err);
-      if (!target_win) {
-        goto fail;
-      }
-
-      if (target_win == wp) {
-        api_set_error(err, kErrorTypeException, "floating window cannot be relative to itself");
-        goto fail;
-      }
-    }
-    fconfig->window = curwin->handle;
-    if (HAS_KEY_X(config, win)) {
-      if (config->win > 0) {
-        fconfig->window = config->win;
-      }
-    }
-  } else if (HAS_KEY_X(config, win)) {
-    if (has_relative) {
-      api_set_error(err, kErrorTypeValidation,
-                    "'win' key is only valid with relative='win' and relative=''");
+    VALIDATE_R(false, "height", {
       goto fail;
-    } else if (!is_split) {
-      api_set_error(err, kErrorTypeValidation,
-                    "non-float with 'win' requires at least 'split' or 'vertical'");
-      goto fail;
-    }
+    });
   }
 
   if (HAS_KEY_X(config, external)) {
     fconfig->external = config->external;
-    if (has_relative && fconfig->external) {
-      api_set_error(err, kErrorTypeValidation,
-                    "Only one of 'relative' and 'external' must be used");
+    VALIDATE_CON(!(has_relative && fconfig->external), "relative", "external", {
       goto fail;
-    }
+    });
     if (fconfig->external && !ui_has(kUIMultigrid)) {
       api_set_error(err, kErrorTypeValidation, "UI doesn't support external windows");
       goto fail;
+    }
+  }
+
+  VALIDATE_CON(!(HAS_KEY_X(config, win) && fconfig->external), "win", "external window", {
+    goto fail;
+  });
+
+  if (relative_is_win || (HAS_KEY_X(config, win) && !is_split && wp && wp->w_floating
+                          && fconfig->relative == kFloatRelativeWindow)) {
+    // When relative=win is given, missing win field means win=0.
+    win_T *target_win = find_window_by_handle(config->win, err);
+    if (!target_win) {
+      goto fail;
+    }
+    if (target_win == wp) {
+      api_set_error(err, kErrorTypeException, "floating window cannot be relative to itself");
+      goto fail;
+    }
+    fconfig->window = target_win->handle;
+  } else {
+    // Handle is not validated here, as win_config_split can accept negative values.
+    if (HAS_KEY_X(config, win)) {
+      VALIDATE_R(!(!is_split && !has_relative && (!wp || !wp->w_floating)),
+                 "non-float with 'win' requires 'split' or 'vertical'", {
+        goto fail;
+      });
+
+      fconfig->window = config->win;
+    }
+    // Resolve, but skip validating. E.g: win_config_split accepts negative "win".
+    if (fconfig->window == 0) {
+      fconfig->window = curwin->handle;
     }
   }
 
@@ -1311,23 +1425,19 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
   }
 
   if (HAS_KEY_X(config, zindex)) {
-    if (is_split) {
-      api_set_error(err, kErrorTypeValidation, "non-float cannot have 'zindex'");
+    VALIDATE_CON(!is_split, "zindex", "non-float window", {
       goto fail;
-    }
-    if (config->zindex > 0) {
-      fconfig->zindex = (int)config->zindex;
-    } else {
-      api_set_error(err, kErrorTypeValidation, "'zindex' key must be a positive Integer");
+    });
+    VALIDATE_EXP((config->zindex > 0), "zindex", "positive Integer", NULL, {
       goto fail;
-    }
+    });
+    fconfig->zindex = (int)config->zindex;
   }
 
   if (HAS_KEY_X(config, title)) {
-    if (is_split) {
-      api_set_error(err, kErrorTypeValidation, "non-float cannot have 'title'");
+    VALIDATE_CON(!is_split, "title", "non-float window", {
       goto fail;
-    }
+    });
 
     parse_bordertext(config->title, kBorderTextTitle, fconfig, err);
     if (ERROR_SET(err)) {
@@ -1339,17 +1449,15 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
       goto fail;
     }
   } else {
-    if (HAS_KEY_X(config, title_pos)) {
-      api_set_error(err, kErrorTypeException, "title_pos requires title to be set");
+    VALIDATE_R(!HAS_KEY_X(config, title_pos), "'title' requires 'title_pos'", {
       goto fail;
-    }
+    });
   }
 
   if (HAS_KEY_X(config, footer)) {
-    if (is_split) {
-      api_set_error(err, kErrorTypeValidation, "non-float cannot have 'footer'");
+    VALIDATE_CON(!is_split, "footer", "non-float window", {
       goto fail;
-    }
+    });
 
     parse_bordertext(config->footer, kBorderTextFooter, fconfig, err);
     if (ERROR_SET(err)) {
@@ -1361,18 +1469,16 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
       goto fail;
     }
   } else {
-    if (HAS_KEY_X(config, footer_pos)) {
-      api_set_error(err, kErrorTypeException, "footer_pos requires footer to be set");
+    VALIDATE_R(!HAS_KEY_X(config, footer_pos), "'footer' requires 'footer_pos'", {
       goto fail;
-    }
+    });
   }
 
   Object border_style = OBJECT_INIT;
   if (HAS_KEY_X(config, border)) {
-    if (is_split) {
-      api_set_error(err, kErrorTypeValidation, "non-float cannot have 'border'");
+    VALIDATE_CON(!is_split, "border", "non-float window", {
       goto fail;
-    }
+    });
     border_style = config->border;
     if (border_style.type != kObjectTypeNil) {
       parse_border_style(border_style, fconfig, err);
@@ -1391,15 +1497,15 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
     } else if (striequal(config->style.data, "minimal")) {
       fconfig->style = kWinStyleMinimal;
     } else {
-      api_set_error(err, kErrorTypeValidation, "Invalid value of 'style' key");
-      goto fail;
+      VALIDATE_S(false, "style", config->style.data, {
+        goto fail;
+      });
     }
   }
 
   if (HAS_KEY_X(config, noautocmd)) {
     if (wp && config->noautocmd != fconfig->noautocmd) {
-      api_set_error(err, kErrorTypeValidation,
-                    "'noautocmd' cannot be changed with existing windows");
+      api_set_error(err, kErrorTypeValidation, "'noautocmd' cannot be changed on existing window");
       goto fail;
     }
     fconfig->noautocmd = config->noautocmd;
@@ -1422,5 +1528,4 @@ static bool parse_win_config(win_T *wp, Dict(win_config) *config, WinConfig *fco
 fail:
   merge_win_config(fconfig, wp != NULL ? wp->w_config : WIN_CONFIG_INIT);
   return false;
-#undef HAS_KEY_X
 }

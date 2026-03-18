@@ -15,8 +15,8 @@
             .lazy = true,
         },
         .luv = .{
-            .url = "git+https://github.com/luvit/luv?ref=1.51.0-2#79f6934306367e700050de9614eab9ac01bd4d6f",
-            .hash = "N-V-__8AAI1cDwA49t_OUdHwO2-BQ8TYt3kBMnnSSicx5T-B",
+            .url = "git+https://github.com/luvit/luv?ref=1.52.1-0#f65fe9d7616f9fbcd20227fc7a73b38d1c5c180d",
+            .hash = "N-V-__8AANegDwD93oh3SzPCFx_LVS4ash9TDITp7Oq0HlDJ",
             .lazy = true,
         },
         .lua_compat53 = .{
@@ -25,8 +25,8 @@
             .lazy = true,
         },
         .treesitter = .{
-            .url = "git+https://github.com/tree-sitter/tree-sitter?ref=v0.26.6#534c4a074cd461ab30d1c8a54bf733d3050221a0",
-            .hash = "tree_sitter-0.26.6-Tw2sR9-2CwCNIR7jyRSbsSPdEwPPAUD4aUaKLM-UHOnd",
+            .url = "git+https://github.com/tree-sitter/tree-sitter?ref=v0.26.7#6f2e8a6cf4d7025e2b2a7227d270640273100138",
+            .hash = "tree_sitter-0.26.7-Tw2sR9S2CwCSBy6UtwPyp13J-P2VC_4hC1VxL8DSC6Jf",
             .lazy = true,
         },
         .libuv = .{

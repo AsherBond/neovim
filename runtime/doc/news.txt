@@ -165,8 +165,10 @@ API
 • |nvim_echo()| can create |Progress| messages
 • |nvim_get_commands()| returns `preview` and `callback` as Lua functions if
   they were so specified in `nvim_create_user_command()`.
+• |nvim_open_tabpage()| can open a new |tab-page|.
 • |nvim_open_win()| floating windows can show a 'statusline'. Plugins can use
   `style='minimal'` or `:setlocal statusline=` to hide the statusline.
+• |nvim_win_set_config()| can move |floating-windows| to other tabpages.
 • Added experimental |nvim__exec_lua_fast()| to allow remote API clients to
   execute code while nvim is blocking for input.
 • |vim.secure.trust()| accepts `path` for the `allow` action.
@@ -219,6 +221,10 @@ EDITOR
   whitespace in indented lines.
 • |:uniq| deduplicates text in the current buffer.
 • |omnicompletion| in `help` buffer. |ft-help-omni|
+• |:help!| has DWIM ("Do What I Mean") behavior: it tries to guess the help
+  tag at cursor. In help buffers, 'keywordprg' defaults to ":help!". For
+  example, try "K" anywhere in this code: >
+    local v = vim.version.parse(vim.system({'foo'}):wait().stdout)
 • Setting "'0" in 'shada' prevents storing the jumplist in the shada file.
 • 'shada' now correctly respects "/0" and "f0".
 • |prompt-buffer| supports multiline input/paste, undo/redo, and o/O normal
@@ -360,6 +366,8 @@ OPTIONS
 • 'completeopt' flag "nearest" sorts completion results by distance to cursor.
 • 'diffanchors' specifies addresses to anchor a diff.
 • 'diffopt' `inline:` configures diff highlighting for changes within a line.
+• 'diffopt' with `inline:word` now automatically merges adjacent diff blocks
+  separated by gaps and punctuation by 5 bytes to improve readability.
 • 'fillchars' has new flag "foldinner".
 • 'fsync' and 'grepformat' are now |global-local| options.
 • 'listchars' has new flag "leadtab".
@@ -370,9 +378,11 @@ OPTIONS
 • |g:clipboard| accepts a string name to force any builtin clipboard tool.
 • 'busy' sets a buffer "busy" status. Indicated in the default statusline.
 • 'pumborder' adds a border to the popup menu.
-• |g:clipboard| autodetection only selects tmux when running inside tmux
+• |g:clipboard| autodetection only selects tmux when running inside tmux.
 • 'statusline' allows "stacking" highlight groups (groups inherit from
   previous highlight attributes)
+• 'messagesopt' added progress:c to control if progress messages are shown in
+  cmdline.
 
 PERFORMANCE
 
@@ -409,10 +419,13 @@ TERMINAL
 • |nvim_open_term()| can be called with a non-empty buffer. The buffer
   contents are piped to the PTY and displayed as terminal output.
 • CSI 3 J (the sequence to clear terminal scrollback) is now supported.
+• DEC private mode 2026 (synchronized output) is now supported. Applications
+  running in |:terminal| can batch screen updates to avoid tearing.
 • A suspended PTY process is now indicated by "[Process suspended]" at the
   bottom-left of the buffer and can be resumed by pressing a key.
 • On terminal exit, "[Process exited]" is shown as virtual text (instead of
   modifying buffer contents), and exit code is shown in statusline.
+  • You can disable "[Process exited]" entirely, see |terminal-config|.
 
 TREESITTER
 
@@ -456,6 +469,7 @@ VIMSCRIPT
 • |chdir()| allows optionally specifying a scope argument.
 • |cmdcomplete_info()| gets current cmdline completion info.
 • |getcompletiontype()| gets command-line completion type for any string.
+• |has()| gained two new system dependent feature flags, |android| and |termux|.
 • |prompt_getinput()| gets current user-input in prompt-buffer.
 • |wildtrigger()| triggers command-line expansion.
 • |v:vim_did_init| is set after sourcing |init.vim| but before |load-plugins|.
@@ -481,7 +495,7 @@ These existing features changed their behavior.
   absolute paths (to the current drive) and no longer relative.
 • When 'shelltemp' is off, shell commands now use `pipe()` and not `socketpair()`
   for input and output. This matters mostly for Linux where some command lines
-  using "/dev/stdin" and similiar would break as these special files can be
+  using "/dev/stdin" and similar would break as these special files can be
   reopened when backed by pipes but not when backed by socket pairs.
 
 ==============================================================================
