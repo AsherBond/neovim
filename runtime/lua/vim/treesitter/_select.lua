@@ -353,23 +353,26 @@ local function visual_select(range)
   local srow, scol, erow, ecol = Range.unpack4(range)
   local cursor_other_end_of_visual = false
 
-  if vim.fn.mode() == 'v' then
-    local vcol, vrow = vim.fn.col('v'), vim.fn.line('v')
-    local ccol, cline = vim.fn.col('.'), vim.fn.line('.')
-    if vrow > cline or (vrow == cline and vcol > ccol) then
-      cursor_other_end_of_visual = true
-    end
+  local vcol, vrow = vim.fn.col('v'), vim.fn.line('v')
+  local ccol, cline = vim.fn.col('.'), vim.fn.line('.')
+  if vrow > cline or (vrow == cline and vcol > ccol) then
+    cursor_other_end_of_visual = true
   end
 
-  vim.api.nvim_win_set_cursor(0, { srow + 1, scol })
-  vim.api.nvim_feedkeys(vim.keycode('<C-\\><C-n>v'), 'nx', true)
-
-  if not pcall(vim.api.nvim_win_set_cursor, 0, { erow + 1, ecol - 1 }) then
-    vim.api.nvim_win_set_cursor(0, { erow, #vim.fn.getline(erow) })
+  if ecol == 0 then
+    erow = erow - 1
+    ecol = #vim.fn.getline(erow + 1) + 1
   end
 
+  -- reset visualmode() to 'v'
+  vim.cmd.normal({ 'v\27', bang = true })
+
+  vim.fn.setpos("'<", { 0, srow + 1, scol + 1, 0 })
+  vim.fn.setpos("'>", { 0, erow + 1, ecol, 0 })
   if cursor_other_end_of_visual then
-    vim.api.nvim_feedkeys('o', 'nx', true)
+    vim.cmd.normal({ 'gvo', bang = true })
+  else
+    vim.cmd.normal({ 'gv', bang = true })
   end
 end
 
@@ -381,14 +384,17 @@ local function get_selection()
     --- @type Range4,Range4
     pos1, pos2 = pos2, pos1
   end
-  local range = { pos1[2] - 1, pos1[3] - 1, pos2[2] - 1, pos2[3] }
 
-  if range[4] == #vim.fn.getline(range[3] + 1) + 1 then
-    range[3] = range[3] + 1
-    range[4] = 0
+  if pos2[3] == #vim.fn.getline(pos2[2]) + 1 then
+    pos2[2] = pos2[2] + 1
+    pos2[3] = 0
+  else
+    -- set {pos2} to pos of last byte of character under {pos2} (rather than first)
+    local r = vim.fn.getregionpos(pos2, pos2, { exclusive = false })
+    pos2 = r[#r][2]
   end
 
-  return range
+  return { pos1[2] - 1, pos1[3] - 1, pos2[2] - 1, pos2[3] }
 end
 
 local function get_parent_from_range(range)

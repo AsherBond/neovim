@@ -826,7 +826,7 @@ char *arena_strdup(Arena *arena, const char *str)
   return arena_memdupz(arena, str, strlen(str));
 }
 
-#if defined(EXITFREE)
+#ifdef EXITFREE
 
 # include "nvim/autocmd.h"
 # include "nvim/buffer.h"
@@ -950,12 +950,14 @@ void free_all_mem(void)
     bufref_T bufref;
     set_bufref(&bufref, buf);
     nextbuf = buf->b_next;
+    // All windows were freed.  Reset b_nwindows so buffers can be wiped.
+    buf->b_nwindows = 0;
 
     // Since options (in addition to other stuff) have been freed above we need to ensure no
     // callbacks are called, so free them before closing the buffer.
     buf_free_callbacks(buf);
 
-    close_buffer(NULL, buf, DOBUF_WIPE, false, false);
+    close_buffer(NULL, buf, DOBUF_WIPE, false, false, false);
     // Didn't work, try next one.
     buf = bufref_valid(&bufref) ? nextbuf : firstbuf;
   }

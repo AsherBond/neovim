@@ -139,6 +139,7 @@ typedef struct {
   char *pattern;
   int nsubexp;          ///< number of ()
   int nstate;
+  void *listbuf[2];     ///< cached list buffers for nfa_regmatch()
   nfa_state_T state[];
 } nfa_regprog_T;
 
@@ -600,7 +601,7 @@ static int reg_strict;          // "[abc" is illegal
 // uncrustify:off
 
 // META[] is used often enough to justify turning it into a table.
-static uint8_t META_flags[] = {
+static const uint8_t META_flags[] = {
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
     0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
 //                 %  &     (  )  *  +        .
@@ -1493,8 +1494,8 @@ static bool reg_match_visual(void)
       return false;
     }
   } else if (mode == Ctrl_V) {
-    getvvcol(wp, &top, &start, NULL, &end);
-    getvvcol(wp, &bot, &start2, NULL, &end2);
+    getvvcol(wp, &top, &start, NULL, &end, 0);
+    getvvcol(wp, &bot, &start2, NULL, &end2, 0);
     if (start2 < start) {
       start = start2;
     }
@@ -2084,7 +2085,7 @@ int vim_regsub_multi(regmmatch_T *rmp, linenr_T lnum, char *source, char *dest, 
 #define MAX_REGSUB_NESTING 4
 static char *eval_result[MAX_REGSUB_NESTING] = { NULL, NULL, NULL, NULL };
 
-#if defined(EXITFREE)
+#ifdef EXITFREE
 void free_resub_eval_result(void)
 {
   for (int i = 0; i < MAX_REGSUB_NESTING; i++) {
@@ -2898,7 +2899,7 @@ static int one_exactly = false;   ///< only do one char for EXACTLY
 
 // When making changes to classchars also change nfa_classcodes.
 static uint8_t *classchars = (uint8_t *)".iIkKfFpPsSdDxXoOwWhHaAlLuU";
-static int classcodes[] = {
+static const int classcodes[] = {
   ANY, IDENT, SIDENT, KWORD, SKWORD,
   FNAME, SFNAME, PRINT, SPRINT,
   WHITE, NWHITE, DIGIT, NDIGIT,
@@ -4681,7 +4682,7 @@ static uint8_t *regatom(int *flagp)
           } else {
             if (cur) {
               colnr_T vcol = 0;
-              getvvcol(curwin, &curwin->w_cursor, NULL, NULL, &vcol);
+              getvvcol(curwin, &curwin->w_cursor, NULL, NULL, &vcol, 0);
               n = (uint32_t)(++vcol);
             }
             ret = regnode(RE_VCOL);
@@ -8517,7 +8518,7 @@ enum {
 };
 
 // Keep in sync with classchars.
-static int nfa_classcodes[] = {
+static const int nfa_classcodes[] = {
   NFA_ANY, NFA_IDENT, NFA_SIDENT, NFA_KWORD, NFA_SKWORD,
   NFA_FNAME, NFA_SFNAME, NFA_PRINT, NFA_SPRINT,
   NFA_WHITE, NFA_NWHITE, NFA_DIGIT, NFA_NDIGIT,
@@ -10389,7 +10390,7 @@ static int nfa_regatom(void)
         } else {
           if (cur) {
             colnr_T vcol = 0;
-            getvvcol(curwin, &curwin->w_cursor, NULL, NULL, &vcol);
+            getvvcol(curwin, &curwin->w_cursor, NULL, NULL, &vcol, 0);
             n = ++vcol;
           }
           // \%{n}v  \%{n}<v  \%{n}>v
@@ -14166,9 +14167,18 @@ static int nfa_regmatch(nfa_regprog_T *prog, nfa_state_T *start, regsubs_T *subm
 
   // Allocate memory for the lists of nodes.
   size_t size = (size_t)(prog->nstate + 1) * sizeof(nfa_thread_T);
-  list[0].t = xmalloc(size);
+  // Reuse cached list buffers from prog when available (top-level call).
+  // Recursive calls must allocate their own buffers.
+  if (toplevel && prog->listbuf[0] != NULL) {
+    list[0].t = (nfa_thread_T *)prog->listbuf[0];
+    list[1].t = (nfa_thread_T *)prog->listbuf[1];
+    prog->listbuf[0] = NULL;
+    prog->listbuf[1] = NULL;
+  } else {
+    list[0].t = xmalloc(size);
+    list[1].t = xmalloc(size);
+  }
   list[0].len = prog->nstate + 1;
-  list[1].t = xmalloc(size);
   list[1].len = prog->nstate + 1;
 
 #ifdef REGEXP_DEBUG
@@ -15523,8 +15533,15 @@ nextchar:
 
 theend:
   // Free memory
-  xfree(list[0].t);
-  xfree(list[1].t);
+  // Cache list buffers in prog for reuse, or free if prog already has
+  // cached buffers (recursive call case).
+  if (prog->listbuf[0] == NULL && list[0].t != NULL && list[1].t != NULL) {
+    prog->listbuf[0] = list[0].t;
+    prog->listbuf[1] = list[1].t;
+  } else {
+    xfree(list[0].t);
+    xfree(list[1].t);
+  }
   xfree(listids);
 #undef ADD_STATE_IF_MATCH
 #ifdef NFA_REGEXP_DEBUG_LOG
@@ -15847,6 +15864,8 @@ static regprog_T *nfa_regcomp(uint8_t *expr, int re_flags)
   prog = xmalloc(prog_size);
   state_ptr = prog->state;
   prog->re_in_use = false;
+  prog->listbuf[0] = NULL;
+  prog->listbuf[1] = NULL;
 
   // PASS 2
   // Build the NFA
@@ -15902,6 +15921,8 @@ static void nfa_regfree(regprog_T *prog)
 
   xfree(((nfa_regprog_T *)prog)->match_text);
   xfree(((nfa_regprog_T *)prog)->pattern);
+  xfree(((nfa_regprog_T *)prog)->listbuf[0]);
+  xfree(((nfa_regprog_T *)prog)->listbuf[1]);
   xfree(prog);
 }
 
@@ -15997,7 +16018,7 @@ static regengine_T nfa_regengine = {
 static int regexp_engine = 0;
 
 #ifdef REGEXP_DEBUG
-static uint8_t regname[][30] = {
+static const uint8_t regname[][30] = {
   "AUTOMATIC Regexp Engine",
   "BACKTRACKING Regexp Engine",
   "NFA Regexp Engine"
@@ -16096,7 +16117,7 @@ void vim_regfree(regprog_T *prog)
   }
 }
 
-#if defined(EXITFREE)
+#ifdef EXITFREE
 void free_regexp_stuff(void)
 {
   ga_clear(&regstack);

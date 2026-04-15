@@ -58,22 +58,22 @@ FileComparison path_full_compare(char *const s1, char *const s2, const bool chec
                                  const bool expandenv)
   FUNC_ATTR_NONNULL_ALL
 {
-  char expanded1[MAXPATHL];
+  char expand1[MAXPATHL];
   char full1[MAXPATHL];
   char full2[MAXPATHL];
   FileID file_id_1, file_id_2;
 
   if (expandenv) {
-    expand_env(s1, expanded1, MAXPATHL);
+    expand_env(s1, expand1, MAXPATHL);
   } else {
-    xstrlcpy(expanded1, s1, MAXPATHL);
+    xstrlcpy(expand1, s1, MAXPATHL);
   }
-  bool id_ok_1 = os_fileid(expanded1, &file_id_1);
+  bool id_ok_1 = os_fileid(expand1, &file_id_1);
   bool id_ok_2 = os_fileid(s2, &file_id_2);
   if (!id_ok_1 && !id_ok_2) {
     // If os_fileid() doesn't work, may compare the names.
     if (checkname) {
-      vim_FullName(expanded1, full1, MAXPATHL, false);
+      vim_FullName(expand1, full1, MAXPATHL, false);
       vim_FullName(s2, full2, MAXPATHL, false);
       if (path_fnamecmp(full1, full2) == 0) {
         return kEqualFileNames;
@@ -443,14 +443,16 @@ int path_fnamencmp(const char *const fname1, const char *const fname2, size_t le
 ///
 /// @return fname1
 static inline char *do_concat_fnames(char *fname1, const size_t len1, const char *fname2,
-                                     const size_t len2, const bool sep)
+                                     const size_t len2, const bool sep, size_t *len)
   FUNC_ATTR_NONNULL_ALL FUNC_ATTR_NONNULL_RET
 {
   if (sep && *fname1 && !after_pathsep(fname1, fname1 + len1)) {
     fname1[len1] = PATHSEP;
     memmove(fname1 + len1 + 1, fname2, len2 + 1);
+    *len = len1 + 1 + len2;
   } else {
     memmove(fname1 + len1, fname2, len2 + 1);
+    *len = len1 + len2;
   }
 
   return fname1;
@@ -465,14 +467,14 @@ static inline char *do_concat_fnames(char *fname1, const size_t len1, const char
 /// @param sep    is a flag to indicate a path separator should be added
 ///               if necessary
 /// @return [allocated] Concatenation of fname1 and fname2.
-char *concat_fnames(const char *fname1, const char *fname2, bool sep)
-  FUNC_ATTR_NONNULL_ALL FUNC_ATTR_NONNULL_RET
+String concat_fnames(String fname1, String fname2, bool sep)
+  FUNC_ATTR_NONNULL_ALL
 {
-  const size_t len1 = strlen(fname1);
-  const size_t len2 = strlen(fname2);
-  char *dest = xmalloc(len1 + len2 + 3);
-  memmove(dest, fname1, len1 + 1);
-  return do_concat_fnames(dest, len1, fname2, len2, sep);
+  String ret;
+  ret.data = xmalloc(fname1.size + (sep ? 1 : 0) + fname2.size + 1);
+  memmove(ret.data, fname1.data, fname1.size + 1);
+  do_concat_fnames(ret.data, fname1.size, fname2.data, fname2.size, sep, &ret.size);
+  return ret;
 }
 
 /// Concatenate file names fname1 and fname2
@@ -491,8 +493,9 @@ char *concat_fnames_realloc(char *fname1, const char *fname2, bool sep)
 {
   const size_t len1 = strlen(fname1);
   const size_t len2 = strlen(fname2);
+  size_t len;
   return do_concat_fnames(xrealloc(fname1, len1 + len2 + 3), len1,
-                          fname2, len2, sep);
+                          fname2, len2, sep, &len);
 }
 
 /// Adds a path separator to a filename, unless it already ends in one.
@@ -502,13 +505,17 @@ char *concat_fnames_realloc(char *fname1, const char *fname2, bool sep)
 bool add_pathsep(char *p)
   FUNC_ATTR_NONNULL_ALL
 {
-  const size_t len = strlen(p);
-  if (*p != NUL && !after_pathsep(p, p + len)) {
+  if (*p == NUL) {
+    return true;
+  }
+
+  const size_t plen = strlen(p);
+  if (!after_pathsep(p, p + plen)) {
     const size_t pathsep_len = sizeof(PATHSEPSTR);
-    if (len > MAXPATHL - pathsep_len) {
+    if (plen > MAXPATHL - pathsep_len) {
       return false;
     }
-    memcpy(p + len, PATHSEPSTR, pathsep_len);
+    memcpy(p + plen, PATHSEPSTR, pathsep_len);
   }
   return true;
 }
@@ -555,7 +562,7 @@ bool path_has_wildcard(const char *p)
   FUNC_ATTR_NONNULL_ALL
 {
   for (; *p; MB_PTR_ADV(p)) {
-#if defined(UNIX)
+#ifdef UNIX
     if (p[0] == '\\' && p[1] != NUL) {
       p++;
       continue;
@@ -587,7 +594,7 @@ bool path_has_exp_wildcard(const char *p)
   FUNC_ATTR_NONNULL_ALL
 {
   for (; *p != NUL; MB_PTR_ADV(p)) {
-#if defined(UNIX)
+#ifdef UNIX
     if (p[0] == '\\' && p[1] != NUL) {
       p++;
       continue;
@@ -722,7 +729,7 @@ static size_t do_path_expand(garray_T *gap, const char *path, size_t wildoff, in
 
   // compile the regexp into a program
   regmatch_T regmatch;
-#if defined(UNIX)
+#ifdef UNIX
   // Ignore case if given 'wildignorecase', else respect 'fileignorecase'.
   regmatch.rm_ic = (flags & EW_ICASE) || p_fic;
 #else
@@ -2380,20 +2387,23 @@ static int path_to_absolute(const char *fname, char *buf, size_t len, int force)
     if (p == NULL) {
       p = strrchr(fname, '\\');
     }
+    if (p == NULL && ASCII_ISALPHA(fname[0]) && fname[1] == ':') {  // drive letter
+      p = fname + 1;
+    }
 #endif
     if (p == NULL && strcmp(fname, "..") == 0) {
       // Handle ".." without path separators.
       p = fname + 2;
     }
     if (p != NULL) {
-      if (vim_ispathsep_nocolon(*p) && strcmp(p + 1, "..") == 0) {
+      if (vim_ispathsep(*p) && strcmp(p + 1, "..") == 0) {
         // For "/path/dir/.." include the "/..".
         p += 3;
       }
       assert(p >= fname);
       memcpy(relative_directory, fname, (size_t)(p - fname + 1));
       relative_directory[p - fname + 1] = NUL;
-      end_of_path = (vim_ispathsep_nocolon(*p) ? p + 1 : p);
+      end_of_path = (vim_ispathsep(*p) ? p + 1 : p);
     } else {
       relative_directory[0] = NUL;
     }

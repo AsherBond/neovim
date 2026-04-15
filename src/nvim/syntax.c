@@ -228,9 +228,8 @@ static int running_syn_inc_tag = 0;
 // KE2HIKEY() converts a var pointer to a hashitem key pointer.
 // HIKEY2KE() converts a hashitem key pointer to a var pointer.
 // HI2KE() converts a hashitem pointer to a var pointer.
-static keyentry_T dumkey;
 #define KE2HIKEY(kp)  ((kp)->keyword)
-#define HIKEY2KE(p)   ((keyentry_T *)((p) - (dumkey.keyword - (char *)&dumkey)))
+#define HIKEY2KE(p)   ((keyentry_T *)((p) - offsetof(keyentry_T, keyword)))
 #define HI2KE(hi)      HIKEY2KE((hi)->hi_key)
 
 // To reduce the time spent in keepend(), remember at which level in the state
@@ -679,6 +678,8 @@ static void syn_sync(win_T *wp, linenr_T start_lnum, synstate_T *last_valid)
         // the next line.
         // For "groupthere" the parsing starts at start_lnum.
         if (found_flags & HL_SYNC_HERE) {
+          current_lnum = found_m_endpos.lnum;
+          current_col = found_m_endpos.col;
           if (!GA_EMPTY(&current_state)) {
             cur_si = &CUR_STATE(current_state.ga_len - 1);
             cur_si->si_h_startpos.lnum = found_current_lnum;
@@ -686,8 +687,6 @@ static void syn_sync(win_T *wp, linenr_T start_lnum, synstate_T *last_valid)
             update_si_end(cur_si, (int)current_col, true);
             check_keepend();
           }
-          current_col = found_m_endpos.col;
-          current_lnum = found_m_endpos.lnum;
           syn_finish_line(false);
           current_lnum++;
         } else {

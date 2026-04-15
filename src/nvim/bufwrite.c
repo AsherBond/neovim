@@ -577,7 +577,7 @@ static void emit_err(Error_T *e)
   }
 }
 
-#if defined(UNIX)
+#ifdef UNIX
 
 static int get_fileinfo_os(char *fname, FileInfo *file_info_old, bool overwriting, int *perm,
                            bool *device, bool *newfile, Error_T *err)
@@ -698,7 +698,7 @@ char *buf_get_backup_name(char *fname, char **dirp, bool no_prepend_dot, char *b
       xfree(failed_dir);
     }
   }
-  if (after_pathsep(IObuff, p) && p[-1] == p[-2]) {
+  if (dir_len > 1 && after_pathsep(IObuff, p) && p[-1] == p[-2]) {
     // path ends with '//', use full path
     if ((p = make_percent_swname(IObuff, p, fname))
         != NULL) {
@@ -1158,7 +1158,7 @@ int buf_write(buf_T *buf, char *fname, char *sfname, linenr_T start, linenr_T en
     }
   }
 
-#if defined(UNIX)
+#ifdef UNIX
   bool made_writable = false;  // 'w' bit has been set
 
   // When using ":w!" and the file was read-only: make it writable
@@ -1665,7 +1665,7 @@ restore_backup:
   lnum -= start;            // compute number of written lines
   no_wait_return--;         // may wait for return now
 
-#if !defined(UNIX)
+#ifndef UNIX
   fname = sfname;           // use shortname now, for the messages
 #endif
   if (!filtering) {

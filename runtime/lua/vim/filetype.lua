@@ -103,6 +103,41 @@ function M._nextnonblank(bufnr, start_lnum)
   return nil, nil
 end
 
+--- Gets a best-effort set of all "known" filetypes, discovered by:
+--- - `getcompletion()`
+--- - `vim.filetype` internal registry
+--- @return table<string,true>
+function M._get_known_filetypes()
+  local known = {} --- @type table<string,true>
+  for _, ft in ipairs(vim.fn.getcompletion('', 'filetype')) do
+    known[ft] = true
+  end
+  local registry = vim.filetype.inspect()
+
+  local function add_filetype(value)
+    local filetype = type(value) == 'table' and value[1] or value
+    if type(filetype) == 'string' then
+      known[filetype] = true
+    end
+  end
+
+  for _, value in pairs(registry.extension) do
+    add_filetype(value)
+  end
+
+  for _, value in pairs(registry.filename) do
+    add_filetype(value)
+  end
+
+  for _, mappings in pairs(registry.pattern) do
+    for _, value in pairs(mappings) do
+      add_filetype(value)
+    end
+  end
+
+  return known
+end
+
 do
   --- @type table<string,vim.regex>
   local regex_cache = {}
@@ -233,7 +268,6 @@ local extension = {
   a = detect.asm,
   A = detect.asm,
   lst = detect.asm,
-  mac = detect.asm,
   asn1 = 'asn',
   asn = 'asn',
   asp = detect.asp,
@@ -330,6 +364,7 @@ local extension = {
   cbl = 'cobol',
   atg = 'coco',
   recipe = 'conaryrecipe',
+  cto = 'concerto',
   ctags = 'conf',
   hook = function(_path, bufnr)
     return M._getline(bufnr, 1) == '[Trigger]' and 'confini' or nil
@@ -597,7 +632,6 @@ local extension = {
   ihex = 'hex',
   ihe = 'hex',
   ihx = 'hex',
-  int = 'hex',
   mcs = 'hex',
   hjson = 'hjson',
   m3u = 'hlsplaylist',
@@ -632,6 +666,7 @@ local extension = {
   ii = 'initng',
   inko = 'inko',
   inp = detect.inp,
+  int = detect.int,
   ms = detect_seq(detect.nroff, 'xmath'),
   ipkg = 'ipkg',
   iss = 'iss',
@@ -679,6 +714,7 @@ local extension = {
   bd = 'json',
   bda = 'json',
   xci = 'json',
+  cps = 'json',
   json5 = 'json5',
   jsonc = 'jsonc',
   jsonl = 'jsonl',
@@ -762,6 +798,7 @@ local extension = {
   mc = detect.mc,
   quake = 'm3quake',
   m4 = detect.m4,
+  mac = detect.mac,
   eml = 'mail',
   mk = detect.make,
   mak = detect.make,
@@ -903,6 +940,7 @@ local extension = {
   obj = 'obj',
   objdump = 'objdump',
   cppobjdump = 'objdump',
+  rtn = 'objectscript_routine',
   obl = 'obse',
   obse = 'obse',
   oblivion = 'obse',
@@ -1378,6 +1416,7 @@ local extension = {
   wgsl = 'wgsl',
   wbt = 'winbatch',
   wit = 'wit',
+  wks = 'wks',
   wml = 'wml',
   wsf = 'wsh',
   wsc = 'wsh',
@@ -1835,6 +1874,7 @@ local filename = {
   pinercex = 'pine',
   ['/etc/pinforc'] = 'pinfo',
   ['/.pinforc'] = 'pinfo',
+  PklProject = 'pkl',
   ['.povrayrc'] = 'povini',
   printcap = function(_path, _bufnr)
     return 'ptcap', function(b)
@@ -1996,6 +2036,7 @@ local filename = {
   ['.clangd'] = 'yaml',
   ['.clang-format'] = 'yaml',
   ['.clang-tidy'] = 'yaml',
+  ['buf.lock'] = 'yaml',
   ['pixi.lock'] = 'yaml',
   ['yarn.lock'] = 'yaml',
   matplotlibrc = 'yaml',
@@ -2060,6 +2101,7 @@ local pattern = {
     ['/etc/DIR_COLORS$'] = 'dircolors',
     ['/etc/dnsmasq%.conf$'] = 'dnsmasq',
     ['/etc/dnsmasq%.d/'] = starsetf('dnsmasq'),
+    ['/etc/wireguard/.*%.conf$'] = 'dosini',
     ['/etc/yum%.conf$'] = 'dosini',
     ['/etc/yum%.repos%.d/'] = starsetf('dosini'),
     ['/etc/gitconfig%.d/'] = starsetf('gitconfig'),
@@ -2778,6 +2820,8 @@ local pattern = {
     ['%.t%.html$'] = 'tilde',
     ['%.vhdl_[0-9]'] = starsetf('vhdl'),
     ['vimrc'] = starsetf('vim'),
+    ['%.wks%.in$'] = 'wks',
+    ['%.wks%.inc$'] = 'wks',
     ['/Xresources/'] = starsetf('xdefaults'),
     ['/app%-defaults/'] = starsetf('xdefaults'),
     ['^Xresources'] = starsetf('xdefaults'),
@@ -3287,6 +3331,22 @@ end
 --- @return string|boolean|integer: Option value
 function M.get_option(filetype, option)
   return require('vim.filetype.options').get_option(filetype, option)
+end
+
+--- Inspect the current state of the filetype registry.
+---
+--- Returns a copy of the internal tables used for filetype detection by extension, filename, or
+--- pattern. Note: Due to the dynamic nature of filetype detection, this is only useful for checking
+--- whether a certain extension, filename, or pattern has been registered so far. In addition, the
+--- `pattern` table is in an internal format optimized for fast lookup. Prefer |vim.filetype.match()|
+--- for checking the detected filetype for a given pattern.
+---@return table<string, table<string, vim.filetype.mapping|table<string, vim.filetype.mapping>>>
+function M.inspect()
+  return {
+    extension = vim.deepcopy(extension),
+    filename = vim.deepcopy(filename),
+    pattern = vim.deepcopy(pattern),
+  }
 end
 
 return M

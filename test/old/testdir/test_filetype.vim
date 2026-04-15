@@ -194,6 +194,7 @@ func s:GetFilenameChecks() abort
     \ 'coco': ['file.atg'],
     \ 'codeowners': ['CODEOWNERS'],
     \ 'conaryrecipe': ['file.recipe'],
+    \ 'concerto': ['file.cto'],
     \ 'conf': ['auto.master', 'file.conf', 'texdoc.cnf', '.x11vncrc', '.chktexrc', '.ripgreprc', 'ripgreprc', 'file.ctags'],
     \ 'config': ['/etc/hostname.file', 'any/etc/hostname.file', 'configure.in', 'configure.ac', 'file.at', 'aclocal.m4'],
     \ 'confini': ['pacman.conf', 'paru.conf', 'mpv.conf', 'any/.aws/config', 'any/.aws/credentials', 'any/.aws/cli/alias', 'file.nmconnection',
@@ -256,6 +257,7 @@ func s:GetFilenameChecks() abort
     \            'psprint.conf', 'sofficerc', 'any/.config/lxqt/globalkeyshortcuts.conf', 'any/.config/screengrab/screengrab.conf',
     \            'any/.local/share/flatpak/repo/config',
     \            '.alsoftrc', 'alsoft.conf', 'alsoft.ini', 'alsoftrc.sample',
+    \            '/etc/wireguard/wg0.conf',
     \            '.notmuch-config', '.notmuch-config.myprofile',
     \            '~/.config/notmuch/myprofile/config'] + s:WhenConfigHome('$XDG_CONFIG_HOME/notmuch/myprofile/config'),
     \ 'dot': ['file.dot', 'file.gv'],
@@ -417,7 +419,9 @@ func s:GetFilenameChecks() abort
     \ 'jovial': ['file.jov', 'file.j73', 'file.jovial'],
     \ 'jproperties': ['file.properties', 'file.properties_xx', 'file.properties_xx_xx', 'some.properties_xx_xx_file', 'org.eclipse.xyz.prefs'],
     \ 'jq': ['file.jq'],
-    \ 'json': ['file.json', 'file.jsonp', 'file.json-patch', 'file.geojson', 'file.webmanifest', 'Pipfile.lock', 'file.ipynb', 'file.jupyterlab-settings', '.prettierrc', '.firebaserc', '.stylelintrc', '.lintstagedrc', 'file.slnf', 'file.sublime-project', 'file.sublime-settings', 'file.sublime-workspace', 'file.bd', 'file.bda', 'file.xci', 'flake.lock', 'pack.mcmeta', 'deno.lock', '.swcrc', 'composer.lock', 'symfony.lock'],
+    \ 'json': ['file.json', 'file.jsonp', 'file.json-patch', 'file.geojson', 'file.webmanifest', 'Pipfile.lock', 'file.ipynb', 'file.jupyterlab-settings', 'file.cps',
+    \          '.prettierrc', '.firebaserc', '.stylelintrc', '.lintstagedrc', 'file.slnf', 'file.sublime-project', 'file.sublime-settings', 'file.sublime-workspace',
+    \          'file.bd', 'file.bda', 'file.xci', 'flake.lock', 'pack.mcmeta', 'deno.lock', '.swcrc', 'composer.lock', 'symfony.lock'],
     \ 'json5': ['file.json5'],
     \ 'jsonc': ['file.jsonc', '.babelrc', '.eslintrc', '.jsfmtrc', '.jshintrc', '.jscsrc', '.vsconfig', '.hintrc', '.swrc', 'jsconfig.json', 'tsconfig.json', 'tsconfig.test.json', 'tsconfig-test.json', '.luaurc', 'bun.lock', expand("$HOME/.config/VSCodium/User/settings.json"), '/home/user/.config/waybar/config'],
     \ 'jsonl': ['file.jsonl'],
@@ -595,6 +599,7 @@ func s:GetFilenameChecks() abort
     \ 'numbat': ['file.nbt'],
     \ 'obj': ['file.obj'],
     \ 'objdump': ['file.objdump', 'file.cppobjdump'],
+    \ 'objectscript_routine': ['file.rtn'],
     \ 'obse': ['file.obl', 'file.obse', 'file.oblivion', 'file.obscript'],
     \ 'ocaml': ['file.ml', 'file.mli', 'file.mll', 'file.mly', '.ocamlinit', 'file.mlt', 'file.mlp', 'file.mlip', 'file.mli.cppo', 'file.ml.cppo'],
     \ 'occam': ['file.occ'],
@@ -628,7 +633,7 @@ func s:GetFilenameChecks() abort
     \ 'pilrc': ['file.rcp'],
     \ 'pine': ['.pinerc', 'pinerc', '.pinercex', 'pinercex'],
     \ 'pinfo': ['/etc/pinforc', '/.pinforc', 'any/.pinforc', 'any/etc/pinforc'],
-    \ 'pkl': ['file.pkl', 'file.pcf'],
+    \ 'pkl': ['file.pkl', 'file.pcf', 'any/PklProject'],
     \ 'pli': ['file.pli', 'file.pl1'],
     \ 'plm': ['file.plm', 'file.p36', 'file.pac'],
     \ 'plp': ['file.plp'],
@@ -959,6 +964,7 @@ func s:GetFilenameChecks() abort
     \ 'wgsl': ['file.wgsl'],
     \ 'winbatch': ['file.wbt'],
     \ 'wit': ['file.wit'],
+    \ 'wks': ['file.wks', 'file.wks.in', 'file.wks.inc'],
     \ 'wml': ['file.wml'],
     \ 'wsh': ['file.wsf', 'file.wsc'],
     \ 'wsml': ['file.wsml'],
@@ -984,7 +990,7 @@ func s:GetFilenameChecks() abort
     \ 'xslt': ['file.xsl', 'file.xslt'],
     \ 'yacc': ['file.yy', 'file.yxx', 'file.y++'],
     \ 'yaml': ['file.yaml', 'file.yml', 'file.eyaml', 'file.kyaml', 'file.kyml', 'any/.bundle/config', '.clangd', '.clang-format', '.clang-tidy', 'file.mplstyle', 'matplotlibrc', 'yarn.lock',
-    \          '/home/user/.kube/config', '/home/user/.kube/kuberc', '.condarc', 'condarc', '.mambarc', 'mambarc', 'pixi.lock'],
+    \          '/home/user/.kube/config', '/home/user/.kube/kuberc', '.condarc', 'condarc', '.mambarc', 'mambarc', 'pixi.lock', 'buf.lock'],
     \ 'yang': ['file.yang'],
     \ 'yara': ['file.yara', 'file.yar'],
     \ 'yuck': ['file.yuck'],
@@ -1100,7 +1106,8 @@ func s:GetScriptChecks() abort
       \ 'php': [['#!/path/php']],
       \ 'python': [['#!/path/python'],
       \            ['#!/path/python2'],
-      \            ['#!/path/python3']],
+      \            ['#!/path/python3'],
+      \            ['#!/usr/bin/env -S uv run --script']],
       \ 'groovy': [['#!/path/groovy']],
       \ 'ruby': [['#!/path/ruby']],
       \ 'javascript': [['#!/path/node'],
@@ -2760,6 +2767,12 @@ func Test_inc_file()
   call assert_equal('pov', &filetype)
   bwipe!
 
+  " ObjectScript routine
+  call writefile(['ROUTINE Sample [Type=INC]'], 'Xfile.inc', 'D')
+  split Xfile.inc
+  call assert_equal('objectscript_routine', &filetype)
+  bwipe!
+
   let g:filetype_inc = 'foo'
   split Xfile.inc
   call assert_equal('foo', &filetype)
@@ -2841,6 +2854,72 @@ func Test_inc_file()
   split Xfile.inc
   call assert_equal('foo', &filetype)
   bwipe!
+
+  filetype off
+endfunc
+
+func Test_int_file()
+  filetype on
+
+  " Intel HEX
+  call writefile([':10010000214601360121470136007EFE09D2190140'], 'Xfile.int', 'D')
+  split Xfile.int
+  call assert_equal('hex', &filetype)
+  bwipe!
+
+  " ObjectScript routine
+  call writefile(['ROUTINE Sample [Type=INT]'], 'Xfile.int', 'D')
+  split Xfile.int
+  call assert_equal('objectscript_routine', &filetype)
+  bwipe!
+
+  " ObjectScript routine by IRIS marker in first line
+  call writefile(['Exported from IRIS source control'], 'Xfile.int', 'D')
+  split Xfile.int
+  call assert_equal('objectscript_routine', &filetype)
+  bwipe!
+
+  " Not ObjectScript routine by partial IRIS match in first line
+  call writefile(['Exported from IRISation source control'], 'Xfile.int', 'D')
+  split Xfile.int
+  call assert_equal('hex', &filetype)
+  bwipe!
+
+  " ObjectScript routine by %RO marker in first three lines
+  call writefile(['; generated file', '%RO routine metadata'], 'Xfile.int', 'D')
+  split Xfile.int
+  call assert_equal('objectscript_routine', &filetype)
+  bwipe!
+
+  let g:filetype_int = 'foo'
+  split Xfile.int
+  call assert_equal('foo', &filetype)
+  bwipe!
+  unlet g:filetype_int
+
+  filetype off
+endfunc
+
+func Test_mac_file()
+  filetype on
+
+  " Assembly
+  call writefile(['looks like asm'], 'Xfile.mac', 'D')
+  split Xfile.mac
+  call assert_equal('asm', &filetype)
+  bwipe!
+
+  " ObjectScript routine
+  call writefile(['ROUTINE Sample [Type=MAC]'], 'Xfile.mac', 'D')
+  split Xfile.mac
+  call assert_equal('objectscript_routine', &filetype)
+  bwipe!
+
+  let g:filetype_mac = 'foo'
+  split Xfile.mac
+  call assert_equal('foo', &filetype)
+  bwipe!
+  unlet g:filetype_mac
 
   filetype off
 endfunc

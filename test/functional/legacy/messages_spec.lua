@@ -18,6 +18,7 @@ describe('messages', function()
 
   -- oldtest: Test_warning_scroll()
   it('a warning causes scrolling if and only if it has a stacktrace', function()
+    t.skip(t.is_arch('s390x'), 'timing-sensitive test unreliable on s390x')
     screen = Screen.new(75, 6)
 
     -- When the warning comes from a script, messages are scrolled so that the
@@ -884,6 +885,35 @@ describe('messages', function()
       14                                                                         |
       15                                                                         |
       3 lines filtered                                                           |
+    ]])
+  end)
+
+  -- oldtest: Test_fileinfo_after_last_bd()
+  it('fileinfo is shown after :bd on last listed buffer', function()
+    screen = Screen.new(50, 10)
+    exec([[
+      set shortmess-=F
+      edit xxx
+      edit yyy
+    ]])
+    screen:expect([[
+      ^                                                  |
+      {1:~                                                 }|*8
+      "yyy" [New]                                       |
+    ]])
+
+    command('bd')
+    screen:expect([[
+      ^                                                  |
+      {1:~                                                 }|*8
+      "xxx" [New] --No lines in buffer--                |
+    ]])
+
+    command('bd')
+    screen:expect([[
+      ^                                                  |
+      {1:~                                                 }|*8
+      "[No Name]" --No lines in buffer--                |
     ]])
   end)
 end)

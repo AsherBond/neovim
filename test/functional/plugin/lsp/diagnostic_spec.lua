@@ -418,8 +418,8 @@ describe('vim.lsp.diagnostic', function()
           bufnr = diagnostic_bufnr,
         }, {})
 
-        local first_ns = vim.lsp.diagnostic.get_namespace(client_id, 'provider-a')
-        local second_ns = vim.lsp.diagnostic.get_namespace(client_id, 'provider-b')
+        local first_ns = vim.lsp.diagnostic.get_namespace(client_id, true, 'provider-a')
+        local second_ns = vim.lsp.diagnostic.get_namespace(client_id, true, 'provider-b')
 
         return #vim.diagnostic.get(diagnostic_bufnr, { namespace = first_ns }),
           #vim.diagnostic.get(diagnostic_bufnr, { namespace = second_ns }),
@@ -673,7 +673,7 @@ describe('vim.lsp.diagnostic', function()
             bufnr = diagnostic_bufnr,
           })
           vim.api.nvim_exec_autocmds('LspNotify', {
-            buffer = diagnostic_bufnr,
+            buf = diagnostic_bufnr,
             data = {
               method = 'textDocument/didChange',
               client_id = client_id,
@@ -699,7 +699,7 @@ describe('vim.lsp.diagnostic', function()
             bufnr = diagnostic_bufnr,
           })
           vim.api.nvim_exec_autocmds('LspNotify', {
-            buffer = diagnostic_bufnr,
+            buf = diagnostic_bufnr,
             data = {
               method = 'textDocument/didChange',
               client_id = client_id,
@@ -746,7 +746,7 @@ describe('vim.lsp.diagnostic', function()
         }, {})
 
         vim.api.nvim_exec_autocmds('LspNotify', {
-          buffer = second_buf,
+          buf = second_buf,
           data = {
             method = 'textDocument/didChange',
             client_id = client_id,
@@ -862,7 +862,11 @@ describe('vim.lsp.diagnostic', function()
         exec_lua(function()
           local client = vim.lsp.get_client_by_id(client_id)
           assert(client)
-          return client:_provider_value_get('workspace/diagnostic', 'identifier')
+          local result = {}
+          client:_provider_foreach('workspace/diagnostic', function(cap)
+            table.insert(result, cap.identifier or vim.NIL)
+          end)
+          return result
         end)
       )
 

@@ -30,9 +30,6 @@
 --   * visit_validate() is the core function used by validate().
 --   * Files in `new_layout` will be generated with a "flow" layout instead of preformatted/fixed-width layout.
 --
--- TODO:
---   * Conjoin listitem "blocks" (blank-separated). Example: starting.txt
-
 local pending_urls = 0
 local tagmap = nil ---@type table<string, string>
 local helpfiles = nil ---@type string[]
@@ -71,7 +68,6 @@ local M = {}
 -- All other files are "legacy" files which require fixed-width layout.
 local new_layout = {
   ['api.txt'] = true,
-  ['lsp.txt'] = true,
   ['channel.txt'] = true,
   ['deprecated.txt'] = true,
   ['dev.txt'] = true,
@@ -82,22 +78,26 @@ local new_layout = {
   ['dev_tools.txt'] = true,
   ['dev_vimpatch.txt'] = true,
   ['diagnostic.txt'] = true,
-  ['help.txt'] = true,
   ['faq.txt'] = true,
   ['gui.txt'] = true,
+  ['help.txt'] = true,
   ['intro.txt'] = true,
-  ['lua.txt'] = true,
+  ['job_control.txt'] = true,
+  ['lsp.txt'] = true,
+  ['lua-bit.txt'] = true,
   ['lua-guide.txt'] = true,
   ['lua-plugin.txt'] = true,
+  ['lua.txt'] = true,
   ['luaref.txt'] = true,
-  ['news.txt'] = true,
-  ['news-0.9.txt'] = true,
   ['news-0.10.txt'] = true,
   ['news-0.11.txt'] = true,
   ['news-0.12.txt'] = true,
+  ['news-0.9.txt'] = true,
+  ['news.txt'] = true,
   ['nvim.txt'] = true,
   ['pack.txt'] = true,
   ['provider.txt'] = true,
+  ['starting.txt'] = true,
   ['terminal.txt'] = true,
   ['tui.txt'] = true,
   ['ui.txt'] = true,
@@ -117,10 +117,7 @@ local redirects = {
 
 -- TODO: These known invalid |links| require an update to the relevant docs.
 local exclude_invalid = {
-  ["'string'"] = 'vimeval.txt',
-  Query = 'treesitter.txt',
   matchit = 'vim_diff.txt',
-  ['set!'] = 'treesitter.txt',
 }
 
 -- False-positive "invalid URLs".
@@ -135,8 +132,12 @@ local exclude_invalid_urls = {
   ['http://wiki.services.openoffice.org/wiki/Dictionaries'] = 'spell.txt',
   ['http://www.adapower.com'] = 'ft_ada.txt',
   ['http://www.jclark.com/'] = 'quickfix.txt',
-  ['https://cacm.acm.org/research/a-look-at-the-design-of-lua/'] = 'faq.txt', -- blocks GHA?
-  ['https://linux.die.net/man/2/poll'] = 'luvref.txt', -- blocks GHA?
+
+  -- Can't be accessed by GitHub runners:
+  ['https://cacm.acm.org/research/a-look-at-the-design-of-lua/'] = 'faq.txt',
+  ['https://linux.die.net/man/2/poll'] = 'luvref.txt',
+  ['https://www.kuwasha.net'] = 'uganda.txt',
+  ['https://www.kuwasha.net/'] = 'uganda.txt',
 }
 
 -- Deprecated, brain-damaged files that I don't care about.
@@ -395,6 +396,13 @@ local function first(node, name)
   return nil
 end
 
+--- Gets the last child of `node`, or nil.
+---@param node TSNode
+local function last(node)
+  local n = node:child_count()
+  return n > 0 and node:child(n - 1) or nil
+end
+
 --- Gets the kind and node text of the previous and next siblings of node `n`.
 --- @param n any node
 local function get_prev_next(n)
@@ -626,6 +634,36 @@ local function visit_node(root, level, lang_tree, headings, opt, stats)
     if is_blank(text) then
       return ''
     end
+
+    -- Conjoin list-item blocks: merge adjacent blocks that form a contiguous list.
+    local prev_block = root:prev_sibling()
+    local next_block = root:next_sibling()
+    local prev_last = prev_block and prev_block:type() == 'block' and last(prev_block)
+    local next_first = next_block and next_block:type() == 'block' and next_block:child(0)
+    local continues_list = root:child(0)
+      and root:child(0):type() == 'line_li'
+      and prev_last
+      and prev_last:type() == 'line_li'
+    local list_continues = last(root)
+      and last(root):type() == 'line_li'
+      and next_first
+      and next_first:type() == 'line_li'
+    if continues_list and list_continues then
+      return text
+    elseif continues_list then
+      -- Last continuation block: close the wrapper opened by the first block.
+      if opt.old then
+        return ('%s</div>\n'):format(trim(text, 2))
+      end
+      return string.format('%s\n</div>\n', text)
+    elseif list_continues then
+      -- First block of a list that continues: open wrapper but don't close.
+      if opt.old then
+        return ('<div class="old-help-para">%s'):format(trim(text, 2))
+      end
+      return string.format('<div class="help-para">\n%s', text)
+    end
+
     if opt.old then
       -- XXX: Treat "old" docs as preformatted: they use indentation for layout.
       --      Trim trailing newlines to avoid too much whitespace between divs.
@@ -652,6 +690,17 @@ local function visit_node(root, level, lang_tree, headings, opt, stats)
     local sib = root:prev_sibling()
     local prev_li = sib and sib:type() == 'line_li'
     local cssclass = numli and 'help-li-num' or 'help-li'
+
+    -- Conjoin list items separated by blank lines (wrapped in separate blocks).
+    if not prev_li then
+      local parent_block = root:parent()
+      local prev_block = parent_block and parent_block:prev_sibling()
+      local prev_last = prev_block and prev_block:type() == 'block' and last(prev_block)
+      if prev_last and prev_last:type() == 'line_li' then
+        prev_li = true
+        sib = prev_last
+      end
+    end
 
     if not prev_li then
       opt.indent = 1

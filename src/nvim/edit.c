@@ -1594,8 +1594,12 @@ static void init_prompt(int cmdchar_todo)
   int prompt_len = (int)strlen(prompt);
 
   // In case the mark is set to a nonexistent line.
-  curbuf->b_prompt_start.mark.lnum = MAX(1, MIN(curbuf->b_prompt_start.mark.lnum,
-                                                curbuf->b_ml.ml_line_count));
+  if (curbuf->b_prompt_start.mark.lnum < 1
+      || curbuf->b_prompt_start.mark.lnum > curbuf->b_ml.ml_line_count) {
+    curbuf->b_prompt_start.mark.lnum = MAX(1, MIN(curbuf->b_prompt_start.mark.lnum,
+                                                  curbuf->b_ml.ml_line_count));
+    curbuf->b_prompt_append_new_line = true;
+  }
 
   curwin->w_cursor.lnum = MAX(curwin->w_cursor.lnum, curbuf->b_prompt_start.mark.lnum);
   char *text = ml_get(curbuf->b_prompt_start.mark.lnum);
@@ -1615,6 +1619,7 @@ static void init_prompt(int cmdchar_todo)
       ml_append(lnum, prompt, 0, false);
       appended_lines_mark(lnum, 1);
       curbuf->b_prompt_start.mark.lnum = curbuf->b_ml.ml_line_count;
+      curbuf->b_prompt_append_new_line = true;
       // Like submitting, undo history was relevant to the old prompt.
       u_clearallandblockfree(curbuf);
     }
@@ -2351,7 +2356,7 @@ void set_last_insert(int c)
   last_insert_skip = 0;
 }
 
-#if defined(EXITFREE)
+#ifdef EXITFREE
 void free_last_insert(void)
 {
   API_CLEAR_STRING(last_insert);
@@ -2815,7 +2820,7 @@ static void replace_do_bs(int limit_col)
     if (l_State & VREPLACE_FLAG) {
       // Get the number of screen cells used by the character we are
       // going to delete.
-      getvcol(curwin, &curwin->w_cursor, NULL, &start_vcol, NULL);
+      getvcol(curwin, &curwin->w_cursor, NULL, &start_vcol, NULL, 0);
       orig_vcols = win_chartabsize(curwin, get_cursor_pos_ptr(), start_vcol);
     }
     del_char_after_col(limit_col);
@@ -4004,8 +4009,8 @@ static bool ins_tab(void)
     }
 
     // compute virtual column numbers of first white and cursor
-    getvcol(curwin, &fpos, &vcol, NULL, NULL);
-    getvcol(curwin, cursor, &want_vcol, NULL, NULL);
+    getvcol(curwin, &fpos, &vcol, NULL, NULL, 0);
+    getvcol(curwin, cursor, &want_vcol, NULL, NULL, 0);
 
     char *tab = "\t";
     int32_t tab_v = (uint8_t)(*tab);

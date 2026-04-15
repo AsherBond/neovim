@@ -1,4 +1,6 @@
 ---@meta
+-- This file is NOT generated, edit it directly.
+error('Cannot require a meta file')
 
 ---@nodoc
 vim.json = {}
@@ -25,8 +27,8 @@ vim.json = {}
 --- (default: `false`)
 --- @field escape_slash? boolean
 ---
---- If non-empty, the returned JSON is formatted with newlines and whitespace, where `indent`
---- defines the whitespace at each nesting level.
+--- If non-empty, each value in a JSON object or array starts on a new line and is prefixed with
+--- `indent` per nesting level. Adds a space after colons. Does not add a final newline.
 --- (default: `""`)
 --- @field indent? string
 ---

@@ -1217,7 +1217,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
           if (VIsual_mode == 'V') {       // linewise
             wlv.fromcol = 0;
           } else {
-            getvvcol(wp, top, (colnr_T *)&wlv.fromcol, NULL, NULL);
+            getvvcol(wp, top, &wlv.fromcol, NULL, NULL, 0);
             if (gchar_pos(top) == NUL) {
               wlv.tocol = wlv.fromcol + 1;
             }
@@ -1233,9 +1233,9 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
           } else {
             pos_T pos = *bot;
             if (*p_sel == 'e') {
-              getvvcol(wp, &pos, (colnr_T *)&wlv.tocol, NULL, NULL);
+              getvvcol(wp, &pos, &wlv.tocol, NULL, NULL, 0);
             } else {
-              getvvcol(wp, &pos, NULL, NULL, (colnr_T *)&wlv.tocol);
+              getvvcol(wp, &pos, NULL, NULL, &wlv.tocol, 0);
               wlv.tocol++;
             }
           }
@@ -1260,8 +1260,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
                && lnum >= curwin->w_cursor.lnum
                && lnum <= curwin->w_cursor.lnum + search_match_lines) {
       if (lnum == curwin->w_cursor.lnum) {
-        getvcol(curwin, &(curwin->w_cursor),
-                (colnr_T *)&wlv.fromcol, NULL, NULL);
+        getvcol(curwin, &(curwin->w_cursor), &wlv.fromcol, NULL, NULL, 0);
       } else {
         wlv.fromcol = 0;
       }
@@ -1270,7 +1269,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
           .lnum = lnum,
           .col = search_match_endcol,
         };
-        getvcol(curwin, &pos, (colnr_T *)&wlv.tocol, NULL, NULL);
+        getvcol(curwin, &pos, &wlv.tocol, NULL, NULL, 0);
       }
       // do at least one character; happens when past end of line
       if (wlv.fromcol == wlv.tocol && search_match_endcol) {
@@ -1701,7 +1700,10 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
 
       if (wp == cmdwin_win) {
         // Draw the cmdline character.
-        draw_col_fill(&wlv, schar_from_ascii(cmdwin_type), 1, win_hl_attr(wp, HLF_AT));
+        draw_col_fill(&wlv,
+                      schar_from_ascii(wlv.row == wlv.startrow ? cmdwin_type : ' '),
+                      1,
+                      wlv.row == wlv.startrow ? win_hl_attr(wp, HLF_AT) : 0);
       }
 
       if (wlv.filler_todo > 0) {
@@ -1787,7 +1789,8 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
       }
       if (has_decor && wlv.row == startrow + wlv.filler_lines) {
         // hide virt_text on text hidden by 'nowrap' or 'smoothscroll'
-        decor_redraw_col(wp, (colnr_T)(ptr - line) - 1, wlv.off, true, &decor_state);
+        decor_redraw_col(wp, (colnr_T)(ptr - line) - 1, wlv.off, true, &decor_state,
+                         decor_provider_end_col - 1);
       }
       if (wlv.col >= view_width) {
         wlv.col = wlv.off = view_width;
@@ -1856,7 +1859,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
         }
         extmark_attr = decor_redraw_col(wp, (colnr_T)(ptr - line),
                                         may_have_inline_virt ? -3 : wlv.off,
-                                        selected, &decor_state);
+                                        selected, &decor_state, decor_provider_end_col - 1);
         if (may_have_inline_virt) {
           handle_inline_virtual_text(wp, &wlv, ptr - line, selected);
           if (wlv.n_extra > 0 && wlv.virt_inline_hl_mode <= kHlModeReplace) {
@@ -2330,6 +2333,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
           CharsizeArg csarg;
           // lnum == 0, do not want virtual text to be counted here
           CSType cstype = init_charsize_arg(&csarg, wp, 0, line);
+          // TODO(zeertzjq): consider using CharSize.tail here
           wlv.n_extra = win_charsize(cstype, wlv.vcol, p, utf_ptr2CharInfo(p).value,
                                      &csarg).width - 1;
 
@@ -2900,7 +2904,8 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
         && !has_foldtext) {
       if (has_decor && *ptr == NUL && lcs_eol == 0 && lcs_eol_todo) {
         // Tricky: there might be a virtual text just _after_ the last char
-        decor_redraw_col(wp, (colnr_T)(ptr - line), -1, false, &decor_state);
+        decor_redraw_col(wp, (colnr_T)(ptr - line), -1, false, &decor_state,
+                         decor_provider_end_col - 1);
       }
       if (*ptr != NUL
           || (lcs_eol > 0 && lcs_eol_todo)
@@ -3088,14 +3093,15 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
       // At the end of screen line: might need to peek for decorations just after
       // this position.
       if (is_wrapped && wlv.n_extra == 0) {
-        decor_redraw_col(wp, (colnr_T)(ptr - line), -3, false, &decor_state);
+        decor_redraw_col(wp, (colnr_T)(ptr - line), -3, false, &decor_state,
+                         decor_provider_end_col - 1);
         // Check position/hiding of virtual text again on next screen line.
         decor_need_recheck = true;
       } else if (!is_wrapped) {
         // Without wrapping, we might need to display right_align and win_col
         // virt_text for the entire text line.
         decor_recheck_draw_col(-1, true, &decor_state);
-        decor_redraw_col(wp, MAXCOL, -1, true, &decor_state);
+        decor_redraw_col(wp, MAXCOL, -1, true, &decor_state, decor_provider_end_col - 1);
       }
     }
 
@@ -3273,7 +3279,7 @@ static int decor_providers_setup(int rows_to_draw, bool draw_from_line_start, li
     int first_row_width = draw_from_line_start ? width : width2;
     rem_vcols = first_row_width + (rows_to_draw - 1) * width2;
   } else {
-    rem_vcols = wp->w_view_height - win_col_off(wp);
+    rem_vcols = wp->w_view_width - win_col_off(wp);
   }
 
   // Call it here since we need to invalidate the line pointer anyway.

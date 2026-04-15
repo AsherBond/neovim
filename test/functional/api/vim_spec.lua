@@ -1969,9 +1969,38 @@ describe('API', function()
         end
       end
 
-      command 'au FileType lua setlocal commentstring=NEW\\ %s'
-
+      command 'au FileType lua ++once setlocal commentstring=NEW\\ %s'
       eq('NEW %s', api.nvim_get_option_value('commentstring', { filetype = 'lua' }))
+
+      -- Works from within a FileType autocommand fired from setting the &filetype.
+      exec [[
+        au FileType * ++once let g:value = nvim_get_option_value('commentstring', #{filetype: 'vim'})
+        set commentstring= ft=lua
+      ]]
+      eq('"%s', eval('g:value'))
+      -- Check it didn't somehow mess up the &commentstring from setting the &filetype.
+      eq('-- %s', eval('&commentstring'))
+
+      -- Not possible to recurse endlessly, of course.
+      exec [[
+        au FileType foobar call nvim_get_option_value('commentstring', #{filetype: 'foobar'})
+      ]]
+      matches( -- Watch out - this error is large!
+        [[E5555: API call: Vim:E218: Autocommand nesting too deep$]],
+        pcall_err(command, 'set ft=foobar')
+      )
+      command('au! FileType foobar')
+
+      eq(
+        [[Vim(call):E5555: API call: Could not execute FileType autocommands]],
+        pcall_err(command, "noautocmd call nvim_get_option_value('tagfunc', #{filetype: 'man'})")
+      )
+
+      -- No error if executed with no FileType autocommands defined.
+      -- Returning the copied global value will continue to suffice, I guess.
+      command([[filetype plugin off | setglobal commentstring=<><\ %s\ ><>]])
+      eq({}, api.nvim_get_autocmds { event = 'FileType' })
+      eq('<>< %s ><>', api.nvim_get_option_value('commentstring', { filetype = 'lua' }))
     end)
 
     it('errors for bad FileType autocmds', function()
@@ -2834,7 +2863,8 @@ describe('API', function()
         id = id,
         argv = argv,
         mode = 'terminal',
-        buffer = buffer,
+        buf = buffer,
+        buffer = buffer, -- deprecated
         pty = '?',
         exitcode = -1,
       }
@@ -2854,7 +2884,8 @@ describe('API', function()
         neq(nil, string.match(info.pty, '^/dev/'))
       end
       eq({ info = info }, event)
-      info.buffer = 1
+      info.buf = 1
+      info.buffer = 1 -- deprecated
       eq({ [1] = testinfo, [2] = stderr, [3] = info }, api.nvim_list_chans())
       eq(info, api.nvim_get_chan_info(3))
 
@@ -3792,6 +3823,11 @@ describe('API', function()
         pcall_err(api.nvim_echo, { { '', '', '' } }, 1, {})
       )
       eq("Invalid 'hl_group': 'text highlight'", pcall_err(api.nvim_echo, { { '', false } }, 1, {}))
+      eq("Invalid 'id': 4", pcall_err(api.nvim_echo, { { 'foo' } }, false, { id = 4 }))
+      eq("Invalid 'id': 0", pcall_err(api.nvim_echo, { { 'foo' } }, false, { id = 0 }))
+      eq("Invalid 'id': -1", pcall_err(api.nvim_echo, { { 'foo' } }, false, { id = -1 }))
+      -- String ids are always allowed (user-defined).
+      eq('my.msg.id', api.nvim_echo({ { 'foo' } }, false, { id = 'my.msg.id' }))
     end)
 
     it('should clear cmdline message before echo', function()
@@ -3884,8 +3920,8 @@ describe('API', function()
 
     it('increments message ID', function()
       eq(1, api.nvim_echo({ { 'foo' } }, false, {}))
-      eq(4, api.nvim_echo({ { 'foo' } }, false, { id = 4 }))
-      eq(5, api.nvim_echo({ { 'foo' } }, false, {}))
+      eq(1, api.nvim_echo({ { 'foo' } }, false, { id = 1 })) -- User may pass existing id.
+      eq(2, api.nvim_echo({ { 'foo' } }, false, {}))
     end)
 
     it('no use-after-free for custom kind with :messages #38289', function()
@@ -4793,6 +4829,16 @@ describe('API', function()
       eq({ '"ls"' }, result.args)
       eq('execute', result.cmd)
       eq('edit foo', result.nextcmd)
+    end)
+    it('parses expr-arg commands with invalid expr #38689', function()
+      for _, arg in ipairs({ '&', '[', '{', '"', "'" }) do
+        local result = api.nvim_parse_cmd('echo ' .. arg, {})
+        eq({ arg }, result.args)
+        eq('echo', result.cmd)
+        eq('', result.nextcmd)
+      end
+      -- v:errmsg shouldn't be set
+      eq('', api.nvim_get_vvar('errmsg'))
     end)
     it('parses :map commands with space in RHS', function()
       eq({

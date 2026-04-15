@@ -53,19 +53,19 @@ static const char e_aptypes_is_null_nr_str[]
   = "E1507: Internal error: ap_types or ap_types[idx] is NULL: %d: %s";
 
 static const char typename_unknown[] = N_("unknown");
-static const char typename_int[] = N_("int");
-static const char typename_longint[] = N_("long int");
-static const char typename_longlongint[] = N_("long long int");
-static const char typename_signedsizet[] = N_("signed size_t");
-static const char typename_unsignedint[] = N_("unsigned int");
-static const char typename_unsignedlongint[] = N_("unsigned long int");
-static const char typename_unsignedlonglongint[] = N_("unsigned long long int");
-static const char typename_sizet[] = N_("size_t");
+static const char typename_int[] = "int";
+static const char typename_longint[] = "long int";
+static const char typename_longlongint[] = "long long int";
+static const char typename_signedsizet[] = "signed size_t";
+static const char typename_unsignedint[] = "unsigned int";
+static const char typename_unsignedlongint[] = "unsigned long int";
+static const char typename_unsignedlonglongint[] = "unsigned long long int";
+static const char typename_sizet[] = "size_t";
 static const char typename_pointer[] = N_("pointer");
 static const char typename_percent[] = N_("percent");
-static const char typename_char[] = N_("char");
+static const char typename_char[] = "char";
 static const char typename_string[] = N_("string");
-static const char typename_float[] = N_("float");
+static const char typename_float[] = "float";
 
 /// Copy up to `len` bytes of `string` into newly allocated memory and
 /// terminate with a NUL. The allocated memory always has size `len + 1`, even
@@ -805,6 +805,10 @@ size_t vim_snprintf_safelen(char *str, size_t str_m, const char *fmt, ...)
   va_list ap;
   int str_l;
 
+  if (str_m == 0) {
+    return 0;
+  }
+
   va_start(ap, fmt);
   str_l = vim_vsnprintf_typval(str, str_m, fmt, ap, NULL);
   va_end(ap);
@@ -953,36 +957,36 @@ static int format_typeof(const char *type)
   return TYPE_UNKNOWN;
 }
 
-static char *format_typename(const char *type)
+static const char *format_typename(const char *type)
   FUNC_ATTR_NONNULL_ALL
 {
   switch (format_typeof(type)) {
   case TYPE_INT:
-    return _(typename_int);
+    return typename_int;
   case TYPE_LONGINT:
-    return _(typename_longint);
+    return typename_longint;
   case TYPE_LONGLONGINT:
-    return _(typename_longlongint);
+    return typename_longlongint;
   case TYPE_UNSIGNEDINT:
-    return _(typename_unsignedint);
+    return typename_unsignedint;
   case TYPE_SIGNEDSIZET:
-    return _(typename_signedsizet);
+    return typename_signedsizet;
   case TYPE_UNSIGNEDLONGINT:
-    return _(typename_unsignedlongint);
+    return typename_unsignedlongint;
   case TYPE_UNSIGNEDLONGLONGINT:
-    return _(typename_unsignedlonglongint);
+    return typename_unsignedlonglongint;
   case TYPE_SIZET:
-    return _(typename_sizet);
+    return typename_sizet;
   case TYPE_POINTER:
     return _(typename_pointer);
   case TYPE_PERCENT:
     return _(typename_percent);
   case TYPE_CHAR:
-    return _(typename_char);
+    return typename_char;
   case TYPE_STRING:
     return _(typename_string);
   case TYPE_FLOAT:
-    return _(typename_float);
+    return typename_float;
   }
 
   return _(typename_unknown);

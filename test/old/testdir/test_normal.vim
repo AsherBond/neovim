@@ -1876,14 +1876,13 @@ func Test_normal23_K()
   set iskeyword-=%
   set iskeyword-=\|
 
-  " Currently doesn't work in Nvim, see #19436
   " Test for specifying a count to K
-  " 1
-  " com! -nargs=* Kprog let g:Kprog_Args = <q-args>
-  " set keywordprg=:Kprog
-  " norm! 3K
-  " call assert_equal('3 version8', g:Kprog_Args)
-  " delcom Kprog
+  1
+  com! -nargs=* Kprog let g:Kprog_Args = <q-args>
+  set keywordprg=:Kprog
+  norm! 3K
+  call assert_equal('3 helphelp', g:Kprog_Args)
+  delcom Kprog
 
   " Only expect "man" to work on Unix
   if !has("unix") || has('nvim')  " Nvim K uses :terminal. #15398
@@ -4282,6 +4281,20 @@ func Test_single_line_filler_zb()
   bw!
 endfunc
 
+" Test for zb with fewer buffer lines than window height, non-zero 'scrolloff'
+" and cursor on fold.
+func Test_zb_with_cursor_on_fold()
+  15new
+  call setline(1, range(1, 5) + ['', 'foo{{{', 'bar}}}', '', 'baz'])
+  setlocal foldmethod=marker scrolloff=1
+  call assert_equal(8, foldclosedend(7))
+  call cursor(7, 1)
+  normal! zb
+  call assert_equal(1, line('w0'))
+
+  bwipe!
+endfunc
+
 " Test for Ctrl-U not getting stuck at end of buffer with 'scrolloff'.
 func Test_halfpage_scrolloff_eob()
   set scrolloff=5
@@ -4425,6 +4438,36 @@ func Test_pos_percentage_in_turkish_locale()
     " can't use Turkish locale
     throw 'Skipped: Turkish locale not available'
   endtry
+endfunc
+
+" This test simulates the problem with gvim on Windows, observed when
+" Test_normal11_showcmd in test_normal.vim is executed consecutively after
+" Test_mouse_shape_after_failed_change.
+"
+" The problem occurred because WM_SETFOCUS was processed slowly, and typebuf
+" was not empty when it should have been.
+" TODO: Is this test flaky?
+func Test_win32_gui_setfocus_prevent_showcmd()
+  if !has('win32') || !has('gui_running')
+    throw 'Skipped: Windows GUI regression test'
+  endif
+
+  " WM_SETFOCUS event occurs when finish to execute filter command in gvim
+  exe 'silent !echo foo'
+
+  set showcmd
+  10new
+  call setline(1, ['aaaaa', 'bbbbb', 'ccccc'])
+  call feedkeys("ggl\<C-V>lljj", 'xt')
+
+  " showcmd could not be updated because events originating from WM_SETFOCUS
+  " were stored in typebuf at here.  clear_showcmd() executed from redraw,
+  " will not draw the selection information unless you are in visual mode and
+  " typebuf is empty.
+  redraw!
+
+  call assert_match('3x3$', Screenline(&lines))
+  call feedkeys("\<C-V>", 'xt')
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab nofoldenable

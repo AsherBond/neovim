@@ -105,6 +105,9 @@ gx			Opens the current filepath, URL (decided by
 			|<cfile>|, 'isfname'), or |LSP| "documentLink" at
 			cursor using the system default handler.
 
+			In |help| files, gx treats help tags as
+			https://neovim.io/doc/user/ URLs.
+
 			Mapped to |vim.ui.open()|.
 
 							*v_gx*
@@ -520,7 +523,8 @@ user command or autocommand, the script in which it was defined is reported.
 				:tabnew | terminal {program} {keyword}
 <			Special cases:
 			- If 'keywordprg' begins with ":" it is invoked as
-			  a Vim command with [count].
+			  a Vim command and [count] is passed as the first
+			  argument, if present.
 			- If 'keywordprg' is empty, |:help| is used.
 			- When 'keywordprg' is equal to "man", a [count]
 			  before "K" is inserted after the "man" command and

@@ -805,6 +805,27 @@ describe('statusline', function()
     ]])
   end)
 
+  it('ruler is cleared when window without statusline is closed', function()
+    local cfg = { relative = 'editor', row = 1, col = 1, height = 1, width = 1 }
+    local win = api.nvim_open_win(0, true, cfg)
+    -- Last line ruler does not take on window-local highlights #38777
+    command('hi link MsgArea Normal | setlocal winhl=Normal:Statement | set ruler laststatus=2')
+    screen:expect([[
+                                              |
+      {1:~}{15:^ }{1:                                      }|
+      {1:~                                       }|*4
+      {2:[No Name]             0,0-1          All}|
+                            0,0-1         All |
+    ]])
+    api.nvim_win_close(win, true)
+    screen:expect([[
+      ^                                        |
+      {1:~                                       }|*5
+      {3:[No Name]             0,0-1          All}|
+                                              |
+    ]])
+  end)
+
   it('hidden moves ruler to cmdline', function()
     -- Use long ruler to check 'ruler' with 'rulerformat' set has correct width.
     command [[
@@ -944,6 +965,7 @@ describe('default statusline', function()
     screen = Screen.new(60, 16)
     screen:add_extra_attr_ids {
       [100] = { foreground = Screen.colors.Magenta1, bold = true },
+      [131] = { foreground = Screen.colors.NvimDarkGreen },
     }
     command('set laststatus=2')
     command('set ruler')
@@ -964,6 +986,7 @@ describe('default statusline', function()
       '%f %h%w%m%r ',
       "%{% v:lua.require('vim._core.util').term_exitcode() %}",
       '%=',
+      "%{% luaeval('(package.loaded[''vim.ui''] and vim.api.nvim_get_current_win() == tonumber(vim.g.actual_curwin or -1) and vim.ui.progress_status()) or '''' ')%}",
       "%{% &showcmdloc == 'statusline' ? '%-10.S ' : '' %}",
       "%{% exists('b:keymap_name') ? '<'..b:keymap_name..'> ' : '' %}",
       "%{% &busy > 0 ? '◐ ' : '' %}",
@@ -1039,6 +1062,85 @@ describe('default statusline', function()
     command('terminal 9')
     screen:expect({ any = '%[Exit: 9%]' })
     expect_exitcode(9)
+  end)
+
+  it('shows and updates progress status', function()
+    exec_lua("vim.o.statusline = ''")
+    local function get_progress()
+      return exec_lua(function()
+        local stl_str = vim.ui.progress_status()
+        return vim.api.nvim_eval_statusline(stl_str, {}).str
+      end)
+    end
+
+    eq('', get_progress())
+    ---@type integer|string
+    local id1 = api.nvim_echo(
+      { { 'searching...' } },
+      true,
+      { kind = 'progress', source = 'tests', title = 'test', status = 'running', percent = 10 }
+    )
+    eq('10%(1) ', get_progress())
+
+    api.nvim_echo({ { 'searching' } }, true, {
+      id = id1,
+      kind = 'progress',
+      source = 'tests',
+      percent = 50,
+      status = 'running',
+      title = 'terminal(ripgrep)',
+    })
+    eq('50%(1) ', get_progress())
+
+    api.nvim_echo({ { 'searching...' } }, true, {
+      kind = 'progress',
+      source = 'tests',
+      title = 'second-item',
+      status = 'running',
+      percent = 20,
+    })
+    eq('35%(2) ', get_progress())
+
+    api.nvim_echo({ { 'searching' } }, true, {
+      id = id1,
+      kind = 'progress',
+      source = 'tests',
+      percent = 100,
+      status = 'success',
+      title = 'terminal(ripgrep)',
+    })
+    eq('20%(1) ', get_progress())
+
+    exec('redrawstatus')
+    screen:expect([[
+      ^                                                            |
+      {1:~                                                           }|*13
+      {3:[No Name]                          20%(1) 0,0-1          All}|
+      {131:terminal(ripgrep)}: {19:100% }searching                           |
+    ]])
+
+    -- Progress_status only shown on active window
+    exec('split')
+    screen:expect([[
+      ^                                                            |
+      {1:~                                                           }|*6
+      {3:[No Name]                          20%(1) 0,0-1          All}|
+                                                                  |
+      {1:~                                                           }|*5
+      {2:[No Name]                                 0,0-1          All}|
+      {131:terminal(ripgrep)}: {19:100% }searching                           |
+    ]])
+
+    exec('wincmd w')
+    screen:expect([[
+                                                                  |
+      {1:~                                                           }|*6
+      {2:[No Name]                                 0,0-1          All}|
+      ^                                                            |
+      {1:~                                                           }|*5
+      {3:[No Name]                          20%(1) 0,0-1          All}|
+      {131:terminal(ripgrep)}: {19:100% }searching                           |
+    ]])
   end)
 end)
 

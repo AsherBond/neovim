@@ -222,13 +222,13 @@ function FoldInfo:foldupdate(bufnr, srow, erow)
     -- foldUpdate() is guarded in insert mode. So update folds on InsertLeave
     if #(api.nvim_get_autocmds({
       group = group,
-      buffer = bufnr,
+      buf = bufnr,
     })) > 0 then
       return
     end
     api.nvim_create_autocmd('InsertLeave', {
       group = group,
-      buffer = bufnr,
+      buf = bufnr,
       once = true,
       callback = function()
         self:do_foldupdate(bufnr)
@@ -392,7 +392,7 @@ function M.foldexpr(lnum)
   if not foldinfos[bufnr] then
     foldinfos[bufnr] = FoldInfo.new(bufnr)
     api.nvim_create_autocmd({ 'BufUnload', 'VimEnter', 'FileType' }, {
-      buffer = bufnr,
+      buf = bufnr,
       once = true,
       callback = function()
         foldinfos[bufnr] = nil
@@ -450,10 +450,16 @@ api.nvim_create_autocmd('OptionSet', {
       or foldinfos[buf] and { buf }
       or {}
     for _, bufnr in ipairs(bufs) do
-      foldinfos[bufnr] = FoldInfo.new(bufnr)
+      local foldinfo = FoldInfo.new(bufnr)
+      foldinfos[bufnr] = foldinfo
       api.nvim_buf_call(bufnr, function()
-        compute_folds_levels(bufnr, foldinfos[bufnr], nil, nil, function()
-          foldinfos[bufnr]:foldupdate(bufnr, 0, api.nvim_buf_line_count(bufnr))
+        compute_folds_levels(bufnr, foldinfo, nil, nil, function()
+          -- FileType/BufUnload can clear or replace the fold state while this
+          -- async parse is in flight. Ignore callbacks for stale generations.
+          if foldinfos[bufnr] ~= foldinfo then
+            return
+          end
+          foldinfo:foldupdate(bufnr, 0, api.nvim_buf_line_count(bufnr))
         end)
       end)
     end

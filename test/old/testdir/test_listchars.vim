@@ -252,7 +252,7 @@ func Test_listchars()
 	      \ '.-+*0++0>>>>$',
 	      \ '$'
 	      \ ]
-  call assert_equal('eol:$,nbsp:S,leadmultispace:.-+*,space:+,trail:>,eol:$', &listchars)
+  call assert_equal('eol:$,nbsp:S,leadmultispace:.-+*,space:+,trail:>', &listchars)
   call Check_listchars(expected, 7)
   call Check_listchars(expected, 6, -1, 1)
   call Check_listchars(expected, 6, -1, 2)
@@ -340,11 +340,21 @@ func Test_listchars()
 	      \ 'XyYX0Xy0XyYX$',
 	      \ '$'
 	      \ ]
+  call assert_equal('eol:$,space:x,multispace:XyY', &listchars)
+  call Check_listchars(expected, 7)
+  call Check_listchars(expected, 6, -1, 6)
+  call assert_equal(expected, split(execute("%list"), "\n"))
+
+  " when using :let, multiple 'multispace:' fields can exist
+  " and the last occurrence of 'multispace:' is used
+  let &listchars = 'eol:$,multispace:yYzZ,space:x,multispace:XyY'
   call assert_equal('eol:$,multispace:yYzZ,space:x,multispace:XyY', &listchars)
   call Check_listchars(expected, 7)
   call Check_listchars(expected, 6, -1, 6)
   call assert_equal(expected, split(execute("%list"), "\n"))
 
+  " restore to single multispace: for subsequent tests
+  set listchars=eol:$,space:x,multispace:XyY
   set listchars+=lead:>,trail:<
 
   let expected = [
@@ -361,8 +371,7 @@ func Test_listchars()
   call assert_equal(expected, split(execute("%list"), "\n"))
 
   " removing 'multispace:'
-  set listchars-=multispace:XyY
-  set listchars-=multispace:yYzZ
+  set listchars-=multispace:
 
   let expected = [
 	      \ '>>>>ffff<<<<$',
@@ -413,7 +422,7 @@ func Test_listchars()
 
   " Test leadtab with pipe character
   normal ggdG
-  set listchars=tab:>-,leadtab:\|\ 
+  let &listchars = 'tab:>-,leadtab:| '
   call append(0, ["\ttext"])
   let expected = ['|       text']
   call Check_listchars(expected, 1, 12)
@@ -421,7 +430,7 @@ func Test_listchars()
 
   " Test leadtab with unicode bar
   normal ggdG
-  set listchars=tab:>-,leadtab:│\ 
+  let &listchars = 'tab:>-,leadtab:│ '
   call append(0, ["\ttext"])
   let expected = ['│       text']
   call Check_listchars(expected, 1, 12)

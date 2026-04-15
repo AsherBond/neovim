@@ -38,10 +38,12 @@
 #include "nvim/msgpack_rpc/channel.h"
 #include "nvim/msgpack_rpc/server.h"
 #include "nvim/os/fs.h"
+#include "nvim/os/os.h"
 #include "nvim/os/os_defs.h"
 #include "nvim/os/shell.h"
 #include "nvim/terminal.h"
 #include "nvim/types_defs.h"
+#include "nvim/ui_client.h"
 
 #ifdef MSWIN
 # include "nvim/os/fs.h"
@@ -166,7 +168,13 @@ bool channel_close(uint64_t id, ChannelPart part, const char **error)
       chan->stream.err.closed = true;
       // Don't close on exit, in case late error messages
       if (!exiting) {
-        fclose(stderr);
+        // Don't close the file descriptor, as that may cause later writes to stderr
+        // to go to an unrelated file. Redirect it to NUL or /dev/null instead.
+#ifdef MSWIN
+        freopen("NUL:", "w", stderr);
+#else
+        freopen("/dev/null", "w", stderr);
+#endif
       }
       channel_decref(chan);
     }
@@ -548,14 +556,24 @@ uint64_t channel_from_stdio(bool rpc, CallbackReader on_output, const char **err
     os_set_cloexec(stdin_dup_fd);
     stdout_dup_fd = os_dup(STDOUT_FILENO);
     os_set_cloexec(stdout_dup_fd);
-
-    // The server may have no console (spawned with UV_PROCESS_DETACHED for
-    // :detach support). Allocate a hidden one so CONIN$/CONOUT$ and ConPTY
-    // (:terminal) work.
-    if (!GetConsoleWindow()) {
-      AllocConsole();
-      ShowWindow(GetConsoleWindow(), SW_HIDE);
+    // :restart spawns a replacement server that must not borrow the parent
+    // Nvim process console, because that parent process will soon exit.
+    const bool restart_alloc_console = os_env_exists("__NVIM_RESTART_ALLOC_CONSOLE", true);
+    if (restart_alloc_console) {
+      os_unsetenv("__NVIM_RESTART_ALLOC_CONSOLE");
     }
+    if (!GetConsoleWindow()) {
+      // Borrow the parent's console so CONOUT$ resolves to the real terminal,
+      // preserving io.stdout rendering (e.g. SIXEL/Kitty images). Only fall
+      // back to a hidden AllocConsole when there is no parent console (e.g.
+      // launched from a non-console parent), or for the replacement server
+      // spawned by :restart, because the parent Nvim process will soon exit.
+      if (restart_alloc_console || !AttachConsole(ATTACH_PARENT_PROCESS)) {
+        AllocConsole();
+        ShowWindow(GetConsoleWindow(), SW_HIDE);
+      }
+    }
+    os_enable_ctrl_c();
     os_replace_stdin_to_conin();
     os_replace_stdout_and_stderr_to_conout();
   }
@@ -781,6 +799,21 @@ static void channel_proc_exit_cb(Proc *proc, int status, void *data)
     terminal_close(&chan->term, status);
   }
 
+  // TODO(justinmk): figure out why rpc_close sometimes(??) isn't called.
+  // Theories:
+  // - EOF not received in receive_msgpack, then doesn't call chan_close_on_err().
+  // - proc_close_handles not tickled by ui_client.c's LOOP_PROCESS_EVENTS?
+  if (!exiting && ui_client_channel_id == chan->id) {
+    // Need to call ui_client_attach_to_restarted_server() here as well, as sometimes
+    // rpc_close_event() hasn't been called yet (also see comments above).
+    ui_client_attach_to_restarted_server();
+    if (ui_client_channel_id == chan->id) {
+      // If the current embedded server has exited and no new server is started,
+      // the client should exit with the same status.
+      exit_on_closed_chan(status);
+    }
+  }
+
   // If process did not exit, we only closed the handle of a detached process.
   bool exited = (status >= 0);
   if (exited && chan->on_exit.type != kCallbackNone) {
@@ -847,6 +880,7 @@ void channel_terminal_alloc(buf_T *buf, Channel *chan)
     .data = chan,
     .width = chan->stream.pty.width,
     .height = chan->stream.pty.height,
+    .read_pause_cb = term_read_pause,
     .write_cb = term_write,
     .resize_cb = term_resize,
     .resume_cb = term_resume,
@@ -856,6 +890,19 @@ void channel_terminal_alloc(buf_T *buf, Channel *chan)
   buf->b_p_channel = (OptInt)chan->id;  // 'channel' option
   channel_incref(chan);
   chan->term = terminal_alloc(buf, topts);
+}
+
+static void term_read_pause(bool pause, void *data)
+{
+  Channel *chan = data;
+  if (chan->stream.proc.out.s.closed) {
+    return;
+  }
+  if (pause) {
+    rstream_stop_inner(&chan->stream.proc.out);
+  } else {
+    rstream_start_inner(&chan->stream.proc.out);
+  }
 }
 
 static void term_write(const char *buf, size_t size, void *data)
@@ -952,7 +999,7 @@ Dict channel_info(uint64_t id, Arena *arena)
     return (Dict)ARRAY_DICT_INIT;
   }
 
-  Dict info = arena_dict(arena, 8);
+  Dict info = arena_dict(arena, 9);
   PUT_C(info, "id", INTEGER_OBJ((Integer)chan->id));
 
   const char *stream_desc, *mode_desc;
@@ -1001,6 +1048,7 @@ Dict channel_info(uint64_t id, Arena *arena)
     PUT_C(info, "client", DICT_OBJ(chan->rpc.info));
   } else if (chan->term) {
     mode_desc = "terminal";
+    PUT_C(info, "buf", BUFFER_OBJ(terminal_buf(chan->term)));
     PUT_C(info, "buffer", BUFFER_OBJ(terminal_buf(chan->term)));
     PUT_C(info, "exitcode", INTEGER_OBJ(chan->exit_status));
   } else {

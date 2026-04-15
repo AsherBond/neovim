@@ -26,6 +26,7 @@
 #include "nvim/grid_defs.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
+#include "nvim/highlight_group.h"
 #include "nvim/lua/executor.h"
 #include "nvim/mbyte.h"
 #include "nvim/memory.h"
@@ -59,7 +60,7 @@ char *version_cflags = "Compilation: " NVIM_VERSION_CFLAGS;
 // clang-format off
 static const int vim_versions[] = { 801, 802, 900, 901, 902 };
 
-static const int num_patches[] = { 2331, 3803, 1574, 1612, 76 };
+static const int num_patches[] = { 2331, 3805, 1574, 1617, 175 };
 
 static const int *included_patchsets[] = {
   (const int[]) {  // 801
@@ -2050,9 +2051,7 @@ static const int *included_patchsets[] = {
     // 652-653
     651,
     // 650
-    649, 648,
-    // 647
-    646, 645, 644, 643, 642,
+    649, 648, 647, 646, 645, 644, 643, 642,
     // 641
     640, 639, 638, 637, 636, 635, 634, 633, 632, 631, 630, 629, 628,
     // 626-627
@@ -2130,9 +2129,8 @@ static const int *included_patchsets[] = {
     // 367
     366, 365,
     // 364
-    363, 362, 361, 360, 359, 358, 357,
-    // 356
-    355, 354, 353, 352, 351, 350, 349, 348, 347,
+    363, 362, 361, 360, 359, 358, 357, 356, 355, 354, 353, 352, 351, 350, 349, 348,
+    347,
     // 346
     345,
     // 344
@@ -3703,21 +3701,15 @@ static const int *included_patchsets[] = {
     // 352
     351, 350,
     // 349
-    348,
-    // 347
-    346,
+    348, 347, 346,
     // 345
     344, 343,
     // 342
-    341, 340,
-    // 336-339
-    335, 334,
-    // 333
-    332, 331,
+    341, 340, 339,
+    // 337-338
+    336, 335, 334, 333, 332, 331,
     // 330
-    329, 328,
-    // 327
-    326, 325, 324, 323, 322, 321, 320, 319, 318, 317, 316, 315,
+    329, 328, 327, 326, 325, 324, 323, 322, 321, 320, 319, 318, 317, 316, 315,
     // 314
     313, 312, 311, 310,
     // 309
@@ -3815,18 +3807,92 @@ static const int *included_patchsets[] = {
     // 0
   },
   (const int[]) {  // 902
-    155,
-    // 153-154
+    333,
+    // 332
+    331, 330, 329,
+    // 328
+    327, 326, 325, 324, 323,
+    // 313-322
+    312,
+    // 307-311
+    306,
+    // 305
+    304, 303,
+    // 300-302
+    299, 298, 297, 296, 295, 294, 293,
+    // 292
+    291,
+    // 290
+    289, 288, 287, 286, 285,
+    // 281-284
+    280, 279,
+    // 278
+    277, 276,
+    // 272-275
+    271, 270, 269, 268, 267,
+    // 266
+    265, 264,
+    // 262-263
+    261, 260,
+    // 259
+    258,
+    // 256-257
+    255, 254, 253, 252,
+    // 248-251
+    247, 246, 245, 244, 243, 242,
+    // 240-241
+    239,
+    // 238
+    237,
+    // 236
+    235, 234, 233, 232, 231, 230,
+    // 227-229
+    226, 225, 224, 223, 222,
+    // 221
+    220, 219,
+    // 218
+    217,
+    // 211-216
+    210, 209,
+    // 205-208
+    204,
+    // 203
+    202, 201,
+    // 192-200
+    191,
+    // 189-190
+    188, 187,
+    // 184-186
+    183, 182,
+    // 181
+    180,
+    // 178-179
+    177, 176,
+    // 175
+    174, 173,
+    // 171-172
+    170,
+    // 167-169
+    166, 165,
+    // 163-164
+    162,
+    // 160-161
+    159,
+    // 158
+    157, 156, 155, 154,
+    // 153
     152,
-    // 148-151
-    147,
-    // 141-146
-    140,
+    // 149-151
+    148, 147, 146,
+    // 144-145
+    143, 142, 141, 140,
     // 138-139
-    137,
-    // 133-136
-    132, 131, 130,
-    // 126-129
+    137, 136,
+    // 134-135
+    133, 132, 131, 130,
+    // 129
+    128,
+    // 126-127
     125, 124, 123, 122, 121, 120,
     // 115-119
     114,
@@ -3858,7 +3924,9 @@ static const int *included_patchsets[] = {
     59, 58, 57, 56, 55, 54,
     // 53
     52,
-    // 48-51
+    // 51
+    50,
+    // 48-49
     47, 46,
     // 45
     44,
@@ -3875,9 +3943,7 @@ static const int *included_patchsets[] = {
     // 26
     25, 24, 23, 22,
     // 21
-    20,
-    // 19
-    18,
+    20, 19, 18,
     // 14-17
     13, 12,
     // 11
@@ -4188,20 +4254,24 @@ bool may_show_intro(void)
 void intro_message(bool colon)
 {
   static char *(lines[]) = {
-    N_(NVIM_VERSION_LONG),
+    "│ ╲ ││",
+    "││╲╲││",
+    "││ ╲ │",
     "",
+    N_(NVIM_VERSION_LONG),
+    "────────────────────────────────────────────",
     N_("Nvim is open source and freely distributable"),
     "https://neovim.io/#chat",
-    "",
-    N_("type  :help nvim<Enter>       if you are new! "),
-    N_("type  :checkhealth<Enter>     to optimize Nvim"),
-    N_("type  :q<Enter>               to exit         "),
-    N_("type  :help<Enter>            for help        "),
-    "",
-    N_("type  :help news<Enter> to see changes in v%s.%s"),
-    "",
+    "────────────────────────────────────────────",
+    N_("type  :help nvim<Enter>     if you are new! "),
+    N_("type  :checkhealth<Enter>   to optimize Nvim"),
+    N_("type  :q<Enter>             to exit         "),
+    N_("type  :help<Enter>          for help        "),
+    "────────────────────────────────────────────",
+    N_("type  :help news<Enter>     for v%s.%s notes "),
+    "────────────────────────────────────────────",
     N_("Help poor children in Uganda!"),
-    N_("type  :help Kuwasha<Enter>    for information "),
+    N_("type  :help Kuwasha<Enter>  for information "),
   };
 
   // blanklines = screen height - # message lines
@@ -4246,8 +4316,8 @@ void intro_message(bool colon)
         }
       }
 
-      if (*mesg != NUL) {
-        do_intro_line(row, mesg, colon);
+      if (*mesg != NUL && row < Rows - 1) {
+        do_intro_line(row, mesg, colon, i < 3);
       }
       row++;
 
@@ -4258,22 +4328,64 @@ void intro_message(bool colon)
   }
 }
 
-static void do_intro_line(int row, char *mesg, bool colon)
+/// Adds extra highlighting.
+static void do_intro_line(int row, char *mesg, bool colon, bool is_logo)
 {
   int l;
-
   // Center the message horizontally.
   int col = vim_strsize(mesg);
-
   col = (Columns - col) / 2;
-
   if (col < 0) {
     col = 0;
   }
 
   grid_line_start((!colon && ui_has(kUIMultigrid)) ? &firstwin->w_grid : &default_gridview, row);
 
-  // Split up in parts to highlight <> items differently.
+  // Compute special highlighting attributes
+  int id_attr = syn_id2attr(syn_name2id("Identifier"));
+  int nontext_attr = syn_id2attr(syn_name2id("NonText"));
+  int special_attr = syn_id2attr(syn_name2id("Special"));
+  int string_attr = syn_id2attr(syn_name2id("String"));
+
+  // Handle logo lines
+  if (is_logo) {
+    bool seen_diagonal = false;
+
+    for (char *p = mesg; *p != NUL;) {
+      int clen = utfc_ptr2len(p);
+      int attr = 0;
+      // Multi-byte (box-drawing) character.
+      if ((uint8_t)(*p) >= 0x80) {
+        // Found "╲" diagonal logo part.
+        seen_diagonal = seen_diagonal || (clen == 3 && utf_ptr2char(p) == 0x2572);
+        attr = seen_diagonal ? string_attr : special_attr;
+      }
+      col += grid_line_puts(col, p, clen, attr);
+      p += clen;
+    }
+
+    grid_line_flush();
+    return;
+  }
+
+  // Try highlighting full line:
+  // - Version starts with "NVIM".
+  // - Separator line consists from ─ (UTF-8: E2 94 80).
+  bool is_version = mesg[0] == 'N' && mesg[1] == 'V' && mesg[2] == 'I' && mesg[3] == 'M';
+  bool is_sep = utfc_ptr2len(mesg) == 3 && utf_ptr2char(mesg) == 0x2500;
+  if (is_version || is_sep) {
+    int clen = is_sep ? 3 : 1;
+    int attr = is_sep ? nontext_attr : string_attr;
+
+    for (char *p = mesg; *p != NUL;) {
+      col += grid_line_puts(col, p, clen, attr);
+      p += clen;
+    }
+    grid_line_flush();
+    return;
+  }
+
+  // Highlight `:...<Enter>` differently.
   for (char *p = mesg; *p != NUL; p += l) {
     for (l = 0;
          p[l] != NUL && (l == 0 || (p[l] != '<' && p[l - 1] != '>'));
@@ -4281,7 +4393,25 @@ static void do_intro_line(int row, char *mesg, bool colon)
       l += utfc_ptr2len(p + l) - 1;
     }
     assert(row <= INT_MAX && col <= INT_MAX);
-    col += grid_line_puts(col, p, l, *p == '<' ? HL_ATTR(HLF_8) : 0);
+
+    if (*p == '<') {
+      col += grid_line_puts(col, p, l, HL_ATTR(HLF_8));
+    } else {
+      // Check for ":command" pattern before a <key> segment.
+      char *colon_pos = memchr(p, ':', (size_t)l);
+      if (colon_pos != NULL && p[l] == '<') {
+        // No highlight for "type  ".
+        int prefix_len = (int)(colon_pos - p);
+        col += grid_line_puts(col, p, prefix_len, 0);
+        // Highlight ":".
+        col += grid_line_puts(col, colon_pos, 1, HL_ATTR(HLF_8));
+        // Highlight "command" (after the ":").
+        int cmd_len = l - prefix_len - 1;
+        col += grid_line_puts(col, colon_pos + 1, cmd_len, id_attr);
+      } else {
+        col += grid_line_puts(col, p, l, 0);
+      }
+    }
   }
   grid_line_flush();
 }

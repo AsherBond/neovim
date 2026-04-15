@@ -128,7 +128,10 @@ local function check_plugin_lock_data(plug_name, lock_data)
       ('Plugin %s is not at expected revision\n'):format(name_str)
         .. ('Expected: %s\nActual:   %s\n'):format(lock_data.rev, head)
         .. 'To synchronize, restart Nvim and run '
-        .. ('`vim.pack.update({ %s }, { offline = true })`'):format(name_str)
+        .. ('`vim.pack.update({ %s }, { offline = true })`\n'):format(name_str)
+        .. 'If there are no updates, delete `rev` lockfile entry (do not create trailing comma) '
+        .. 'and restart Nvim to regenerate lockfile data\n'
+        .. 'This can happen after updating plugins with read-only `$XDG_CONFIG_HOME`'
     )
     return false
   end
@@ -137,13 +140,17 @@ local function check_plugin_lock_data(plug_name, lock_data)
   if not has_origin then
     return failed_git_cmd(plug_name, plug_path)
   elseif lock_data.src ~= origin then
-    health.error(
-      ('Plugin %s has not expected source\n'):format(name_str)
-        .. ('Expected: %s\nActual:   %s\n'):format(lock_data.src, origin)
-        .. 'Delete `src` lockfile entry (do not create trailing comma) and '
-        .. 'restart Nvim to regenerate lockfile data'
-    )
-    return false
+    -- Check if lockfile source relies on "insteadOf" Git config
+    local ok, src_resolved = git_cmd({ 'ls-remote', '--get-url', lock_data.src }, plug_path)
+    if not (ok and src_resolved == origin) then
+      health.error(
+        ('Plugin %s has not expected source\n'):format(name_str)
+          .. ('Expected: %s\nActual:   %s\n'):format(lock_data.src, origin)
+          .. 'Delete `src` lockfile entry (do not create trailing comma) and '
+          .. 'restart Nvim to regenerate lockfile data'
+      )
+      return false
+    end
   end
 
   return true

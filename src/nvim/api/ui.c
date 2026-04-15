@@ -120,23 +120,9 @@ void remote_ui_free_all_mem(void)
 #endif
 
 /// Wait until UI has connected.
-///
-/// @param only_stdio UI is expected to connect on stdio.
-void remote_ui_wait_for_attach(bool only_stdio)
+void remote_ui_wait_for_attach(void)
 {
-  if (only_stdio) {
-    Channel *channel = find_channel(CHAN_STDIO);
-    if (!channel) {
-      // `only_stdio` implies --embed mode, thus stdio channel can be assumed.
-      abort();
-    }
-
-    LOOP_PROCESS_EVENTS_UNTIL(&main_loop, channel->events, -1,
-                              map_has(uint64_t, &connected_uis, CHAN_STDIO));
-  } else {
-    LOOP_PROCESS_EVENTS_UNTIL(&main_loop, main_loop.events, -1,
-                              ui_active());
-  }
+  LOOP_PROCESS_EVENTS_UNTIL(&main_loop, main_loop.events, -1, ui_active());
 }
 
 /// Activates UI events on the channel.
@@ -265,36 +251,6 @@ void nvim_ui_detach(uint64_t channel_id, Error *err)
   FUNC_API_SINCE(1) FUNC_API_REMOTE_ONLY
 {
   remote_ui_disconnect(channel_id, err, false);
-}
-
-/// Sends a "restart" UI event to the UI on the given channel.
-///
-/// @return  false if there is no UI on the channel, otherwise true
-bool remote_ui_restart(uint64_t channel_id, Error *err)
-{
-  RemoteUI *ui = get_ui_or_err(channel_id, err);
-  if (!ui) {
-    return false;
-  }
-
-  MAXSIZE_TEMP_ARRAY(args, 2);
-
-  ADD_C(args, CSTR_AS_OBJ(get_vim_var_str(VV_PROGPATH)));
-
-  Arena arena = ARENA_EMPTY;
-  const list_T *l = get_vim_var_list(VV_ARGV);
-  int argc = tv_list_len(l);
-  assert(argc > 0);
-  Array argv = arena_array(&arena, (size_t)argc + 1);
-  TV_LIST_ITER_CONST(l, li, {
-    const char *arg = tv_get_string(TV_LIST_ITEM_TV(li));
-    ADD_C(argv, CSTR_AS_OBJ(arg));
-  });
-  ADD_C(args, ARRAY_OBJ(argv));
-
-  push_call(ui, "restart", args);
-  arena_mem_free(arena_finish(&arena));
-  return true;
 }
 
 // Send a connect UI event to the UI on the given channel

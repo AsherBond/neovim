@@ -1013,10 +1013,10 @@ static void nlua_print_event(void **argv)
   HlMessageChunk chunk = { { .data = argv[0], .size = (size_t)(intptr_t)argv[1] - 1 }, 0 };
   kv_push(msg, chunk);
   bool needs_clear = false;
-  msg_multihl(INTEGER_OBJ(0), msg, "lua_print", true, false, NULL, &needs_clear);
+  msg_multihl(NIL, msg, "lua_print", true, false, NULL, &needs_clear);
 }
 
-/// Print as a Vim message
+/// Implements Lua print() as a Nvim message.
 ///
 /// @param  lstate  Lua interpreter state.
 static int nlua_print(lua_State *const lstate)

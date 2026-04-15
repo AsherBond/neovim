@@ -30,6 +30,16 @@ local all_clients = {}
 --- Callback which can modify parameters before they are sent to the server. Invoked before LSP
 --- "initialize" phase (after `cmd` is invoked), where `params` is the parameters being sent to the
 --- server and `config` is the config passed to |vim.lsp.start()|.
+---
+--- Hint: use |vim.tbl_deep_extend()| to set nested fields easily.
+--- ```lua
+--- before_init = function(_, config)
+---   config.settings = vim.tbl_deep_extend('force',
+---     config.settings,
+---     { tailwindCSS = { experimental = { configFile = find_tailwind_global_css() } } }
+---   )
+--- end
+--- ```
 --- @field before_init? fun(params: lsp.InitializeParams, config: vim.lsp.ClientConfig)
 ---
 --- Map overriding the default capabilities defined by |vim.lsp.protocol.make_client_capabilities()|,
@@ -41,11 +51,11 @@ local all_clients = {}
 ---
 --- Command `string[]` that launches the language server (treated as in |jobstart()|, must be
 --- absolute or on `$PATH`, shell constructs like "~" are not expanded), or function that creates an
---- RPC client. Function receives a `dispatchers` table and the resolved `config`, and must return
---- a table with member functions `request`, `notify`, `is_closing` and `terminate`.
---- See |vim.lsp.rpc.request()|, |vim.lsp.rpc.notify()|.
---- For TCP there is a builtin RPC client factory: |vim.lsp.rpc.connect()|
---- @field cmd string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers, config: vim.lsp.ClientConfig): vim.lsp.rpc.PublicClient
+--- RPC client (or an in-process |lsp-server|). Function receives a `dispatchers` table and the
+--- resolved `config`, and must return an object in the form of |vim.lsp.rpc.Client|.
+--- - See |vim.lsp.rpc.request()| |vim.lsp.rpc.notify()|
+--- - For TCP there is a builtin RPC client factory: |vim.lsp.rpc.connect()|
+--- @field cmd string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers, config: vim.lsp.ClientConfig): vim.lsp.rpc.Client
 ---
 --- Directory to launch the `cmd` process. Not related to `root_dir`.
 --- (default: cwd)
@@ -55,7 +65,7 @@ local all_clients = {}
 --- string.
 --- Example:
 --- ```lua
---- { PORT = 8080; HOST = '0.0.0.0'; }
+--- { PORT = 8080, HOST = '0.0.0.0' }
 --- ```
 --- @field cmd_env? table
 ---
@@ -199,7 +209,7 @@ local all_clients = {}
 ---
 --- RPC client object, for low level interaction with the client.
 --- See |vim.lsp.rpc.start()|.
---- @field rpc vim.lsp.rpc.PublicClient
+--- @field rpc vim.lsp.rpc.Client
 ---
 --- Response from the server sent on `initialize` describing the server's capabilities.
 --- @field server_capabilities lsp.ServerCapabilities?
@@ -527,6 +537,7 @@ function Client:initialize()
   require('vim.lsp.semantic_tokens')
   require('vim.lsp._folding_range')
   require('vim.lsp.inline_completion')
+  require('vim.lsp.document_color')
 
   local init_params = {
     -- The process Id of the parent process that started the server. Is null if
@@ -567,7 +578,9 @@ function Client:initialize()
   local rpc = self.rpc
 
   rpc.request('initialize', init_params, function(init_err, result)
-    assert(not init_err, tostring(init_err))
+    if init_err then
+      error(lsp.rpc.format_rpc_error(init_err))
+    end
     assert(result, 'server sent empty result')
     rpc.notify('initialized', vim.empty_dict())
     self.initialized = true
@@ -690,7 +703,7 @@ function Client:_process_request(id, req_type, bufnr, method)
   self.requests[id] = req_type ~= 'complete' and request or nil
 
   api.nvim_exec_autocmds('LspRequest', {
-    buffer = api.nvim_buf_is_valid(bufnr) and bufnr or nil,
+    buf = api.nvim_buf_is_valid(bufnr) and bufnr or nil,
     modeline = false,
     data = { client_id = self.id, request_id = id, request = request },
   })
@@ -1137,13 +1150,9 @@ function Client:on_attach(bufnr)
   self:_text_document_did_open_handler(bufnr)
 
   lsp._set_defaults(self, bufnr)
-  -- `enable(true)` cannot be called from `_set_defaults` for features with dynamic registration,
-  -- because it overrides the state every time `client/registerCapability` is received.
-  -- To allow disabling it once in `LspAttach`, we enable it once here instead.
-  lsp.document_color.enable(true, bufnr)
 
   api.nvim_exec_autocmds('LspAttach', {
-    buffer = bufnr,
+    buf = bufnr,
     modeline = false,
     data = { client_id = self.id },
   })
@@ -1227,38 +1236,47 @@ function Client:supports_method(method, bufnr)
   return required_capability == nil
 end
 
---- Retrieves all capability values for a given LSP method, handling both static and dynamic registrations.
---- This function abstracts over differences between capabilities declared in `server_capabilities`
---- and those registered dynamically at runtime, returning all matching capability values.
---- It also handles cases where the registration method differs from the calling method by abstracting to the Provider.
---- For example, `workspace/diagnostic` uses capabilities registered under `textDocument/diagnostic`.
---- This is useful for features like diagnostics and formatting, where servers may register multiple providers
---- with different options (such as specific filetypes or document selectors).
---- @param method vim.lsp.protocol.Method.ClientToServer | vim.lsp.protocol.Method.Registration LSP method name
---- @param ... any Additional keys to index into the capability
---- @return lsp.LSPAny[] # The capability value if it exists, empty table if not found
-function Client:_provider_value_get(method, ...)
-  local matched_regs = {} --- @type any[]
+--- Executes callback fn for all registrations for a given LSP method.
+---
+--- This handles both static capabilities (declared in server_capabilities during
+--- initialization) and dynamic registrations (registered at runtime via
+--- `client/registerCapability`).
+---
+--- Some methods may have multiple registrations (e.g., different documentSelectors
+--- or configurations). The callback is invoked once for each registration.
+---
+--- Example: Getting diagnostic identifiers from all registrations
+---     client:_provider_foreach('textDocument/diagnostic', function(cap)
+---       print(cap.identifier)  -- "static-id", "dynamic-id-1", "dynamic-id-2"
+---     end)
+---
+--- Note: Some capabilities alias to different providers. For example,
+--- `workspace/diagnostic` uses the same `diagnosticProvider` as `textDocument/diagnostic`.
+---
+---@param method vim.lsp.protocol.Method.ClientToServer | vim.lsp.protocol.Method.Registration LSP method name
+---@param fn fun(capability_value: lsp.LSPAny) Callback invoked for each matching capability
+function Client:_provider_foreach(method, fn)
   local provider = self:_registration_provider(method)
+  local required_capability = lsp.protocol._request_name_to_server_capability[method]
   local dynamic_regs = self:_get_registrations(provider)
+  local has_subcap = required_capability and #required_capability > 1
   if not provider then
-    return matched_regs
+    return
   elseif not dynamic_regs then
     -- First check static capabilities
     local static_reg = vim.tbl_get(self.server_capabilities, provider)
     if static_reg then
-      matched_regs[1] = vim.tbl_get(static_reg, ...) or vim.NIL
+      if not has_subcap or vim.tbl_get(static_reg, unpack(required_capability, 2)) then
+        fn(static_reg)
+      end
     end
   else
-    local required_capability = lsp.protocol._request_name_to_server_capability[method]
     for _, reg in ipairs(dynamic_regs) do
-      if vim.tbl_get(reg, 'registerOptions', unpack(required_capability, 2)) then
-        matched_regs[#matched_regs + 1] = vim.tbl_get(reg, 'registerOptions', ...) or vim.NIL
+      if not has_subcap or vim.tbl_get(reg, 'registerOptions', unpack(required_capability, 2)) then
+        fn(vim.tbl_get(reg, 'registerOptions') or {})
       end
     end
   end
-
-  return matched_regs
 end
 
 --- @private
@@ -1317,7 +1335,7 @@ end
 function Client:_on_detach(bufnr)
   if self.attached_buffers[bufnr] and api.nvim_buf_is_valid(bufnr) then
     api.nvim_exec_autocmds('LspDetach', {
-      buffer = bufnr,
+      buf = bufnr,
       modeline = false,
       data = { client_id = self.id },
     })
@@ -1370,7 +1388,7 @@ local function reset_defaults(bufnr)
   vim._with({ buf = bufnr }, function()
     local keymap = vim.fn.maparg('K', 'n', false, true)
     if keymap and keymap.callback == lsp.buf.hover and keymap.buffer == 1 then
-      vim.keymap.del('n', 'K', { buffer = bufnr })
+      vim.keymap.del('n', 'K', { buf = bufnr })
     end
   end)
 end

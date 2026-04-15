@@ -1,4 +1,5 @@
 --- @meta _
+-- This file is NOT generated, edit it directly. See also _meta/api_keysets.gen.lua.
 error('Cannot require a meta file')
 
 --- Extra types we can't generate keysets for
@@ -65,7 +66,7 @@ error('Cannot require a meta file')
 --- @field once? boolean
 --- @field pattern? string
 --- @field buflocal? boolean
---- @field buffer? integer
+--- @field buf? integer
 
 --- @class vim.api.keyset.create_autocmd.callback_args
 --- @field id integer autocommand id
@@ -170,7 +171,7 @@ error('Cannot require a meta file')
 
 --- @class vim.api.keyset.get_keymap
 --- @field abbr? 0|1
---- @field buffer? 0|1
+--- @field buf? 0|1
 --- @field callback? function
 --- @field desc? string
 --- @field expr? 0|1

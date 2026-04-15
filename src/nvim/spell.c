@@ -1268,7 +1268,7 @@ static TriState decor_spell_nav_col(win_T *wp, linenr_T lnum, linenr_T *decor_ln
     decor_redraw_line(wp, lnum - 1, &decor_state);
     *decor_lnum = lnum;
   }
-  decor_redraw_col(wp, col, 0, false, &decor_state);
+  decor_redraw_col(wp, col, 0, false, &decor_state, MAXCOL);
   return decor_state.spell;
 }
 
@@ -1955,9 +1955,8 @@ char *parse_spelllang(win_T *wp)
   // Loop over comma separated language names.
   for (char *splp = spl_copy; *splp != NUL;) {
     // Get one language name.
-    copy_option_part(&splp, lang, MAXWLEN, ",");
+    int len = (int)copy_option_part(&splp, lang, MAXWLEN, ",");
     char *region = NULL;
-    int len = (int)strlen(lang);
 
     if (!valid_spelllang(lang)) {
       continue;
@@ -2089,8 +2088,8 @@ char *parse_spelllang(win_T *wp)
       int_wordlist_spl(spf_name);
     } else {
       // One entry in 'spellfile'.
-      copy_option_part(&spf, spf_name, MAXPATHL - 4, ",");
-      strcat(spf_name, ".spl");
+      int len = (int)copy_option_part(&spf, spf_name, MAXPATHL - 4, ",");
+      STRCPY(spf_name + len, ".spl");
       int c;
 
       // If it was already found above then skip it.

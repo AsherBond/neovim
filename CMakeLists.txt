@@ -44,7 +44,9 @@ endif()
 # User settings
 #-------------------------------------------------------------------------------
 
-set(DEPS_IGNORE_SHA FALSE)
+if(NOT DEPS_IGNORE_SHA)
+  set(DEPS_IGNORE_SHA FALSE)
+endif()
 
 #-------------------------------------------------------------------------------
 # Variables
@@ -146,14 +148,14 @@ endif()
 # If not in a git repo (e.g., a tarball) these tokens define the complete
 # version string, else they are combined with the result of `git describe`.
 set(NVIM_VERSION_MAJOR 0)
-set(NVIM_VERSION_MINOR 12)
+set(NVIM_VERSION_MINOR 13)
 set(NVIM_VERSION_PATCH 0)
 set(NVIM_VERSION_PRERELEASE "-dev") # for package maintainers
 
 # API level
 set(NVIM_API_LEVEL 14)        # Bump this after any API/stdlib change.
 set(NVIM_API_LEVEL_COMPAT 0)  # Adjust this after a _breaking_ API change.
-set(NVIM_API_PRERELEASE true)
+set(NVIM_API_PRERELEASE false)
 
 # We _want_ assertions in RelWithDebInfo build-type.
 if(CMAKE_C_FLAGS_RELWITHDEBINFO MATCHES DNDEBUG)
@@ -242,15 +244,6 @@ mark_as_advanced(TS_QUERY_LS_PRG)
 set(STYLUA_DIRS runtime scripts src test contrib)
 
 add_glob_target(
-  TARGET lintlua-luacheck
-  COMMAND $<TARGET_FILE:nvim_bin>
-  FLAGS -ll ${PROJECT_SOURCE_DIR}/test/lua_runner.lua ${CMAKE_BINARY_DIR}/usr/share/lua/5.1 luacheck -q
-  GLOB_DIRS runtime scripts src test
-  GLOB_PAT *.lua
-  TOUCH_STRATEGY PER_DIR)
-add_dependencies(lintlua-luacheck lua_dev_deps)
-
-add_glob_target(
   TARGET lintlua-stylua
   COMMAND ${STYLUA_PRG}
   FLAGS --color=always --check --respect-ignores
@@ -269,7 +262,7 @@ add_custom_target(lintlua-stylua2
 add_dependencies(lintlua-stylua lintlua-stylua2)
 
 add_custom_target(lintlua)
-add_dependencies(lintlua lintlua-luacheck lintlua-stylua)
+add_dependencies(lintlua lintlua-stylua)
 
 add_glob_target(
   TARGET lintsh
@@ -352,21 +345,6 @@ ExternalProject_Add(uncrustify
     -D CMAKE_SKIP_RPATH=true
   EXCLUDE_FROM_ALL TRUE
   ${EXTERNALPROJECT_OPTIONS})
-
-option(USE_BUNDLED_BUSTED "Use bundled busted" ON)
-if(USE_BUNDLED_BUSTED)
-  get_externalproject_options(lua_dev_deps ${DEPS_IGNORE_SHA})
-  ExternalProject_Add(lua_dev_deps
-    DOWNLOAD_DIR ${DEPS_DOWNLOAD_DIR}/lua_dev_deps
-    SOURCE_DIR ${DEPS_SHARE_DIR}
-    CONFIGURE_COMMAND ""
-    BUILD_COMMAND ""
-    INSTALL_COMMAND ""
-    EXCLUDE_FROM_ALL TRUE
-    ${EXTERNALPROJECT_OPTIONS})
-else()
-  add_custom_target(lua_dev_deps)
-endif()
 
 if (CMAKE_SYSTEM_PROCESSOR MATCHES "arm|aarch")
   set(LUALS_ARCH arm64)

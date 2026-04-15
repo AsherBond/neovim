@@ -311,7 +311,7 @@ function M.error(msg, ...)
 end
 
 local path2name = function(path)
-  if path:match('%.lua$') then
+  if vim.fs.ext(path) == 'lua' then
     -- Lua: transform "../lua/vim/lsp/health.lua" into "vim.lsp"
 
     -- Get full path, make sure all slashes are '/'
@@ -375,7 +375,7 @@ end
 ---@param len integer
 ---@return fun(status: 'success'|'running', idx: integer, fmt: string, ...: any): nil
 local function progress_report(len)
-  local progress = { kind = 'progress', title = 'checkhealth' }
+  local progress = { kind = 'progress', source = 'vim.health', title = 'checkhealth' }
 
   return function(status, idx, fmt, ...)
     progress.status = status
@@ -505,7 +505,7 @@ function M._check(mods, plugin_names)
         if not pcall(vim.cmd.close) then
           vim.cmd.bdelete()
         end
-      end, { buffer = bufnr, silent = true, noremap = true, nowait = true })
+      end, { buf = bufnr, silent = true, noremap = true, nowait = true })
     end
   end)
 

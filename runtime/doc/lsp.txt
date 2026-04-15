@@ -74,7 +74,7 @@ functionality and (2) the options are empty or were set by the builtin runtime
 (ftplugin) files. The options are not restored when the LSP client is stopped
 or detached.
 
-GLOBAL DEFAULTS                       *gra* *gri* *grn* *grr* *grt* *i_CTRL-S*
+GLOBAL DEFAULTS                       *gra* *gri* *grn* *grr* *grt* *grx* *i_CTRL-S*
 
 These GLOBAL keymaps are created unconditionally when Nvim starts:
 
@@ -83,6 +83,7 @@ These GLOBAL keymaps are created unconditionally when Nvim starts:
 - "grn" is mapped to |vim.lsp.buf.rename()|
 - "grr" is mapped to |vim.lsp.buf.references()|
 - "grt" is mapped to |vim.lsp.buf.type_definition()|
+- "grx" is mapped to |vim.lsp.codelens.run()|
 - "gO" is mapped to |vim.lsp.buf.document_symbol()|
 - CTRL-S (Insert mode) is mapped to |vim.lsp.buf.signature_help()|
 - |v_an| and |v_in| fall back to LSP |vim.lsp.buf.selection_range()| if
@@ -122,7 +123,7 @@ BUFFER-LOCAL DEFAULTS
 - |K| is mapped to |vim.lsp.buf.hover()| unless 'keywordprg' is customized or
   a custom keymap for `K` exists.
 - Document colors are enabled for highlighting color references in a document.
-  - To opt out call `vim.lsp.document_color.enable(false, ev.buf)` on |LspAttach|.
+  - To opt out call `vim.lsp.document_color.enable(false, { bufnr = ev.buf })` on |LspAttach|.
 
 DISABLING DEFAULTS                                      *lsp-defaults-disable*
 
@@ -138,9 +139,9 @@ To remove or override BUFFER-LOCAL defaults, define a |LspAttach| handler: >lua
         -- Unset 'omnifunc'
         vim.bo[ev.buf].omnifunc = nil
         -- Unmap K
-        vim.keymap.del('n', 'K', { buffer = ev.buf })
+        vim.keymap.del('n', 'K', { buf = ev.buf })
         -- Disable document colors
-        vim.lsp.document_color.enable(false, ev.buf)
+        vim.lsp.document_color.enable(false, { bufnr = ev.buf })
       end,
     })
 <
@@ -356,18 +357,32 @@ FAQ                                                     *lsp-faq*
 ================================================================================
 LSP API                                                 *lsp-api*
 
-The |lsp-core| API provides core functions for creating and managing clients.
-The |lsp-buf| functions perform operations for LSP clients attached to the
-current buffer.
+The |lsp-core| API provides core functions for creating and managing clients,
+You can even create creating custom (in-process) |lsp-server|s.
+The |lsp-buf| functions operate LSP clients attached to the current buffer.
+
+------------------------------------------------------------------------------
+CONCEPTS
 
                                                                   *lsp-method*
 Requests and notifications defined by the LSP specification are referred to as
-"LSP methods". These are handled by Lua |lsp-handler| functions.
+"LSP methods". These are handled by |lsp-handler| functions.
 
                                                                  *lsp-handler*
 LSP handlers are functions that handle |lsp-response|s to requests made by Nvim
 to the server. (Notifications, as opposed to requests, are fire-and-forget:
 there is no response, so they can't be handled. |lsp-notification|)
+
+Each handler has the following signature: >
+
+    vim.lsp.ResponseHandler:
+        fun(err, result, ctx)
+
+    vim.lsp.NotificationHandler:
+        fun(err, params, ctx)
+
+    vim.lsp.RequestHandler:
+        fun(err, params, ctx): Result?, lsp.ResponseError?
 
 Each response handler has this signature: >
 
@@ -389,10 +404,15 @@ Each response handler has this signature: >
                                  current document version to check if the
                                  response is "stale". See also |b:changedtick|.
 
-    Returns: ~
-        Two values `result, err` where `err` is shaped like an RPC error: >
+    Return (multiple): ~
+        • (`Result?`) `result` on success, or `nil` on error.
+        • (`lsp.ResponseError?`) `error` on failure, or `nil` on success.
+          RPC error shape: >
             { code, message, data? }
-<        You can use |vim.lsp.rpc.rpc_response_error()| to create this object.
+<          You can use |vim.lsp.rpc.rpc_response_error()| to create this object.
+
+        |lsp-response| and |lsp-notification| handlers do not have return
+        values.
 
                                                       *lsp-handler-resolution*
 Handlers can be set by (in increasing priority):
@@ -436,7 +456,8 @@ Handlers can be set by (in increasing priority):
 Log levels are defined in |vim.log.levels|
 
 
-VIM.LSP.PROTOCOL                                              *vim.lsp.protocol*
+------------------------------------------------------------------------------
+PROTOCOL                                                    *vim.lsp.protocol*
 
 Module `vim.lsp.protocol` defines constants dictated by the LSP specification,
 and helper functions for creating protocol-related objects.
@@ -449,13 +470,89 @@ name: >lua
     vim.lsp.protocol.TextDocumentSyncKind[1] == "Full"
 <
 
+                                                                *lsp-request*
+LSP request shape: >
+    { id: integer|string, method: string, params?: Params }
+<
+https://microsoft.github.io/language-server-protocol/specifications/specification-current/#requestMessage
+
                                                                 *lsp-response*
-LSP response shape:
+LSP response shape: >
+    { id: integer|string|nil, result: Result, error: nil }       (on success)
+    { id: integer|string|nil, result: nil, error: ResponseError }  (on error)
+<
 https://microsoft.github.io/language-server-protocol/specifications/specification-current/#responseMessage
 
                                                                 *lsp-notification*
-LSP notification shape:
+LSP notification shape: >
+    { method: string, params?: Params }
+<
 https://microsoft.github.io/language-server-protocol/specifications/specification-current/#notificationMessage
+
+------------------------------------------------------------------------------
+IN-PROCESS LSP SERVER                                             *lsp-server*
+
+For maximum flexibility you may want to create your own server. This allows
+you to hook into Nvim LSP features automatically. The "server" can be an
+in-process Lua function instead of an external process. For example see
+`runtime/lua/vim/pack/_lsp.lua` which provides features like "docs
+hover" in the vim.pack "Confirm Updates" UI.
+
+This is possible because |vim.lsp.start()| accepts `cmd` as a Lua function.
+The function must accept `vim.lsp.rpc.Dispatchers` and return a table in the
+form of |vim.lsp.rpc.Client|. Use `dispatchers.on_exit()` to signal that the
+server has stopped.
+
+Example (select and run the code with `:lua`, then check `:che vim.lsp` and
+look for "my-server"): >lua
+
+  --- @return vim.lsp.rpc.Client
+  local function cmd_fn(dispatchers)
+    local closing = false
+    local request_id = 0
+
+    local srv = {} --[[@type vim.lsp.rpc.Client]]
+    function srv.request(method, params, callback)
+      if method == 'initialize' then
+        callback(nil, {
+          capabilities = {
+            hoverProvider = true,
+          },
+        })
+      elseif method == 'shutdown' then
+        callback(nil, nil)
+      end
+      request_id = request_id + 1
+      return true, request_id
+    end
+    function srv.notify(method, params)
+      if method == 'exit' then
+        dispatchers.on_exit(0, 15)
+      end
+    end
+    function srv.is_closing()
+      return closing
+    end
+    function srv.terminate()
+      closing = true
+    end
+
+    return srv
+  end
+
+  -- Define a config for the server, then enable it...
+  vim.lsp.config['my-server'] = {
+    cmd = cmd_fn,
+    filetypes = { 'lua' },
+    root_markers = { '.git' },
+  }
+  vim.lsp.enable('my-server')
+
+  -- ...or call start() directly.
+  vim.lsp.start(
+    { cmd = cmd_fn, name = 'my-server', root_dir = vim.uv.cwd() },
+    { attach = true })
+<
 
 ================================================================================
 LSP HIGHLIGHT                                                    *lsp-highlight*
@@ -689,8 +786,9 @@ LspProgress                                                       *LspProgress*
         vim.api.nvim_create_autocmd('LspProgress', { buffer = buf, callback = function(ev)
             local value = ev.data.params.value
             vim.api.nvim_echo({ { value.message or 'done' } }, false, {
-              id = 'lsp',
+              id = 'lsp.' .. ev.data.params.token,
               kind = 'progress',
+              source = 'vim.lsp',
               title = value.title,
               status = value.kind ~= 'end' and 'running' or 'success',
               percent = value.percentage,
@@ -769,7 +867,7 @@ Lua module: vim.lsp                                                 *lsp-core*
 
 
     Fields: ~
-      • {cmd}?           (`string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers, config: vim.lsp.ClientConfig): vim.lsp.rpc.PublicClient`)
+      • {cmd}?           (`string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers, config: vim.lsp.ClientConfig): vim.lsp.rpc.Client`)
                          See `cmd` in |vim.lsp.ClientConfig|. See also
                          `reuse_client` to dynamically decide (per-buffer)
                          when `cmd` should be re-invoked.
@@ -787,7 +885,7 @@ Lua module: vim.lsp                                                 *lsp-core*
                              })
                              vim.lsp.config('…', {
                                filetypes = { 'my_filetype1', 'my_filetype2' },
-                             }
+                             })
 <
       • {reuse_client}?  (`fun(client: vim.lsp.Client, config: vim.lsp.ClientConfig): boolean`)
                          Predicate which decides if a client should be
@@ -1037,7 +1135,7 @@ enable({name}, {enable})                                    *vim.lsp.enable()*
     config to activate: >lua
         vim.lsp.config('lua_ls', {
           root_dir = function(bufnr, on_dir)
-            if not vim.fn.bufname(bufnr):match('%.txt$') then
+            if vim.fs.ext(vim.fn.bufname(bufnr)) ~= 'txt' then
               on_dir(vim.fn.getcwd())
             end
           end
@@ -1106,9 +1204,14 @@ foldexpr({lnum})                                          *vim.lsp.foldexpr()*
     Parameters: ~
       • {lnum}  (`integer`) line number
 
-foldtext()                                                *vim.lsp.foldtext()*
+foldtext({lnum})                                          *vim.lsp.foldtext()*
     Provides a `foldtext` function that shows the `collapsedText` retrieved,
     defaults to the first folded line if `collapsedText` is not provided.
+
+    The displayed foldtext will be highlighted via treesitter.
+
+    Parameters: ~
+      • {lnum}  (`integer?`) line number (default: current fold start)
 
 formatexpr({opts})                                      *vim.lsp.formatexpr()*
     Provides an interface between the built-in client and a `formatexpr`
@@ -1135,7 +1238,7 @@ get_client_by_id({client_id})                     *vim.lsp.get_client_by_id()*
         (`vim.lsp.Client?`) client rpc object. See |vim.lsp.Client|.
 
 get_clients({filter})                                  *vim.lsp.get_clients()*
-    Get active clients.
+    Gets active clients.
 
     Attributes: ~
         Since: 0.10.0
@@ -1152,6 +1255,30 @@ get_clients({filter})                                  *vim.lsp.get_clients()*
 
     Return: ~
         (`vim.lsp.Client[]`) List of |vim.lsp.Client| objects
+
+get_configs({filter})                                  *vim.lsp.get_configs()*
+    Gets LSP configs.
+
+    See also |vim.lsp.get_clients()| to get the runtime values of dynamic
+    fields like `root_dir`, which depend on the current buffer/workspace/etc.
+
+    WARNING: May eagerly (prematurely!) evaluate config files in
+    'runtimepath'.
+
+    Attributes: ~
+        Since: 0.12.0
+
+    Parameters: ~
+      • {filter}  (`table?`) Key-value pairs used to filter the returned
+                  configs.
+                  • {enabled}? (`boolean`) If true, only return enabled
+                    configs. If false, only return configs that aren't
+                    enabled.
+                  • {filetype}? (`string`) Only return configs which attach to
+                    the given filetype.
+
+    Return: ~
+        (`vim.lsp.Config[]`) List of |vim.lsp.Config| objects
 
 is_enabled({name})                                      *vim.lsp.is_enabled()*
     Checks if the given LSP config is enabled (globally, not per-buffer).
@@ -1199,7 +1326,7 @@ start({config}, {opts})                                      *vim.lsp.start()*
     are:
     • `name` arbitrary name for the LSP client. Should be unique per language
       server.
-    • `cmd` command string[] or function.
+    • `cmd` command string[] or function. See also |lsp-server|.
     • `root_dir` path to the project root. By default this is used to decide
       if an existing client should be re-used. The example above uses
       |vim.fs.root()| to detect the root by traversing the file system upwards
@@ -1276,10 +1403,10 @@ the current buffer.
 *vim.lsp.ListOpts*
 
     Fields: ~
-      • {on_list}?  (`fun(t: vim.lsp.LocationOpts.OnList)`) list-handler
-                    replacing the default handler. Called for any non-empty
-                    result. This table can be used with |setqflist()| or
-                    |setloclist()|. E.g.: >lua
+      • {on_list}?  (`fun(t: vim.lsp.ListOpts.OnList)`) list-handler replacing
+                    the default handler. Called for any non-empty result. This
+                    table can be used with |setqflist()| or |setloclist()|.
+                    E.g.: >lua
                         local function on_list(options)
                           vim.fn.setqflist({}, ' ', options)
                           vim.cmd.cfirst()
@@ -1294,15 +1421,7 @@ the current buffer.
                         vim.lsp.buf.references(nil, { loclist = false })
 <
 
-*vim.lsp.LocationOpts*
-    Extends: |vim.lsp.ListOpts|
-
-
-    Fields: ~
-      • {reuse_win}?  (`boolean`) Jump to existing window if buffer is already
-                      open.
-
-*vim.lsp.LocationOpts.OnList*
+*vim.lsp.ListOpts.OnList*
 
     Fields: ~
       • {items}     (`vim.quickfix.entry[]`) See |setqflist-what|
@@ -1376,13 +1495,13 @@ declaration({opts})                                *vim.lsp.buf.declaration()*
         |vim.lsp.buf.definition()| instead.
 
     Parameters: ~
-      • {opts}  (`vim.lsp.LocationOpts?`) See |vim.lsp.LocationOpts|.
+      • {opts}  (`vim.lsp.ListOpts?`) See |vim.lsp.ListOpts|.
 
 definition({opts})                                  *vim.lsp.buf.definition()*
     Jumps to the definition of the symbol under the cursor.
 
     Parameters: ~
-      • {opts}  (`vim.lsp.LocationOpts?`) See |vim.lsp.LocationOpts|.
+      • {opts}  (`vim.lsp.ListOpts?`) See |vim.lsp.ListOpts|.
 
 document_highlight()                        *vim.lsp.buf.document_highlight()*
     Send request to the server to resolve document highlights for the current
@@ -1468,7 +1587,7 @@ implementation({opts})                          *vim.lsp.buf.implementation()*
     quickfix window.
 
     Parameters: ~
-      • {opts}  (`vim.lsp.LocationOpts?`) See |vim.lsp.LocationOpts|.
+      • {opts}  (`vim.lsp.ListOpts?`) See |vim.lsp.ListOpts|.
 
 incoming_calls()                                *vim.lsp.buf.incoming_calls()*
     Lists all the call sites of the symbol under the cursor in the |quickfix|
@@ -1545,7 +1664,7 @@ type_definition({opts})                        *vim.lsp.buf.type_definition()*
     Jumps to the definition of the type of the symbol under the cursor.
 
     Parameters: ~
-      • {opts}  (`vim.lsp.LocationOpts?`) See |vim.lsp.LocationOpts|.
+      • {opts}  (`vim.lsp.ListOpts?`) See |vim.lsp.ListOpts|.
 
 typehierarchy({kind})                            *vim.lsp.buf.typehierarchy()*
     Lists all the subtypes or supertypes of the symbol under the cursor in the
@@ -1631,9 +1750,9 @@ Lua module: vim.lsp.client                                        *lsp-client*
                                 autocmds when replies are received from the
                                 server.
       • {root_dir}              (`string?`) See |vim.lsp.ClientConfig|.
-      • {rpc}                   (`vim.lsp.rpc.PublicClient`) RPC client
-                                object, for low level interaction with the
-                                client. See |vim.lsp.rpc.start()|.
+      • {rpc}                   (`vim.lsp.rpc.Client`) RPC client object, for
+                                low level interaction with the client. See
+                                |vim.lsp.rpc.start()|.
       • {server_capabilities}   (`lsp.ServerCapabilities?`) Response from the
                                 server sent on `initialize` describing the
                                 server's capabilities.
@@ -1679,6 +1798,16 @@ Lua module: vim.lsp.client                                        *lsp-client*
                                where `params` is the parameters being sent to
                                the server and `config` is the config passed to
                                |vim.lsp.start()|.
+
+                               Hint: use |vim.tbl_deep_extend()| to set nested
+                               fields easily. >lua
+                                   before_init = function(_, config)
+                                     config.settings = vim.tbl_deep_extend('force',
+                                       config.settings,
+                                       { tailwindCSS = { experimental = { configFile = find_tailwind_global_css() } } }
+                                     )
+                                   end
+<
       • {capabilities}?        (`lsp.ClientCapabilities`) Map overriding the
                                default capabilities defined by
                                |vim.lsp.protocol.make_client_capabilities()|,
@@ -1689,25 +1818,25 @@ Lua module: vim.lsp.client                                        *lsp-client*
                                • Note: To send an empty dictionary use
                                  |vim.empty_dict()|, else it will be encoded
                                  as an array.
-      • {cmd}                  (`string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers, config: vim.lsp.ClientConfig): vim.lsp.rpc.PublicClient`)
+      • {cmd}                  (`string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers, config: vim.lsp.ClientConfig): vim.lsp.rpc.Client`)
                                Command `string[]` that launches the language
                                server (treated as in |jobstart()|, must be
                                absolute or on `$PATH`, shell constructs like
                                "~" are not expanded), or function that creates
-                               an RPC client. Function receives a
-                               `dispatchers` table and the resolved `config`,
-                               and must return a table with member functions
-                               `request`, `notify`, `is_closing` and
-                               `terminate`. See |vim.lsp.rpc.request()|,
-                               |vim.lsp.rpc.notify()|. For TCP there is a
-                               builtin RPC client factory:
-                               |vim.lsp.rpc.connect()|
+                               an RPC client (or an in-process |lsp-server|).
+                               Function receives a `dispatchers` table and the
+                               resolved `config`, and must return an object in
+                               the form of |vim.lsp.rpc.Client|.
+                               • See |vim.lsp.rpc.request()|
+                                 |vim.lsp.rpc.notify()|
+                               • For TCP there is a builtin RPC client
+                                 factory: |vim.lsp.rpc.connect()|
       • {cmd_cwd}?             (`string`, default: cwd) Directory to launch
                                the `cmd` process. Not related to `root_dir`.
       • {cmd_env}?             (`table`) Environment variables passed to the
                                LSP process on spawn. Non-string values are
                                coerced to string. Example: >lua
-                                   { PORT = 8080; HOST = '0.0.0.0'; }
+                                   { PORT = 8080, HOST = '0.0.0.0' }
 <
       • {commands}?            (`table<string,fun(command: lsp.Command, ctx: table)>`)
                                Map of client-defined commands overriding the
@@ -2102,15 +2231,16 @@ from({diagnostics})                                *vim.lsp.diagnostic.from()*
         (`lsp.Diagnostic[]`)
 
                                           *vim.lsp.diagnostic.get_namespace()*
-get_namespace({client_id}, {pull_id})
+get_namespace({client_id}, {is_pull}, {pull_id})
     Get the diagnostic namespace associated with an LSP client
     |vim.diagnostic| for diagnostics
 
     Parameters: ~
       • {client_id}  (`integer`) The id of the LSP client
-      • {pull_id}    (`(boolean|string)?`) (default: nil) Pull diagnostics
-                     provider id (indicates "pull" client), or `nil` for a
-                     "push" client.
+      • {is_pull}    (`boolean?`) Whether the namespace is for a pull or push
+                     client. Defaults to `false` (push).
+      • {pull_id}    (`string?`) (default: nil) Optional identifier for pull
+                     diagnostic providers. Only used if `is_pull` is `true`.
 
                                           *vim.lsp.diagnostic.on_diagnostic()*
 on_diagnostic({error}, {result}, {ctx})
@@ -2144,9 +2274,8 @@ document. Highlighting is enabled by default.
 color_presentation()             *vim.lsp.document_color.color_presentation()*
     Select from a list of presentations for the color under the cursor.
 
-enable({enable}, {bufnr}, {opts})            *vim.lsp.document_color.enable()*
-    Enables document highlighting from the given language client in the given
-    buffer.
+enable({enable}, {filter}, {opts})           *vim.lsp.document_color.enable()*
+    Enables or disables document color highlighting for the {filter}ed scope.
 
     To "toggle", pass the inverse of `is_enabled()`: >lua
         vim.lsp.document_color.enable(not vim.lsp.document_color.is_enabled())
@@ -2155,21 +2284,29 @@ enable({enable}, {bufnr}, {opts})            *vim.lsp.document_color.enable()*
     Parameters: ~
       • {enable}  (`boolean?`) True to enable, false to disable. (default:
                   `true`)
-      • {bufnr}   (`integer?`) Buffer handle, or 0 for current. (default: 0)
+      • {filter}  (`table?`) Optional filters |kwargs|,
+                  • {bufnr}? (`integer`, default: all) Buffer number, or 0 for
+                    current buffer, or nil for all.
+                  • {client_id}? (`integer`, default: all) Client ID, or nil
+                    for all.
       • {opts}    (`table?`) A table with the following fields:
                   • {style}?
-                    (`'background'|'foreground'|'virtual'|string|fun(bufnr: integer, range: Range4, hex_code: string)`)
+                    (`'background'|'foreground'|'virtual'|string|fun(bufnr: integer, range: vim.Range, hex_code: string)`)
                     Highlight style. It can be one of the pre-defined styles,
                     a string to be used as virtual text, or a function that
                     receives the buffer handle, the range (start line, start
                     col, end line, end col) and the resolved hex color.
                     (default: `'background'`)
 
-is_enabled({bufnr})                      *vim.lsp.document_color.is_enabled()*
-    Query whether document colors are enabled in the given buffer.
+is_enabled({filter})                     *vim.lsp.document_color.is_enabled()*
+    Query whether document colors are enabled in the {filter}ed scope.
 
     Parameters: ~
-      • {bufnr}  (`integer?`) Buffer handle, or 0 for current. (default: 0)
+      • {filter}  (`table?`) Optional filters |kwargs|,
+                  • {bufnr}? (`integer`, default: all) Buffer number, or 0 for
+                    current buffer, or nil for all.
+                  • {client_id}? (`integer`, default: all) Client ID, or nil
+                    for all.
 
     Return: ~
         (`boolean`)
@@ -2202,7 +2339,10 @@ get({filter})                                       *vim.lsp.inlay_hint.get()*
 
         local client = vim.lsp.get_client_by_id(hint.client_id)
         local resp = client:request_sync('inlayHint/resolve', hint.inlay_hint, 100, 0)
-        local resolved_hint = assert(resp and resp.result, resp.err)
+        local resolved_hint = assert(
+          resp and resp.result,
+          resp and resp.err and vim.lsp.rpc.format_rpc_error(resp.err) or 'request failed'
+        )
         vim.lsp.util.apply_text_edits(resolved_hint.textEdits, 0, client.encoding)
 
         location = resolved_hint.label[1].location
@@ -2261,8 +2401,13 @@ To try it out, here is a quickstart example using Copilot:       *lsp-copilot*
 2. Define a config, (or copy `lsp/copilot.lua` from
    https://github.com/neovim/nvim-lspconfig): >lua
     vim.lsp.config('copilot', {
-     cmd = { 'copilot-language-server', '--stdio', },
+     cmd = { 'copilot-language-server', '--stdio' },
      root_markers = { '.git' },
+      init_options = {
+        editorInfo = {
+          name = 'Neovim', version = tostring(vim.version()) },
+          editorPluginInfo = { name = 'Neovim', version = tostring(vim.version()) },
+        },
    })
 <
 
@@ -2397,14 +2542,12 @@ The `vim.lsp.log` module provides logging for the Nvim LSP client.
 When debugging language servers, it is helpful to enable extra-verbose logging
 of the LSP client RPC events. Example: >lua
     vim.lsp.log.set_level 'trace'
-    require('vim.lsp.log').set_format_func(vim.inspect)
+    vim.lsp.log.set_format_func(vim.inspect)
 <
 
 Then try to run the language server, and open the log with: >vim
-    :lua vim.cmd('tabnew ' .. vim.lsp.log.get_filename())
+    :log lsp
 <
-
-(Or use `:LspLog` if you have nvim-lspconfig installed.)
 
 Note:
 • Remember to DISABLE verbose logging ("debug" or "trace" level), else you may
@@ -2471,7 +2614,7 @@ enable({enable}, {filter})               *vim.lsp.on_type_formatting.enable()*
 ==============================================================================
 Lua module: vim.lsp.rpc                                              *lsp-rpc*
 
-*vim.lsp.rpc.PublicClient*
+*vim.lsp.rpc.Client*
     Client RPC object
 
     Fields: ~
@@ -2499,7 +2642,7 @@ connect({host_or_path}, {port})                        *vim.lsp.rpc.connect()*
                         first argument must be a pipe
 
     Return: ~
-        (`fun(dispatchers: vim.lsp.rpc.Dispatchers): vim.lsp.rpc.PublicClient`)
+        (`fun(dispatchers: vim.lsp.rpc.Dispatchers): vim.lsp.rpc.Client`)
 
 format_rpc_error({err})                       *vim.lsp.rpc.format_rpc_error()*
     Constructs an error message from an LSP error object.
@@ -2581,7 +2724,7 @@ start({cmd}, {dispatchers}, {extra_spawn_params})        *vim.lsp.rpc.start()*
                                 See |vim.system()|
 
     Return: ~
-        (`vim.lsp.rpc.PublicClient`) See |vim.lsp.rpc.PublicClient|.
+        (`vim.lsp.rpc.Client`) See |vim.lsp.rpc.Client|.
 
 
 ==============================================================================
@@ -2903,12 +3046,12 @@ make_given_range_params({start_pos}, {end_pos}, {bufnr}, {position_encoding})
         (`{ textDocument: { uri: lsp.DocumentUri }, range: lsp.Range }`)
 
                                          *vim.lsp.util.make_position_params()*
-make_position_params({window}, {position_encoding})
+make_position_params({win}, {position_encoding})
     Creates a `TextDocumentPositionParams` object for the current buffer and
     cursor position.
 
     Parameters: ~
-      • {window}             (`integer?`) |window-ID| or 0 for current,
+      • {win}                (`integer?`) |window-ID| or 0 for current,
                              defaults to current
       • {position_encoding}  (`'utf-8'|'utf-16'|'utf-32'`)
 
@@ -2919,14 +3062,14 @@ make_position_params({window}, {position_encoding})
       • https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocumentPositionParams
 
                                             *vim.lsp.util.make_range_params()*
-make_range_params({window}, {position_encoding})
+make_range_params({win}, {position_encoding})
     Using the current position in the current buffer, creates an object that
     can be used as a building block for several LSP requests, such as
     `textDocument/codeAction`, `textDocument/colorPresentation`,
     `textDocument/rangeFormatting`.
 
     Parameters: ~
-      • {window}             (`integer?`) |window-ID| or 0 for current,
+      • {win}                (`integer?`) |window-ID| or 0 for current,
                              defaults to current
       • {position_encoding}  (`"utf-8"|"utf-16"|"utf-32"`)
 

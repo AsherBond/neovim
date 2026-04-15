@@ -1,5 +1,6 @@
 local api = vim.api
-local lsp = vim.lsp
+local fs = vim.fs
+local util = require('vim._core.util')
 
 local M = {}
 
@@ -11,7 +12,7 @@ end
 --- @return string[]
 local function get_client_names()
   return vim
-    .iter(lsp.get_clients())
+    .iter(vim.lsp.get_clients())
     :map(function(client)
       return client.name
     end)
@@ -19,45 +20,22 @@ local function get_client_names()
     :totable()
 end
 
---- @return string[]
-local function get_config_names()
-  local config_names = vim
-    .iter(api.nvim_get_runtime_file('lsp/*.lua', true))
-    --- @param path string
-    :map(function(path)
-      local file_name = path:match('[^/]*.lua$')
-      return file_name:sub(0, #file_name - 4)
-    end)
-    :totable()
-
-  --- @diagnostic disable-next-line
-  vim.list_extend(config_names, vim.tbl_keys(lsp.config._configs))
-
-  return vim
-    .iter(config_names)
-    :unique()
-    --- @param name string
-    :filter(function(name)
-      return name ~= '*'
-    end)
-    :totable()
-end
-
---- @param filter fun(string):boolean
+--- @param filter vim.lsp.get_configs.Filter
 --- @return fun():string[]
 local function filtered_config_names(filter)
   return function()
-    return vim.iter(get_config_names()):filter(filter):totable()
+    return vim
+      .iter(vim.lsp.get_configs(filter))
+      :map(function(config)
+        return config.name
+      end)
+      :totable()
   end
 end
 
 local complete_args = {
-  enable = filtered_config_names(function(name)
-    return not lsp.is_enabled(name)
-  end),
-  disable = filtered_config_names(function(name)
-    return lsp.is_enabled(name)
-  end),
+  enable = filtered_config_names { enabled = false },
+  disable = filtered_config_names { enabled = true },
   restart = get_client_names,
   stop = get_client_names,
 }
@@ -66,8 +44,8 @@ local complete_args = {
 --- @param enable? boolean
 local function checked_enable(names, enable)
   for _, name in ipairs(names) do
-    if name:find('*') == nil and lsp.config[name] ~= nil then
-      lsp.enable(name, enable)
+    if name:find('*') == nil and vim.lsp.config[name] ~= nil then
+      vim.lsp.enable(name, enable)
     else
       echo_err(("No client config named '%s'"):format(name))
     end
@@ -79,17 +57,10 @@ local function ex_lsp_enable(config_names)
   -- Default to enabling all clients matching the filetype of the current buffer.
   if #config_names == 0 then
     local filetype = vim.bo.filetype
-    for _, name in ipairs(get_config_names()) do
-      local success, result = pcall(function()
-        return lsp.config[name]
-      end)
-      if success then
-        local filetypes = result.filetypes
-        if filetypes == nil or vim.list_contains(filetypes, filetype) then
-          table.insert(config_names, name)
-        end
-      else
-        echo_err(result --[[@as string]])
+    for _, config in ipairs(vim.lsp.get_configs()) do
+      local filetypes = config.filetypes
+      if filetypes == nil or vim.list_contains(filetypes, filetype) then
+        table.insert(config_names, config.name)
       end
     end
     if #config_names == 0 then
@@ -110,12 +81,12 @@ local function ex_lsp_disable(config_names)
   -- Default to disabling all clients attached to the current buffer.
   if #config_names == 0 then
     config_names = vim
-      .iter(lsp.get_clients { bufnr = api.nvim_get_current_buf() })
+      .iter(vim.lsp.get_clients { bufnr = api.nvim_get_current_buf() })
       :map(function(client)
         return client.name
       end)
       :filter(function(name)
-        return lsp.config[name] ~= nil
+        return vim.lsp.config[name] ~= nil
       end)
       :totable()
     if #config_names == 0 then
@@ -132,7 +103,7 @@ end
 local function get_clients_from_names(client_names)
   -- Default to all active clients attached to the current buffer.
   if #client_names == 0 then
-    local clients = lsp.get_clients { bufnr = api.nvim_get_current_buf() }
+    local clients = vim.lsp.get_clients { bufnr = api.nvim_get_current_buf() }
     if #clients == 0 then
       echo_err('No clients attached to current buffer')
     end
@@ -141,7 +112,7 @@ local function get_clients_from_names(client_names)
     return vim
       .iter(client_names)
       :map(function(name)
-        local clients = lsp.get_clients { name = name }
+        local clients = vim.lsp.get_clients { name = name }
         if #clients == 0 then
           echo_err(("No active clients named '%s'"):format(name))
         end
@@ -214,6 +185,47 @@ function M.lsp_complete(line)
       end)
       :totable()
   end
+end
+
+--- @type string
+--- @diagnostic disable-next-line: assign-type-mismatch
+local log_dir = vim.fn.stdpath('log')
+
+--- Implements command: `:log {file}`.
+--- @param filename string
+--- @param mods string
+M.ex_log = function(filename, mods)
+  if filename == '' then
+    util.wrapped_edit(log_dir, mods)
+  else
+    local path --- @type string
+    -- Special case for NVIM_LOG_FILE
+    local nvim_log_file = vim.env.NVIM_LOG_FILE --- @type string
+    if filename == 'nvim' and nvim_log_file and nvim_log_file ~= '' then
+      path = nvim_log_file
+    else
+      path = fs.joinpath(log_dir, filename .. '.log')
+    end
+    if not vim.uv.fs_stat(path) then
+      echo_err(("No such log file: '%s'"):format(path))
+      return
+    end
+    util.wrapped_edit(path, mods)
+    vim.cmd.normal { 'G', bang = true }
+  end
+end
+
+--- Completion logic for `:log` command
+--- @return string[] list of completions
+function M.log_complete()
+  local names = { 'nvim' } --- @type string[]
+  for file, type in vim.fs.dir(log_dir, { depth = math.huge }) do
+    local name, matches = file:gsub('%.log$', '')
+    if matches ~= 0 and type == 'file' and name ~= 'nvim' then
+      names[#names + 1] = name
+    end
+  end
+  return names
 end
 
 return M

@@ -1127,7 +1127,7 @@ to terminal mode.
 You found it, Arthur!				*holy-grail*
 
 ==============================================================================
-6. EX commands				*Ex-commands* *ex-cmd-index* *:index*
+6. EX commands				*Ex-command* *ex-cmd-index* *:index*
 
 This is a brief but complete listing of all the ":" commands, without
 mentioning any arguments.  The optional part of the command name is inside [].
@@ -1415,6 +1415,7 @@ Tag		Command		Action ~
 |:loadview|	:lo[adview]	load view for current window from a file
 |:lockmarks|	:loc[kmarks]	following command keeps marks where they are
 |:lockvar|	:lockv[ar]	lock variables
+|:log|		:log		view a log file
 |:lolder|	:lol[der]	go to older location list
 |:lopen|	:lop[en]	open location window
 |:lprevious|	:lp[revious]	go to previous location

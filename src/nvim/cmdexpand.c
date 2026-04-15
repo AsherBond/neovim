@@ -186,7 +186,7 @@ static void wildescape(expand_T *xp, const char *str, int numfiles, char **files
         p = vim_strsave_escaped(files[i], pat);
         xfree(files[i]);
         files[i] = p;
-#if defined(BACKSLASH_IN_FILENAME)
+#ifdef BACKSLASH_IN_FILENAME
         p = vim_strsave_escaped(files[i], " ");
         xfree(files[i]);
         files[i] = p;
@@ -1304,6 +1304,7 @@ char *addstar(char *fname, size_t len, int context)
             && fname[0] == '/')
         || context == EXPAND_CHECKHEALTH
         || context == EXPAND_LSP
+        || context == EXPAND_LOG
         || context == EXPAND_LUA) {
       retval = xstrnsave(fname, len);
     } else {
@@ -2316,6 +2317,10 @@ static const char *set_context_by_cmdname(const char *cmd, cmdidx_T cmdidx, expa
     xp->xp_context = EXPAND_CHECKHEALTH;
     break;
 
+  case CMD_log:
+    xp->xp_context = EXPAND_LOG;
+    break;
+
   case CMD_lsp:
     xp->xp_context = EXPAND_LSP;
     break;
@@ -2858,6 +2863,43 @@ static char *get_healthcheck_names(expand_T *xp FUNC_ATTR_UNUSED, int idx)
   return NULL;
 }
 
+/// Completion for |:log| command.
+///
+/// Given to ExpandGeneric() to obtain `:log` completion.
+/// @param[in] idx  Index of the item.
+/// @param[in] xp  Not used.
+static char *get_log_arg(expand_T *xp FUNC_ATTR_UNUSED, int idx)
+{
+  static Object names = OBJECT_INIT;
+  static char *last_xp_line = NULL;
+  static unsigned last_gen = 0;
+
+  if (last_xp_line == NULL || strcmp(last_xp_line,
+                                     xp->xp_line) != 0
+      || last_gen != get_cmdline_last_prompt_id()) {
+    xfree(last_xp_line);
+    last_xp_line = xstrdup(xp->xp_line);
+    MAXSIZE_TEMP_ARRAY(args, 1);
+    Error err = ERROR_INIT;
+
+    ADD_C(args, CSTR_AS_OBJ(xp->xp_line));
+    // Build the current command line as a Lua string argument
+    Object res = NLUA_EXEC_STATIC("return require'vim._core.ex_cmd'.log_complete(...)", args,
+                                  kRetObject, NULL,
+                                  &err);
+    api_clear_error(&err);
+    api_free_object(names);
+    names = res;
+    last_gen = get_cmdline_last_prompt_id();
+  }
+
+  if (names.type == kObjectTypeArray && idx < (int)names.data.array.size
+      && names.data.array.items[idx].type == kObjectTypeString) {
+    return names.data.array.items[idx].data.string.data;
+  }
+  return NULL;
+}
+
 /// Completion for |:lsp| command.
 ///
 /// Given to ExpandGeneric() to obtain `:lsp` completion.
@@ -2937,6 +2979,7 @@ static int ExpandOther(char *pat, expand_T *xp, regmatch_T *rmp, char ***matches
     { EXPAND_SCRIPTNAMES, get_scriptnames_arg, true, false },
     { EXPAND_RETAB, get_retab_arg, true, true },
     { EXPAND_CHECKHEALTH, get_healthcheck_names, true, false },
+    { EXPAND_LOG, get_log_arg, true, false },
     { EXPAND_LSP, get_lsp_arg, true, false },
   };
   int ret = FAIL;
@@ -3581,7 +3624,7 @@ void globpath(char *path, char *file, garray_T *ga, int expand_options, bool dir
 
   size_t filelen = strlen(file);
 
-#if defined(MSWIN)
+#ifdef MSWIN
   // Using the platform's path separator (\) makes vim incorrectly
   // treat it as an escape character, use '/' instead.
 # define TMP_PATHSEPSTR "/"

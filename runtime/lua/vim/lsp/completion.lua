@@ -195,7 +195,11 @@ local function get_completion_word(item, prefix, match)
       --
       -- Typing `i` would remove the candidate because newText starts with `t`.
       local text = parse_snippet(item.insertText or item.textEdit.newText)
-      local word = #text < #item.label and vim.fn.matchstr(text, '\\k*') or item.label
+      local word = #text < #item.label and vim.fn.matchstr(text, '\\k*')
+        or (
+          item.filterText and vim.fn.match(item.label, '^\\k') == -1 and item.filterText
+          or item.label
+        )
       if item.filterText and not match(word, prefix) then
         return item.filterText
       else
@@ -258,21 +262,6 @@ end
 ---@param item lsp.CompletionItem
 ---@return string
 local function get_doc(item)
-  if
-    has_completeopt('popup')
-    and item.insertTextFormat == protocol.InsertTextFormat.Snippet
-    and (type(item.documentation) ~= 'string' or #item.documentation == 0)
-    and vim.bo.filetype ~= ''
-    and (item.textEdit or (item.insertText and item.insertText ~= ''))
-  then
-    -- Shows snippet preview in doc popup if completeopt=popup.
-    local text = parse_snippet(item.insertText or item.textEdit.newText)
-    item.documentation = {
-      kind = lsp.protocol.MarkupKind.Markdown,
-      value = ('```%s\n%s\n```'):format(vim.bo.filetype, text),
-    }
-  end
-
   local doc = item.documentation
   if not doc then
     return ''
@@ -443,15 +432,16 @@ function M._lsp_to_complete_items(
       local kind, kind_hlgroup = generate_kind(item)
       local completion_item = {
         word = word,
-        abbr = item.label,
+        abbr = ('%s%s'):format(item.label, vim.tbl_get(item, 'labelDetails', 'detail') or ''),
         kind = kind,
-        menu = item.detail or '',
+        menu = vim.tbl_get(item, 'labelDetails', 'description') or item.detail or '',
         info = get_doc(item),
         icase = 1,
         dup = 1,
         empty = 1,
         abbr_hlgroup = hl_group,
         kind_hlgroup = kind_hlgroup,
+        preselect = item.preselect,
         user_data = {
           nvim = {
             lsp = {
@@ -759,13 +749,22 @@ function CompletionResolver:request(bufnr, param, selected_word)
       end
 
       local value = vim.tbl_get(result, 'documentation', 'value')
+      local kind = vim.tbl_get(result, 'documentation', 'kind')
+      local text_format = vim.tbl_get(result, 'insertTextFormat')
       if not value then
-        return
+        if text_format ~= protocol.InsertTextFormat.Snippet then
+          return
+        end
+        -- generate snippet preview info
+        local insert_text = vim.tbl_get(result, 'insertText')
+        if insert_text then
+          value = ('```%s\n%s\n```'):format(vim.bo.filetype, parse_snippet(insert_text))
+          kind = lsp.protocol.MarkupKind.Markdown
+        end
       end
       local windata = vim.api.nvim__complete_set(cmp_info.selected, {
         info = value,
       })
-      local kind = vim.tbl_get(result, 'documentation', 'kind')
       update_popup_window(windata.winid, windata.bufnr, kind)
     end, bufnr)
   end, debounce_time)
@@ -776,24 +775,17 @@ end
 local function on_completechanged(group, bufnr)
   api.nvim_create_autocmd('CompleteChanged', {
     group = group,
-    buffer = bufnr,
+    buf = bufnr,
     callback = function(ev)
       local completed_item = vim.v.event.completed_item or {}
+      local lsp_item = vim.tbl_get(completed_item, 'user_data', 'nvim', 'lsp', 'completion_item')
+      local data = vim.fn.complete_info({ 'selected' })
       if (completed_item.info or '') ~= '' then
-        local data = vim.fn.complete_info({ 'selected' })
-        local kind = vim.tbl_get(
-          completed_item,
-          'user_data',
-          'nvim',
-          'lsp',
-          'completion_item',
-          'documentation',
-          'kind'
-        )
+        local kind = vim.tbl_get(lsp_item or {}, 'documentation', 'kind')
         update_popup_window(
           data.preview_winid,
           data.preview_bufnr,
-          kind or lsp.protocol.MarkupKind.PlainText
+          kind or protocol.MarkupKind.Markdown
         )
         return
       end
@@ -805,15 +797,27 @@ local function on_completechanged(group, bufnr)
           bufnr = ev.buf,
         }) == 0
       then
+        if
+          has_completeopt('popup')
+          and lsp_item
+          and lsp_item.insertTextFormat == protocol.InsertTextFormat.Snippet
+        then
+          -- Shows snippet preview in doc popup if completeopt=popup.
+          local text = parse_snippet(lsp_item.insertText or lsp_item.textEdit.newText)
+          local windata = api.nvim__complete_set(
+            data.selected,
+            { info = ('```%s\n%s\n```'):format(vim.bo.filetype, text) }
+          )
+          update_popup_window(windata.winid, windata.bufnr, protocol.MarkupKind.Markdown)
+        end
         return
       end
 
       -- Retrieve the raw LSP completionItem from completed_item as the parameter for
       -- the completionItem/resolve request
-      local param = vim.tbl_get(completed_item, 'user_data', 'nvim', 'lsp', 'completion_item')
-      if param then
+      if lsp_item then
         Context.resolve_handler = Context.resolve_handler or CompletionResolver.new()
-        Context.resolve_handler:request(ev.buf, param, completed_item.word)
+        Context.resolve_handler:request(ev.buf, lsp_item, completed_item.word)
       end
     end,
     desc = 'Request and display LSP completion item documentation via completionItem/resolve',
@@ -850,6 +854,10 @@ local function on_complete_done()
   local position_encoding = client.offset_encoding or 'utf-16'
   local resolve_provider = (client.server_capabilities.completionProvider or {}).resolveProvider
 
+  -- Keep reference to avoid race where completion/resolve response arrives after on_insert_leave
+  -- and Context.cursor got cleared before clear_word() gets called
+  local context_cursor = assert(Context.cursor)
+
   local function clear_word()
     if not expand_snippet then
       return nil
@@ -858,8 +866,8 @@ local function on_complete_done()
     -- Remove the already inserted word.
     api.nvim_buf_set_text(
       bufnr,
-      Context.cursor[1] - 1,
-      Context.cursor[2] - 1,
+      context_cursor[1] - 1,
+      context_cursor[2] - 1,
       cursor_row,
       cursor_col,
       { '' }
@@ -913,13 +921,13 @@ end
 ---@return integer
 local function register_completedone(bufnr)
   local group = api.nvim_create_augroup(get_augroup(bufnr), { clear = false })
-  if #api.nvim_get_autocmds({ buffer = bufnr, event = 'CompleteDone', group = group }) > 0 then
+  if #api.nvim_get_autocmds({ buf = bufnr, event = 'CompleteDone', group = group }) > 0 then
     return group
   end
 
   api.nvim_create_autocmd('CompleteDone', {
     group = group,
-    buffer = bufnr,
+    buf = bufnr,
     callback = function()
       local reason = api.nvim_get_vvar('event').reason ---@type string
       if reason == 'accept' then
@@ -1026,9 +1034,7 @@ local function trigger(bufnr, clients, ctx)
     Context.cursor = { cursor_row, start_col }
     if #matches > 0 and has_completeopt('popup') then
       local group = get_augroup(bufnr)
-      if
-        #api.nvim_get_autocmds({ buffer = bufnr, event = 'CompleteChanged', group = group }) == 0
-      then
+      if #api.nvim_get_autocmds({ buf = bufnr, event = 'CompleteChanged', group = group }) == 0 then
         on_completechanged(group, bufnr)
       end
     end
@@ -1141,7 +1147,7 @@ local function enable_completions(client_id, bufnr, opts)
     local group = register_completedone(bufnr)
     api.nvim_create_autocmd('LspDetach', {
       group = group,
-      buffer = bufnr,
+      buf = bufnr,
       desc = 'vim.lsp.completion: clean up client on detach',
       callback = function(ev)
         disable_completions(ev.data.client_id, ev.buf)
@@ -1151,14 +1157,14 @@ local function enable_completions(client_id, bufnr, opts)
     if opts.autotrigger then
       api.nvim_create_autocmd('InsertCharPre', {
         group = group,
-        buffer = bufnr,
+        buf = bufnr,
         callback = function()
           on_insert_char_pre(buf_handles[bufnr])
         end,
       })
       api.nvim_create_autocmd('InsertLeave', {
         group = group,
-        buffer = bufnr,
+        buf = bufnr,
         callback = on_insert_leave,
       })
     end

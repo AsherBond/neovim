@@ -169,7 +169,7 @@ end
 ---
 --- See `cmd` in [vim.lsp.ClientConfig].
 --- See also `reuse_client` to dynamically decide (per-buffer) when `cmd` should be re-invoked.
---- @field cmd? string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers, config: vim.lsp.ClientConfig): vim.lsp.rpc.PublicClient
+--- @field cmd? string[]|fun(dispatchers: vim.lsp.rpc.Dispatchers, config: vim.lsp.ClientConfig): vim.lsp.rpc.Client
 ---
 --- Filetypes the client will attach to, or `nil` for ALL filetypes. To match files by name,
 --- pattern, or contents, you can define a custom filetype using |vim.filetype.add()|:
@@ -184,7 +184,7 @@ end
 --- })
 --- vim.lsp.config('…', {
 ---   filetypes = { 'my_filetype1', 'my_filetype2' },
---- }
+--- })
 --- ```
 --- @field filetypes? string[]
 ---
@@ -387,6 +387,78 @@ lsp.config = setmetatable({ _configs = {} }, {
   end,
 })
 
+--- @return string[]
+local function get_config_names()
+  local config_names = vim
+    .iter(api.nvim_get_runtime_file('lsp/*.lua', true))
+    --- @param path string
+    :map(function(path)
+      local file_name = path:match('[^/]*.lua$')
+      return file_name:sub(0, #file_name - 4)
+    end)
+    :totable()
+
+  vim.list_extend(config_names, vim.tbl_keys(lsp.config._configs))
+
+  return vim
+    .iter(config_names)
+    :unique()
+    --- @param name string
+    :filter(function(name)
+      return name ~= '*'
+    end)
+    :totable()
+end
+
+--- Key-value pairs used to filter the returned configs.
+--- @class vim.lsp.get_configs.Filter
+--- @inlinedoc
+---
+--- If true, only return enabled configs. If false, only return configs that
+--- aren't enabled.
+--- @field enabled? boolean
+---
+--- Only return configs which attach to the given filetype.
+--- @field filetype? string
+
+--- Gets LSP configs.
+---
+--- See also [vim.lsp.get_clients()] to get the runtime values of dynamic fields like `root_dir`,
+--- which depend on the current buffer/workspace/etc.
+---
+--- WARNING: May eagerly (prematurely!) evaluate config files in 'runtimepath'.
+---
+--- @since 14
+--- @param filter? vim.lsp.get_configs.Filter
+--- @return vim.lsp.Config[]: List of |vim.lsp.Config| objects
+function lsp.get_configs(filter)
+  validate('filter', filter, 'table', true)
+
+  filter = filter or {}
+
+  local configs = {} --- @type vim.lsp.Config[]
+
+  local config_names = filter.enabled
+      -- Get enabled configs, without resolving other configs.
+      and vim.tbl_keys(lsp._enabled_configs)
+    or get_config_names()
+
+  for _, config_name in ipairs(config_names) do
+    local config = lsp.config[config_name]
+    if
+      config
+      and (filter.enabled ~= false or not lsp.is_enabled(config_name))
+      and (
+        filter.filetype == nil
+        or (config.filetypes ~= nil and vim.list_contains(config.filetypes, filter.filetype))
+      )
+    then
+      configs[#configs + 1] = config
+    end
+  end
+  return configs
+end
+
 local lsp_enable_autocmd_id --- @type integer?
 
 local function validate_cmd(v)
@@ -446,8 +518,8 @@ end
 
 --- @param bufnr integer
 local function lsp_enable_callback(bufnr)
-  -- Only ever attach to buffers that represent an actual file.
-  if vim.bo[bufnr].buftype ~= '' then
+  -- Only ever attach to buffers (including "help") that represent an actual file.
+  if vim.bo[bufnr].buftype ~= '' and vim.bo[bufnr].buftype ~= 'help' then
     return
   end
 
@@ -515,7 +587,7 @@ end
 --- ```lua
 --- vim.lsp.config('lua_ls', {
 ---   root_dir = function(bufnr, on_dir)
----     if not vim.fn.bufname(bufnr):match('%.txt$') then
+---     if vim.fs.ext(vim.fn.bufname(bufnr)) ~= 'txt' then
 ---       on_dir(vim.fn.getcwd())
 ---     end
 ---   end
@@ -532,7 +604,6 @@ function lsp.enable(name, enable)
   validate('name', name, { 'string', 'table' })
 
   local names = vim._ensure_list(name) --[[@as string[] ]]
-  local configs = {} --- @type table<string,{resolved_config:vim.lsp.Config?}>
 
   -- Check for errors, and abort with no side-effects if there is one.
   for _, nm in ipairs(names) do
@@ -543,13 +614,13 @@ function lsp.enable(name, enable)
     -- Raise error if `lsp.config[nm]` raises an error, instead of waiting for
     -- the error to be triggered by `lsp_enable_callback()`.
     if enable ~= false then
-      configs[nm] = { resolved_config = lsp.config[nm] }
+      _ = lsp.config[nm]
     end
   end
 
   -- Now that there can be no errors, enable/disable all names.
   for _, nm in ipairs(names) do
-    lsp._enabled_configs[nm] = enable ~= false and configs[nm] or nil
+    lsp._enabled_configs[nm] = enable ~= false and {} or nil
   end
 
   if not next(lsp._enabled_configs) then
@@ -631,7 +702,7 @@ end
 --- See |vim.lsp.ClientConfig| for all available options. The most important are:
 ---
 --- - `name` arbitrary name for the LSP client. Should be unique per language server.
---- - `cmd` command string[] or function.
+--- - `cmd` command string[] or function. See also |lsp-server|.
 --- - `root_dir` path to the project root. By default this is used to decide if an existing client
 ---   should be re-used. The example above uses |vim.fs.root()| to detect the root by traversing
 ---   the file system upwards starting from the current directory until either a `pyproject.toml`
@@ -788,7 +859,7 @@ function lsp._set_defaults(client, bufnr)
     then
       vim.keymap.set('n', 'K', function()
         vim.lsp.buf.hover()
-      end, { buffer = bufnr, desc = 'vim.lsp.buf.hover()' })
+      end, { buf = bufnr, desc = 'vim.lsp.buf.hover()' })
     end
   end)
   if client:supports_method('textDocument/diagnostic') then
@@ -811,42 +882,7 @@ end
 ---Buffer lifecycle handler for textDocument/didSave
 --- @param bufnr integer
 local function text_document_did_save_handler(bufnr)
-  bufnr = vim._resolve_bufnr(bufnr)
-  local uri = vim.uri_from_bufnr(bufnr)
-  local text = vim.func._memoize('concat', lsp._buf_get_full_text)
-  for _, client in ipairs(lsp.get_clients({ bufnr = bufnr })) do
-    local name = api.nvim_buf_get_name(bufnr)
-    local old_name = changetracking._get_and_set_name(client, bufnr, name)
-    if old_name and name ~= old_name then
-      client:notify('textDocument/didClose', {
-        textDocument = {
-          uri = vim.uri_from_fname(old_name),
-        },
-      })
-      client:notify('textDocument/didOpen', {
-        textDocument = {
-          version = 0,
-          uri = uri,
-          languageId = client.get_language_id(bufnr, vim.bo[bufnr].filetype),
-          text = lsp._buf_get_full_text(bufnr),
-        },
-      })
-      util.buf_versions[bufnr] = 0
-    end
-    local save_capability = vim.tbl_get(client.server_capabilities, 'textDocumentSync', 'save')
-    if save_capability then
-      local included_text --- @type string?
-      if type(save_capability) == 'table' and save_capability.includeText then
-        included_text = text(bufnr)
-      end
-      client:notify('textDocument/didSave', {
-        textDocument = {
-          uri = uri,
-        },
-        text = included_text,
-      })
-    end
-  end
+  changetracking._send_did_save(bufnr)
 end
 
 --- @type table<integer,true>
@@ -864,7 +900,7 @@ local function buf_attach(bufnr)
   local group = api.nvim_create_augroup(augroup, { clear = true })
   api.nvim_create_autocmd('BufWritePre', {
     group = group,
-    buffer = bufnr,
+    buf = bufnr,
     desc = 'vim.lsp: textDocument/willSave',
     callback = function(ctx)
       for _, client in ipairs(lsp.get_clients({ bufnr = ctx.buf })) do
@@ -891,7 +927,7 @@ local function buf_attach(bufnr)
   })
   api.nvim_create_autocmd('BufWritePost', {
     group = group,
-    buffer = bufnr,
+    buf = bufnr,
     desc = 'vim.lsp: textDocument/didSave handler',
     callback = function(ctx)
       text_document_did_save_handler(ctx.buf)
@@ -1089,7 +1125,7 @@ end
 --- Also return uninitialized clients.
 --- @field package _uninitialized? boolean
 
---- Get active clients.
+--- Gets active clients.
 ---
 ---@since 12
 ---
@@ -1470,8 +1506,11 @@ end
 
 --- Provides a `foldtext` function that shows the `collapsedText` retrieved,
 --- defaults to the first folded line if `collapsedText` is not provided.
-function lsp.foldtext()
-  return vim.lsp._folding_range.foldtext()
+---
+--- The displayed foldtext will be highlighted via treesitter.
+---@param lnum? integer line number (default: current fold start)
+function lsp.foldtext(lnum)
+  return vim.lsp._folding_range.foldtext(lnum)
 end
 
 ---@deprecated Use |vim.lsp.get_client_by_id()| instead.

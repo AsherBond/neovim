@@ -26,6 +26,7 @@
 #include "nvim/eval/typval_defs.h"
 #include "nvim/eval/userfunc.h"
 #include "nvim/eval/vars.h"
+#include "nvim/ex_cmds.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/ex_session.h"
 #include "nvim/fuzzy.h"
@@ -2085,7 +2086,7 @@ static Dict mapblock_fill_dict(const mapblock_T *const mp, const char *lhsrawalt
                                Arena *arena)
   FUNC_ATTR_NONNULL_ARG(1)
 {
-  Dict dict = arena_dict(arena, 19);
+  Dict dict = arena_dict(arena, 20);
   char *const lhs = str2special_arena(mp->m_keys, compatible, !compatible, arena);
   char *mapmode = arena_alloc(arena, 7, false);
   map_mode_to_chars(mp->m_mode, mapmode);
@@ -2126,6 +2127,9 @@ static Dict mapblock_fill_dict(const mapblock_T *const mp, const char *lhsrawalt
   PUT_C(dict, "scriptversion", INTEGER_OBJ(1));
   PUT_C(dict, "lnum", INTEGER_OBJ(mp->m_script_ctx.sc_lnum));
   PUT_C(dict, "buffer", INTEGER_OBJ(buffer_value));
+  if (!compatible) {
+    PUT_C(dict, "buf", INTEGER_OBJ(buffer_value));
+  }
   PUT_C(dict, "nowait", INTEGER_OBJ(mp->m_nowait ? 1 : 0));
   PUT_C(dict, "replace_keycodes", INTEGER_OBJ(mp->m_replace_keycodes ? 1 : 0));
   PUT_C(dict, "mode", CSTR_AS_OBJ(mapmode));
@@ -2277,6 +2281,10 @@ static int get_map_mode_string(const char *const mode_string, const bool abbr)
 /// "mapset()" function
 void f_mapset(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
 {
+  if (check_secure()) {
+    return;
+  }
+
   const char *which;
   char buf[NUMBUFLEN];
   int is_abbr;

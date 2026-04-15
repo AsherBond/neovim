@@ -304,7 +304,7 @@ end
 
 local VIM_CMD_ARG_MAX = 20
 
---- Executes Vimscript (|Ex-commands|).
+--- Executes Vimscript (|Ex-command|s).
 ---
 --- Can be indexed with a command name to get a function, thus you can write `vim.cmd.echo(…)`
 --- instead of `vim.cmd{cmd='echo',…}`.
@@ -510,9 +510,8 @@ end
 
 --- Defers calling {fn} until {timeout} ms passes.
 ---
---- Use to do a one-shot timer that calls {fn}
---- Note: The {fn} is |vim.schedule()|d automatically, so API functions are
---- safe to call.
+--- Use to do a one-shot timer that calls {fn}.
+--- Note: The {fn} is |schedule|d automatically, so API functions are safe to call.
 ---@param fn function Callback to call once `timeout` expires
 ---@param timeout integer Number of milliseconds to wait before calling `fn`
 ---@return uv.uv_timer_t timer luv timer object
@@ -548,7 +547,11 @@ end
 ---@diagnostic disable-next-line: unused-local
 function vim.notify(msg, level, opts) -- luacheck: no unused args
   local chunks = { { msg, level == vim.log.levels.WARN and 'WarningMsg' or nil } }
-  vim.api.nvim_echo(chunks, true, { err = level == vim.log.levels.ERROR })
+  vim.api.nvim_echo(
+    chunks,
+    true,
+    { err = level == vim.log.levels.ERROR, _truncate = opts and opts._truncate }
+  )
 end
 
 do
@@ -1214,9 +1217,7 @@ end
 do
   local function truncated_echo(msg)
     -- Truncate message to avoid hit-enter-prompt
-    local max_width = vim.o.columns * math.max(vim.o.cmdheight - 1, 0) + vim.v.echospace
-    local msg_truncated = string.sub(msg, 1, max_width)
-    vim.api.nvim_echo({ { msg_truncated, 'WarningMsg' } }, true, {})
+    vim.api.nvim_echo({ { msg, 'WarningMsg' } }, true, { _truncate = true })
   end
 
   local notified = false
@@ -1256,7 +1257,7 @@ end
 ---                              Defaults to "Nvim".
 ---@param backtrace   boolean|nil Prints backtrace. Defaults to true.
 ---
----@return string|nil # Deprecated message, or nil if no message was shown.
+---@return string|nil # Deprecation message, or nil if no message was shown.
 function vim.deprecate(name, alternative, version, plugin, backtrace)
   plugin = plugin or 'Nvim'
   if plugin == 'Nvim' then

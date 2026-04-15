@@ -118,7 +118,7 @@ static int progress_msg_target = PROGRESS_TARGET_CMD;
 static FILE *verbose_fd = NULL;
 static bool verbose_did_open = false;
 
-bool keep_msg_more = false;    // keep_msg was set by msgmore()
+static bool keep_msg_more = false;    // keep_msg was set by msgmore()
 
 // When writing messages to the screen, there are many different situations.
 // A number of variables is used to remember the current state:
@@ -168,6 +168,12 @@ static bool msg_ext_history = false;  ///< message was added to history
 static int msg_grid_pos_at_flush = 0;
 
 static int64_t msg_id_next = 1;           ///< message id to be allocated to next message
+
+/// Returns true if the given integer message-id was previously generated.
+bool msg_id_exists(int64_t id)
+{
+  return id > 0 && id < msg_id_next;
+}
 
 static void ui_ext_msg_set_pos(int row, bool scrolled)
 {
@@ -277,7 +283,7 @@ void msg_multiline(String str, int hl_id, bool check_int, bool hist, bool *need_
     if (check_int && got_int) {
       return;
     }
-    if (*s == '\n' || *s == TAB || *s == '\r') {
+    if (*s == '\n' || *s == TAB || *s == '\r' || *s == BELL) {
       // Print all chars before the delimiter
       msg_outtrans_len(chunk, (int)(s - chunk), hl_id, hist);
 
@@ -285,7 +291,11 @@ void msg_multiline(String str, int hl_id, bool check_int, bool hist, bool *need_
         msg_clr_eos();
         *need_clear = false;
       }
-      msg_putchar_hl((uint8_t)(*s), hl_id);
+      if (*s == BELL) {
+        vim_beep(kOptBoFlagShell);
+      } else {
+        msg_putchar_hl((uint8_t)(*s), hl_id);
+      }
       chunk = s + 1;
     }
     s++;
@@ -356,12 +366,14 @@ static HlMessage format_progress_message(HlMessage hl_msg, MessageData *msg_data
 MsgID msg_multihl(MsgID id, HlMessage hl_msg, const char *kind, bool history, bool err,
                   MessageData *msg_data, bool *needs_msg_clear)
 {
-  // provide a new id if not given
+  // Message `id`:
+  // - Nil: Generate a new Integer id.
+  // - Integer: Existing id.
+  // - String: User-defined id (new or existing).
   if (id.type == kObjectTypeNil) {
     id = INTEGER_OBJ(msg_id_next++);
-  } else if (id.type == kObjectTypeInteger) {
-    id = id.data.integer > 0 ? id : INTEGER_OBJ(msg_id_next++);
-    msg_id_next = MAX(msg_id_next, id.data.integer + 1);
+  } else if (id.type == kObjectTypeInteger && !msg_id_exists(id.data.integer)) {
+    abort();
   }
 
   // don't display progress message in cmd when target doesn't have cmd
@@ -1137,12 +1149,15 @@ void do_autocmd_progress(MsgID msg_id, HlMessage msg, MessageData *msg_data)
   PUT_C(data, "text", ARRAY_OBJ(messages));
   if (msg_data != NULL) {
     PUT_C(data, "percent", INTEGER_OBJ(msg_data->percent));
+    PUT_C(data, "source", STRING_OBJ(msg_data->source));
     PUT_C(data, "status", STRING_OBJ(msg_data->status));
     PUT_C(data, "title", STRING_OBJ(msg_data->title));
     PUT_C(data, "data", DICT_OBJ(msg_data->data));
   }
 
-  apply_autocmds_group(EVENT_PROGRESS, msg_data ? msg_data->title.data : "", NULL, true,
+  apply_autocmds_group(EVENT_PROGRESS,
+                       (msg_data && msg_data->source.size > 0) ? msg_data->source.data : "", NULL,
+                       true,
                        AUGROUP_ALL, NULL, NULL, &DICT_OBJ(data));
   kv_destroy(messages);
 }
@@ -1341,7 +1356,7 @@ void ex_messages(exarg_T *eap)
     if (redirecting() || !ui_has(kUIMessages)) {
       msg_silent += ui_has(kUIMessages);
       bool needs_clear = false;
-      msg_multihl(INTEGER_OBJ(0), p->msg, p->kind, false, false, NULL, &needs_clear);
+      msg_multihl(NIL, p->msg, p->kind, false, false, NULL, &needs_clear);
       msg_silent -= ui_has(kUIMessages);
     }
   }
@@ -1713,7 +1728,11 @@ void msg_start(void)
     msg_row = cmdline_row;
     msg_col = 0;
   } else if ((msg_didout || p_ch == 0) && !ui_has(kUIMessages)) {  // start message on next line
-    msg_putchar('\n');
+    if (p_ch == 0 && !msg_didout && msg_use_printf()) {
+      msg_puts_display("\n", 1, 0, false);
+    } else {
+      msg_putchar('\n');
+    }
     did_return = true;
     cmdline_row = msg_row;
   }
@@ -2321,8 +2340,10 @@ void msg_puts_len(const char *const str, const ptrdiff_t len, int hl_id, bool hi
   // Don't print anything when using ":silent cmd" or empty message.
   if (msg_silent != 0 || *str == NUL) {
     if (*str == NUL && ui_has(kUIMessages)) {
+      msg_ext_ui_flush();  // ensure messages until now are emitted
       ui_call_msg_show(cstr_as_string("empty"), (Array)ARRAY_DICT_INIT, false, false, false,
                        INTEGER_OBJ(-1), (String)STRING_INIT);
+      cmdline_was_last_drawn = false;
     }
     return;
   }
@@ -3296,6 +3317,7 @@ void msg_clr_eos_force(void)
   if (msg_row < Rows - 1 || msg_col == 0) {
     clear_cmdline = false;  // command line has been cleared
     mode_displayed = false;  // mode cleared or overwritten
+    cmdline_was_last_drawn = false;
   }
 }
 

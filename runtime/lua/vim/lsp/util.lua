@@ -312,7 +312,6 @@ function M.apply_text_edits(text_edits, bufnr, position_encoding, change_annotat
   if not api.nvim_buf_is_loaded(bufnr) then
     vim.fn.bufload(bufnr)
   end
-  vim.bo[bufnr].buflisted = true
 
   local marks = {} --- @type table<string,[integer,integer]>
   local has_eol_text_edit = false
@@ -710,7 +709,12 @@ function M.apply_workspace_edit(workspace_edit, position_encoding)
       elseif change.kind then --- @diagnostic disable-line:undefined-field
         error(string.format('Unsupported change: %q', vim.inspect(change)))
       else
+        local bufnr = vim.uri_to_bufnr(change.textDocument.uri)
         M.apply_text_document_edit(change, idx, position_encoding, workspace_edit.changeAnnotations)
+        -- avoid triggering OptionSet
+        if not vim.bo[bufnr].buflisted then
+          vim.bo[bufnr].buflisted = true
+        end
       end
     end
     return
@@ -724,6 +728,10 @@ function M.apply_workspace_edit(workspace_edit, position_encoding)
   for uri, changes in pairs(all_changes) do
     local bufnr = vim.uri_to_bufnr(uri)
     M.apply_text_edits(changes, bufnr, position_encoding, workspace_edit.changeAnnotations)
+    -- avoid triggering OptionSet
+    if not vim.bo[bufnr].buflisted then
+      vim.bo[bufnr].buflisted = true
+    end
   end
 end
 
@@ -1036,6 +1044,15 @@ function M.show_document(location, position_encoding, opts)
       -- Open folds under the cursor
       vim.cmd('normal! zv')
     end)
+
+    -- nvim_win_set_cursor clamps to last char at EOL. In insert mode the cursor
+    -- should be past the last char (append position).
+    if vim.api.nvim_get_mode().mode == 'i' then
+      local line = api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1] or ''
+      if col >= #line then
+        vim.api.nvim_feedkeys(vim.keycode('<End>'), 'n', false)
+      end
+    end
   end
 
   return true
@@ -1470,7 +1487,7 @@ local function close_preview_autocmd(events, winnr, floating_bufnr, bufnr)
   -- the floating window buffer or the buffer that spawned it
   api.nvim_create_autocmd('BufLeave', {
     group = augroup,
-    buffer = bufnr,
+    buf = bufnr,
     callback = function()
       vim.schedule(function()
         -- When jumping to the quickfix window from the preview window,
@@ -1485,7 +1502,7 @@ local function close_preview_autocmd(events, winnr, floating_bufnr, bufnr)
   if #events > 0 then
     api.nvim_create_autocmd(events, {
       group = augroup,
-      buffer = bufnr,
+      buf = bufnr,
       callback = function()
         close_preview_window(winnr)
       end,
@@ -1762,6 +1779,7 @@ function M.open_floating_preview(contents, syntax, opts)
   vim.wo[floating_winnr].linebreak = true -- Break lines a bit nicer
   vim.wo[floating_winnr].breakindent = true -- Slightly better list presentation.
   vim.wo[floating_winnr].smoothscroll = true -- Scroll by screen-line instead of buffer-line.
+  vim.wo[floating_winnr].winfixbuf = true -- Disable buffer switching.
 
   vim.bo[floating_bufnr].modifiable = false
   vim.bo[floating_bufnr].bufhidden = 'wipe'
@@ -2028,12 +2046,12 @@ function M.try_trim_markdown_code_blocks(lines)
   return 'markdown'
 end
 
----@param window integer?: |window-ID| or 0 for current, defaults to current
+---@param win integer?: |window-ID| or 0 for current, defaults to current
 ---@param position_encoding 'utf-8'|'utf-16'|'utf-32'
-local function make_position_param(window, position_encoding)
-  window = window or 0
-  local buf = api.nvim_win_get_buf(window)
-  local row, col = unpack(api.nvim_win_get_cursor(window))
+local function make_position_param(win, position_encoding)
+  win = win or 0
+  local buf = api.nvim_win_get_buf(win)
+  local row, col = unpack(api.nvim_win_get_cursor(win))
   row = row - 1
   local line = api.nvim_buf_get_lines(buf, row, row + 1, true)[1]
   if not line then
@@ -2047,13 +2065,13 @@ end
 
 --- Creates a `TextDocumentPositionParams` object for the current buffer and cursor position.
 ---
----@param window integer?: |window-ID| or 0 for current, defaults to current
+---@param win integer?: |window-ID| or 0 for current, defaults to current
 ---@param position_encoding 'utf-8'|'utf-16'|'utf-32'
 ---@return lsp.TextDocumentPositionParams
 ---@see https://microsoft.github.io/language-server-protocol/specifications/specification-current/#textDocumentPositionParams
-function M.make_position_params(window, position_encoding)
-  window = window or 0
-  local buf = api.nvim_win_get_buf(window)
+function M.make_position_params(win, position_encoding)
+  win = win or 0
+  local buf = api.nvim_win_get_buf(win)
   if position_encoding == nil then
     vim.notify_once(
       'position_encoding param is required in vim.lsp.util.make_position_params. Defaulting to position encoding of the first client.',
@@ -2064,7 +2082,7 @@ function M.make_position_params(window, position_encoding)
   end
   return {
     textDocument = M.make_text_document_params(buf),
-    position = make_position_param(window, position_encoding),
+    position = make_position_param(win, position_encoding),
   }
 end
 
@@ -2107,11 +2125,11 @@ end
 --- `textDocument/codeAction`, `textDocument/colorPresentation`,
 --- `textDocument/rangeFormatting`.
 ---
----@param window integer?: |window-ID| or 0 for current, defaults to current
+---@param win integer?: |window-ID| or 0 for current, defaults to current
 ---@param position_encoding "utf-8"|"utf-16"|"utf-32"
 ---@return { textDocument: { uri: lsp.DocumentUri }, range: lsp.Range }
-function M.make_range_params(window, position_encoding)
-  local buf = api.nvim_win_get_buf(window or 0)
+function M.make_range_params(win, position_encoding)
+  local buf = api.nvim_win_get_buf(win or 0)
   if position_encoding == nil then
     vim.notify_once(
       'position_encoding param is required in vim.lsp.util.make_range_params. Defaulting to position encoding of the first client.',
@@ -2120,7 +2138,7 @@ function M.make_range_params(window, position_encoding)
     --- @diagnostic disable-next-line: deprecated
     position_encoding = M._get_offset_encoding(buf)
   end
-  local position = make_position_param(window, position_encoding)
+  local position = make_position_param(win, position_encoding)
   return {
     textDocument = M.make_text_document_params(buf),
     range = { start = position, ['end'] = position },

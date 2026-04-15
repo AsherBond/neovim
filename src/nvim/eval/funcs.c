@@ -158,7 +158,6 @@ PRAGMA_DIAG_PUSH_IGNORE_IMPLICIT_FALLTHROUGH
 PRAGMA_DIAG_POP
 PRAGMA_DIAG_POP
 
-static const char *e_invalwindow = N_("E957: Invalid window number");
 static const char e_invalid_submatch_number_nr[]
   = N_("E935: Invalid submatch number: %d");
 static const char e_string_list_or_blob_required[]
@@ -2285,8 +2284,8 @@ static int getregionpos(typval_T *argvars, typval_T *rettv, pos_T *p1, pos_T *p2
   } else if (*region_type == kMTBlockWise) {
     colnr_T sc1, ec1, sc2, ec2;
     const bool lbr_saved = reset_lbr();
-    getvvcol(curwin, p1, &sc1, NULL, &ec1);
-    getvvcol(curwin, p2, &sc2, NULL, &ec2);
+    getvvcol(curwin, p1, &sc1, NULL, &ec1, 0);
+    getvvcol(curwin, p2, &sc2, NULL, &ec2, 0);
     restore_lbr(lbr_saved);
     oap->motion_type = kMTBlockWise;
     oap->inclusive = true;
@@ -2711,7 +2710,7 @@ static void f_has(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
     "find_in_path",
     "float",
     "folding",
-#if defined(UNIX)
+#ifdef UNIX
     "fork",
 #endif
     "gettext",
@@ -2757,7 +2756,7 @@ static void f_has(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
     "statusline",
     "spell",
     "syntax",
-#if !defined(UNIX)
+#ifndef UNIX
     "system",
 #endif
     "tablineat",
@@ -6409,7 +6408,7 @@ static void f_serverstop(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   rettv->v_type = VAR_NUMBER;
   rettv->vval.v_number = 0;
   if (argvars[0].vval.v_string) {
-    bool rv = server_stop(argvars[0].vval.v_string);
+    bool rv = server_stop(argvars[0].vval.v_string, false);
     rettv->vval.v_number = (rv ? 1 : 0);
   }
 }
@@ -7161,7 +7160,7 @@ static void f_stdpath(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   } else if (strequal(p, "state")) {
     rettv->vval.v_string = get_xdg_home(kXDGStateHome);
   } else if (strequal(p, "log")) {
-    rettv->vval.v_string = get_xdg_home(kXDGStateHome);
+    rettv->vval.v_string = concat_fnames_realloc(get_xdg_home(kXDGStateHome), "logs", true);
   } else if (strequal(p, "run")) {
     rettv->vval.v_string = stdpaths_get_xdg_var(kXDGRuntimeDir);
   } else if (strequal(p, "config_dirs")) {
@@ -7763,7 +7762,7 @@ static void f_virtcol(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
         fp->col = len;
       }
     }
-    getvvcol(wp, fp, &vcol_start, NULL, &vcol_end);
+    getvvcol(wp, fp, &vcol_start, NULL, &vcol_end, 0);
     vcol_start++;
     vcol_end++;
   }

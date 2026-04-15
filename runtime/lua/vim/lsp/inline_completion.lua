@@ -15,8 +15,13 @@
 --- 2. Define a config, (or copy `lsp/copilot.lua` from https://github.com/neovim/nvim-lspconfig):
 ---    ```lua
 ---    vim.lsp.config('copilot', {
----      cmd = { 'copilot-language-server', '--stdio', },
+---      cmd = { 'copilot-language-server', '--stdio' },
 ---      root_markers = { '.git' },
+---       init_options = {
+---         editorInfo = {
+---           name = 'Neovim', version = tostring(vim.version()) },
+---           editorPluginInfo = { name = 'Neovim', version = tostring(vim.version()) },
+---         },
 ---    })
 ---    ```
 --- 3. Activate the config:
@@ -75,14 +80,14 @@ function Completor:new(bufnr)
   self.client_state = {}
   api.nvim_create_autocmd({ 'InsertEnter', 'CursorMovedI', 'TextChangedP' }, {
     group = self.augroup,
-    buffer = bufnr,
+    buf = bufnr,
     callback = function()
       self:automatic_request()
     end,
   })
   api.nvim_create_autocmd({ 'InsertLeave' }, {
     group = self.augroup,
-    buffer = bufnr,
+    buf = bufnr,
     callback = function()
       self:abort()
     end,
@@ -119,7 +124,7 @@ end
 ---@param ctx lsp.HandlerContext
 function Completor:handler(err, result, ctx)
   if err then
-    log.error('inlinecompletion', err)
+    log.error('inline_completion', err)
     return
   end
   if not result or not vim.startswith(api.nvim_get_mode().mode, 'i') then
@@ -214,9 +219,13 @@ function Completor:show(hint)
     table.insert(lines[#lines], { hint, 'ComplHintMore' })
   end
 
-  local pos = current.range and current.range.start:to_extmark()
-    or vim.pos.cursor(api.nvim_win_get_cursor(vim.fn.bufwinid(self.bufnr))):to_extmark()
-  local row, col = unpack(pos)
+  local row, col ---@type integer, integer
+  if current.range then
+    row, col = current.range:to_extmark()
+  else
+    row, col =
+      vim.pos.cursor(self.bufnr, api.nvim_win_get_cursor(vim.fn.bufwinid(self.bufnr))):to_extmark()
+  end
 
   -- To ensure that virtual text remains visible continuously (without flickering)
   -- while the user is editing the buffer, we allow displaying expired virtual text.
@@ -237,7 +246,7 @@ function Completor:show(hint)
   -- At least, characters before the cursor should be skipped.
   if api.nvim_win_get_buf(winid) == self.bufnr then
     local cursor_row, cursor_col =
-      unpack(vim.pos.cursor(api.nvim_win_get_cursor(winid)):to_extmark())
+      vim.pos.cursor(self.bufnr, api.nvim_win_get_cursor(winid)):to_extmark()
     if row == cursor_row then
       skip = math.max(skip, cursor_col - col + 1)
     end
@@ -333,23 +342,16 @@ end
 function Completor:accept(item)
   local insert_text = item.insert_text
   if type(insert_text) == 'string' then
-    local range = item.range
-    if range then
+    if item.range then
+      local start_row, start_col, end_row, end_col = item.range:to_extmark()
       local lines = vim.split(insert_text, '\n')
-      api.nvim_buf_set_text(
-        self.bufnr,
-        range.start.row,
-        range.start.col,
-        range.end_.row,
-        range.end_.col,
-        lines
-      )
-      local pos = item.range.start:to_cursor()
+      api.nvim_buf_set_text(self.bufnr, start_row, start_col, end_row, end_col, lines)
       local win = api.nvim_get_current_win()
       win = api.nvim_win_get_buf(win) == self.bufnr and win or vim.fn.bufwinid(self.bufnr)
+      local row, col = item.range:to_cursor()
       api.nvim_win_set_cursor(win, {
-        pos[1] + #lines - 1,
-        (#lines == 1 and pos[2] or 0) + #lines[#lines],
+        row + #lines - 1,
+        (#lines == 1 and col or 0) + #lines[#lines],
       })
     else
       api.nvim_paste(insert_text, false, 0)

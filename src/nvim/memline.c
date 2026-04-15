@@ -1305,42 +1305,42 @@ int recover_names(char *fname, bool do_list, list_T *ret_list, int nr, char **fn
 
   // Do the loop for every directory in 'directory'.
   // First allocate some memory to put the directory name in.
-  char *dir_name = xmalloc(strlen(p_dir) + 1);
+  String dir_name;
+  dir_name.data = xmalloc(strlen(p_dir) + 1);
   char *dirp = p_dir;
   while (*dirp) {
     // Isolate a directory name from *dirp and put it in dir_name (we know
     // it is large enough, so use 31000 for length).
     // Advance dirp to next directory name.
-    copy_option_part(&dirp, dir_name, 31000, ",");
+    dir_name.size = copy_option_part(&dirp, dir_name.data, 31000, ",");
 
-    if (dir_name[0] == '.' && dir_name[1] == NUL) {     // check current dir
+    if (dir_name.data[0] == '.' && dir_name.data[1] == NUL) {     // check current dir
       if (fname == NULL) {
-        names[0] = xstrdup("*.sw?");
+        names[0] = xmemdupz(S_LEN("*.sw?"));
         // For Unix names starting with a dot are special.  MS-Windows
         // supports this too, on some file systems.
-        names[1] = xstrdup(".*.sw?");
-        names[2] = xstrdup(".sw?");
+        names[1] = xmemdupz(S_LEN(".*.sw?"));
+        names[2] = xmemdupz(S_LEN(".sw?"));
         num_names = 3;
       } else {
         num_names = recov_file_names(names, fname_res, true);
       }
     } else {                      // check directory dir_name
       if (fname == NULL) {
-        names[0] = concat_fnames(dir_name, "*.sw?", true);
+        names[0] = concat_fnames(dir_name, STATIC_CSTR_AS_STRING("*.sw?"), true).data;
         // For Unix names starting with a dot are special.  MS-Windows
         // supports this too, on some file systems.
-        names[1] = concat_fnames(dir_name, ".*.sw?", true);
-        names[2] = concat_fnames(dir_name, ".sw?", true);
+        names[1] = concat_fnames(dir_name, STATIC_CSTR_AS_STRING(".*.sw?"), true).data;
+        names[2] = concat_fnames(dir_name, STATIC_CSTR_AS_STRING(".sw?"), true).data;
         num_names = 3;
       } else {
-        int len = (int)strlen(dir_name);
-        p = dir_name + len;
-        if (after_pathsep(dir_name, p) && len > 1 && p[-1] == p[-2]) {
+        p = dir_name.data + dir_name.size;
+        if (after_pathsep(dir_name.data, p) && dir_name.size > 1 && p[-1] == p[-2]) {
           // Ends with '//', Use Full path for swap name
-          tail = make_percent_swname(dir_name, p, fname_res);
+          tail = make_percent_swname(dir_name.data, p, fname_res);
         } else {
           tail = path_tail(fname_res);
-          tail = concat_fnames(dir_name, tail, true);
+          tail = concat_fnames(dir_name, cstr_as_string(tail), true).data;
         }
         num_names = recov_file_names(names, tail, false);
         xfree(tail);
@@ -1401,7 +1401,7 @@ int recover_names(char *fname, bool do_list, list_T *ret_list, int nr, char **fn
         dirp = "";                        // stop searching
       }
     } else if (do_list) {
-      if (dir_name[0] == '.' && dir_name[1] == NUL) {
+      if (dir_name.data[0] == '.' && dir_name.data[1] == NUL) {
         if (fname == NULL) {
           msg_puts(_("   In current directory:\n"));
         } else {
@@ -1409,7 +1409,7 @@ int recover_names(char *fname, bool do_list, list_T *ret_list, int nr, char **fn
         }
       } else {
         msg_puts(_("   In directory "));
-        msg_home_replace(dir_name);
+        msg_home_replace(dir_name.data);
         msg_puts(":\n");
       }
 
@@ -1433,8 +1433,8 @@ int recover_names(char *fname, bool do_list, list_T *ret_list, int nr, char **fn
       ui_flush();
     } else if (ret_list != NULL) {
       for (int i = 0; i < num_files; i++) {
-        char *name = concat_fnames(dir_name, files[i], true);
-        tv_list_append_allocated_string(ret_list, name);
+        String name = concat_fnames(dir_name, cstr_as_string(files[i]), true);
+        tv_list_append_allocated_string(ret_list, name.data);
       }
     } else {
       file_count += num_files;
@@ -1447,7 +1447,7 @@ int recover_names(char *fname, bool do_list, list_T *ret_list, int nr, char **fn
       FreeWild(num_files, files);
     }
   }
-  xfree(dir_name);
+  xfree(dir_name.data);
   return file_count;
 }
 
@@ -1459,24 +1459,27 @@ int recover_names(char *fname, bool do_list, list_T *ret_list, int nr, char **fn
 char *make_percent_swname(char *dir, char *dir_end, const char *name)
   FUNC_ATTR_NONNULL_ARG(1, 2)
 {
-  char *d = NULL;
-  char *f = fix_fname(name != NULL ? name : "");
-  if (f == NULL) {
+  String fixed_fname;
+  fixed_fname.data = fix_fname(name != NULL ? name : "");
+  if (fixed_fname.data == NULL) {
     return NULL;
   }
 
-  char *s = xstrdup(f);
-  for (d = s; *d != NUL; MB_PTR_ADV(d)) {
-    if (vim_ispathsep(*d)) {
-      *d = '%';
+  char *p;
+  for (p = fixed_fname.data; *p != NUL; MB_PTR_ADV(p)) {
+    if (vim_ispathsep(*p)) {
+      *p = '%';
     }
   }
+  fixed_fname.size = (size_t)(p - fixed_fname.data);
 
-  dir_end[-1] = NUL;  // remove one trailing slash
-  d = concat_fnames(dir, s, true);
-  xfree(s);
-  xfree(f);
-  return d;
+  // remove one trailing slash
+  p = &dir_end[-1];
+  *p = NUL;
+  String d = concat_fnames(cbuf_as_string(dir, (size_t)(p - dir)), fixed_fname, true);
+  xfree(fixed_fname.data);
+
+  return d.data;
 }
 
 // PID of swapfile owner, or zero if not running.
@@ -1684,7 +1687,8 @@ static int recov_file_names(char **names, char *path, bool prepend_dot)
   }
 
   // Form the normal swapfile name pattern by appending ".sw?".
-  names[num_names] = concat_fnames(path, ".sw?", false);
+  names[num_names] = concat_fnames(cstr_as_string(path),
+                                   STATIC_CSTR_AS_STRING(".sw?"), false).data;
   if (num_names >= 1) {     // check if we have the same name twice
     char *p = names[num_names - 1];
     int i = (int)strlen(names[num_names - 1]) - (int)strlen(names[num_names]);
@@ -3207,7 +3211,7 @@ static void ml_lineadd(buf_T *buf, int count)
   }
 }
 
-#if defined(HAVE_READLINK)
+#ifdef HAVE_READLINK
 
 /// Resolve a symlink in the last component of a file name.
 /// Note that f_resolve() does it for every part of the path, we don't do that
@@ -3327,28 +3331,31 @@ char *makeswapname(char *fname, char *ffname, buf_T *buf, char *dir_name)
 /// @param dname  don't use "dirname", it is a global for Alpha
 char *get_file_in_dir(char *fname, char *dname)
 {
-  char *retval;
-
-  char *tail = path_tail(fname);
+  String retval;
+  String tail = cstr_as_string(path_tail(fname));
 
   if (dname[0] == '.' && dname[1] == NUL) {
-    retval = xstrdup(fname);
-  } else if (dname[0] == '.' && vim_ispathsep(dname[1])) {
-    if (tail == fname) {            // no path before file name
-      retval = concat_fnames(dname + 2, tail, true);
-    } else {
-      char save_char = *tail;
-      *tail = NUL;
-      char *t = concat_fnames(fname, dname + 2, true);
-      *tail = save_char;
-      retval = concat_fnames(t, tail, true);
-      xfree(t);
-    }
+    retval = cbuf_to_string(fname, (size_t)(tail.data - fname) + tail.size);
   } else {
-    retval = concat_fnames(dname, tail, true);
+    size_t dname_len = strlen(dname);
+    if (dname[0] == '.' && vim_ispathsep(dname[1])) {
+      if (tail.data == fname) {  // no path before file name
+        retval = concat_fnames(cbuf_as_string(dname + 2, dname_len - 2), tail, true);
+      } else {
+        const char save_char = *tail.data;
+        *tail.data = NUL;
+        String tmp = concat_fnames(cbuf_as_string(fname, (size_t)(tail.data - fname)),
+                                   cbuf_as_string(dname + 2, dname_len - 2), true);
+        *tail.data = save_char;
+        retval = concat_fnames(tmp, tail, true);
+        xfree(tmp.data);
+      }
+    } else {
+      retval = concat_fnames(cbuf_as_string(dname, dname_len), tail, true);
+    }
   }
 
-  return retval;
+  return retval.data;
 }
 
 /// Build the ATTENTION message: info about an existing swapfile.

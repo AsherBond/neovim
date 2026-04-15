@@ -156,6 +156,10 @@ describe(':help', function()
     -- n.command [[set keywordprg=:help]]
 
     -- Failure modes:
+    set_lines ''
+    cursor(0, { 1, 1 })
+    t.matches('E349: No identifier under cursor', t.pcall_err(n.exec, [[:help!]]))
+
     set_lines 'xxxxxxxxx'
     cursor(0, { 1, 4 })
     t.matches('E149: No help for xxxxxxxxx', t.pcall_err(n.exec, [[:help!]]))
@@ -273,7 +277,7 @@ describe(':help', function()
 
     n.command(':help lsp')
     n.feed('gg/codelens.run()|<cr>')
-    eq({ '|vim.lsp.codelens.run()|.', 'lsp.txt' }, buf_word())
+    eq({ '|vim.lsp.codelens.run()|', 'lsp.txt' }, buf_word())
     --             ^ cursor on "codelens"
     n.command(':help!')
     eq({ '*vim.lsp.codelens.run()*', 'lsp.txt' }, buf_word())

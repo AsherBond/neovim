@@ -7,7 +7,7 @@
     https://github.com/flathub/io.neovim.nvim
 -->
 <component type="desktop-application">
-  <id>io.neovim.nvim</id>
+  <id>org.neovim.nvim</id>
   <translation type="gettext">nvim</translation>
   <project_license>Apache-2.0</project_license>
   <metadata_license>CC0-1.0</metadata_license>
@@ -18,6 +18,10 @@
     <p>Neovim is a refactor of the Vim text editor designed to encourage new features, advanced UIs, and powerful extensions.</p>
   </description>
 
+  <developer id="org.neovim">
+    <name>Neovim contributors</name>
+  </developer>
+
   <screenshots>
     <screenshot type="default">
       <caption>Live :substitute feature</caption>
@@ -26,6 +30,14 @@
   </screenshots>
 
   <releases>
+    <release date="2026-03-29" version="0.12.0"/>
+    <release date="2026-03-28" version="0.11.7"/>
+    <release date="2026-01-26" version="0.11.6"/>
+    <release date="2025-11-02" version="0.11.5"/>
+    <release date="2025-08-31" version="0.11.4"/>
+    <release date="2025-07-12" version="0.11.3"/>
+    <release date="2025-05-30" version="0.11.2"/>
+    <release date="2025-04-26" version="0.11.1"/>
     <release date="2025-03-26" version="0.11.0"/>
     <release date="2025-01-29" version="0.10.4"/>
     <release date="2024-12-21" version="0.10.3"/>
@@ -63,7 +75,7 @@
   </releases>
 
   <content_rating type="oars-1.1"/>
-  <launchable type="desktop-id">nvim.desktop</launchable>
+  <launchable type="desktop-id">org.neovim.nvim.desktop</launchable>
   <url type="homepage">https://neovim.io/</url>
   <url type="bugtracker">https://github.com/neovim/neovim/issues</url>
   <url type="faq">https://neovim.io/doc/user/faq.html</url>

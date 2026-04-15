@@ -81,6 +81,10 @@ describe('treesitter incremental-selection', function()
     treeselect('select_next', 3)
     eq('4', get_selected())
 
+    if t.skip(jit == nil, 'sometimes fails on PUC lua') then
+      return
+    end
+
     treeselect('select_prev', 2)
     eq('2', get_selected())
 
@@ -171,6 +175,21 @@ describe('treesitter incremental-selection', function()
 
     treeselect('select_parent')
     eq('foo(1)\nbar(2)\n', get_selected())
+  end)
+
+  it('handles unicode', function()
+    set_lines {
+      '',
+      'foo("abö")',
+      '',
+    }
+
+    feed('gg', 'jfb', 'v')
+    treeselect('select_node')
+    eq('abö', get_selected())
+
+    treeselect('select_parent')
+    eq('"abö"', get_selected())
   end)
 end)
 

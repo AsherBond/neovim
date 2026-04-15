@@ -134,18 +134,20 @@ describe('lua stdlib', function()
 
     describe(('vim.deprecate prerel=%s,'):format(prerel or 'nil'), function()
       local curver --- @type {major:number, minor:number}
+      local curstr --- @type string
+      local nextver --- @type string
 
       before_each(function()
         curver = exec_lua('return vim.version()')
+        -- "0.10" or "0.10-dev+xxx"
+        curstr = ('%s.%s%s'):format(curver.major, curver.minor, prerel or '')
+        -- "0.10" or "0.11"
+        nextver = ('%s.%s'):format(curver.major, curver.minor + (prerel and 0 or 1))
       end)
 
       it('plugin=nil, same message skipped', function()
-        -- "0.10" or "0.10-dev+xxx"
-        local curstr = ('%s.%s%s'):format(curver.major, curver.minor, prerel or '')
         eq(
-          ([[foo.bar() is deprecated. Run ":checkhealth vim.deprecated" for more information]]):format(
-            curstr
-          ),
+          [[foo.bar() is deprecated. Run ":checkhealth vim.deprecated" for more information]],
           exec_lua('return vim.deprecate(...)', 'foo.bar()', 'zub.wooo{ok=yay}', curstr)
         )
         -- Same message as above; skipped this time.
@@ -160,16 +162,23 @@ describe('lua stdlib', function()
       end)
 
       it('plugin=nil, show error if hard-deprecated', function()
-        -- "0.10" or "0.11"
-        local nextver = ('%s.%s'):format(curver.major, curver.minor + (prerel and 0 or 1))
-
-        local was_removed = prerel and 'was removed' or 'will be removed'
         eq(
-          dedent(
-            [[
-            foo.hard_dep() is deprecated. Run ":checkhealth vim.deprecated" for more information]]
-          ):format(was_removed, nextver),
+          [[foo.hard_dep() is deprecated. Run ":checkhealth vim.deprecated" for more information]],
           exec_lua('return vim.deprecate(...)', 'foo.hard_dep()', 'vim.new_api()', nextver)
+        )
+      end)
+
+      it('plugin=nil, message is only truncated in display #38841', function()
+        local screen = Screen.new(50, 10)
+        exec_lua('vim.deprecate(...)', 'foo.bar()', 'zub.wooo{ok=yay}', curstr)
+        screen:expect([[
+          ^                                                  |
+          {1:~                                                 }|*8
+          {19:foo.bar() is deprecated. Run ":checkhealth vim.dep}|
+        ]])
+        eq(
+          [[foo.bar() is deprecated. Run ":checkhealth vim.deprecated" for more information]],
+          n.exec_capture('messages')
         )
       end)
 
@@ -825,6 +834,26 @@ describe('lua stdlib', function()
     )
   end)
 
+  it('vim._copy', function()
+    ok(exec_lua([[
+      local inner = { x = 1 }
+      local mt = { tag = true }
+      local a = setmetatable({ inner = inner }, mt)
+      local b = vim._copy(a)
+
+      local c = vim.empty_dict()
+      c.inner = inner
+      local d = vim._copy(c)
+
+      return b ~= a
+        and b.inner == inner
+        and getmetatable(b) == mt
+        and d ~= c
+        and d.inner == inner
+        and not vim.islist(d)
+    ]]))
+  end)
+
   it('vim.pesc', function()
     eq('foo%-bar', exec_lua([[return vim.pesc('foo-bar')]]))
     eq('foo%%%-bar', exec_lua([[return vim.pesc(vim.pesc('foo-bar'))]]))
@@ -1240,10 +1269,17 @@ describe('lua stdlib', function()
     eq(true, exec_lua [[ return vim.deep_equal({a={b=1}}, {a={b=1}}) ]])
     eq(true, exec_lua [[ return vim.deep_equal({a={b={nil}}}, {a={b={}}}) ]])
     eq(true, exec_lua [[ return vim.deep_equal({a=1, [5]=5}, {nil,nil,nil,nil,5,a=1}) ]])
+    eq(
+      true,
+      exec_lua [[ local shared = {}; return vim.deep_equal({ 1, shared, 1, shared }, { 1, {}, 1, {} }) ]]
+    )
+    -- cyclic table
+    eq(true, exec_lua [[ local a,b={},{}; a[1]=a; b[1]=b; return vim.deep_equal(a, b) ]])
     eq(false, exec_lua [[ return vim.deep_equal(1, {nil,nil,nil,nil,5,a=1}) ]])
     eq(false, exec_lua [[ return vim.deep_equal(1, 3) ]])
     eq(false, exec_lua [[ return vim.deep_equal(nil, 3) ]])
     eq(false, exec_lua [[ return vim.deep_equal({a=1}, {a=2}) ]])
+    eq(false, exec_lua [[ local a,b={},{}; a[1]=a; b[1]={}; return vim.deep_equal(a, b) ]])
   end)
 
   it('vim.list_extend', function()
@@ -3178,7 +3214,7 @@ describe('vim.keymap', function()
       0,
       exec_lua [[
       GlobalCount = 0
-      vim.keymap.set('n', 'asdf', function() GlobalCount = GlobalCount + 1 end, {buffer=true})
+      vim.keymap.set('n', 'asdf', function() GlobalCount = GlobalCount + 1 end, {buf=0})
       return GlobalCount
     ]]
     )
@@ -3188,7 +3224,7 @@ describe('vim.keymap', function()
     eq(1, exec_lua [[return GlobalCount]])
 
     exec_lua [[
-      vim.keymap.del('n', 'asdf', {buffer=true})
+      vim.keymap.del('n', 'asdf', {buf=0})
     ]]
 
     feed('asdf\n')
@@ -3199,18 +3235,18 @@ describe('vim.keymap', function()
 
   it('does not mutate the opts parameter', function()
     eq(
-      true,
+      0,
       exec_lua [[
-      opts = {buffer=true}
+      opts = {buf=0}
       vim.keymap.set('n', 'asdf', function() end, opts)
-      return opts.buffer
+      return opts.buf
     ]]
     )
     eq(
-      true,
+      0,
       exec_lua [[
       vim.keymap.del('n', 'asdf', opts)
-      return opts.buffer
+      return opts.buf
     ]]
     )
   end)

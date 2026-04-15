@@ -255,7 +255,7 @@ local function test_cmdline(linegrid)
     screen:expect([[
                                |
       {2:[No Name]                }|
-      {1::}make^                    |
+      {1::}mak^e                    |
       {3:[Command Line]           }|
                                |
     ]])
@@ -266,7 +266,7 @@ local function test_cmdline(linegrid)
       grid = [[
                                  |
         {2:[No Name]                }|
-        {1::}make^                    |
+        {1::}mak^e                    |
         {3:[Command Line]           }|
                                  |
       ]],
@@ -281,7 +281,7 @@ local function test_cmdline(linegrid)
       grid = [[
                                  |
         {2:[No Name]                }|
-        {1::}make^                    |
+        {1::}mak^e                    |
         {3:[Command Line]           }|
                                  |
       ]],
@@ -297,7 +297,7 @@ local function test_cmdline(linegrid)
       grid = [[
                                  |
         {2:[No Name]                }|
-        {1::}make^                    |
+        {1::}mak^e                    |
         {3:[Command Line]           }|
                                  |
       ]],
@@ -822,12 +822,14 @@ local function test_cmdline(linegrid)
       cmdline = { { content = { { '' } }, firstc = ':', pos = 0 } },
       cmdline_block = { { { 'echo "foo"' } } },
     })
-    feed('vis<CR>')
+    -- Shouldn't crash for NULL cmdline_block event after <C-\><C-N> #39021.
+    feed('<C-\\><C-N>vis<CR>')
     screen:expect([[
       ^                         |
       {1:~                        }|*3
                                |
     ]])
+    assert_alive()
   end)
 
   it('works with :lua debug.debug()', function()
@@ -1699,5 +1701,12 @@ describe('cmdheight=0', function()
       {1:~                        }|*3
       {3:[No Name]                }|
     ]])
+  end)
+
+  it('no spurious newline before first message with --headless mode', function()
+    local p = n.spawn_wait({
+      args = { '--cmd', 'set cmdheight=0', '-c', 'echo 1', '+q' },
+    })
+    eq('1', p.stderr)
   end)
 end)

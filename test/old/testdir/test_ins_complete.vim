@@ -3421,7 +3421,9 @@ endfunc
 func Test_ins_complete_end_of_line()
   " this was reading past the end of the line
   new
-  norm 8oý 
+  " Note that the 'space' at the end of the expression below is a non-breaking
+  " space, U+00a0.
+  execute "norm 8oý "
   sil! norm o
 
   bwipe!
@@ -3912,7 +3914,7 @@ func Test_complete_fuzzy_collect()
   call feedkeys("Gofuzzy\<C-X>\<C-N>\<C-N>\<C-N>\<C-N>\<CR>\<Esc>0", 'tx!')
   call assert_equal('completefuzzycollect', getline(line('.') - 1))
 
-  " keywords in 'dictonary'
+  " keywords in 'dictionary'
   call writefile(['hello', 'think'], 'Xtest_dict.txt', 'D')
   set dict=Xtest_dict.txt
   call feedkeys("Sh\<C-X>\<C-K>\<C-N>\<CR>\<Esc>0", 'tx!')
@@ -3930,7 +3932,7 @@ func Test_complete_fuzzy_collect()
   call assert_equal('fuzzycollect', getline('.'))
 
   " when 'fuzzy' is not set, and 'infercase' and 'ignorecase' are set, then
-  " uppercase completes from lowercase words in dictonary
+  " uppercase completes from lowercase words in dictionary
   set completeopt&
   set infercase ignorecase
   call writefile(['hello'], 'Xtest_case.txt', 'D')
@@ -6398,6 +6400,22 @@ func Test_ins_register_preinsert_autocomplete()
   set omnifunc& complete& completeopt& autocomplete&
   call Ntest_override("char_avail", 0)
   delfunc TestOmni
+endfunc
+
+func Test_autocomplete_with_auto_format()
+  call Ntest_override("char_avail", 1)
+  new
+  setlocal formatoptions=tcq textwidth=9 autocomplete noautoindent
+  call feedkeys("ia b c d\<Esc>ie f g\<Esc>", 'tx')
+  call assert_equal(['a b c e f', 'gd'], getline(1, '$'))
+
+  %delete
+  setlocal autoindent
+  call feedkeys("ia b c d\<Esc>ie f g\<Esc>", 'tx')
+  call assert_equal(['a b c e f', 'gd'], getline(1, '$'))
+
+  bw!
+  call Ntest_override("char_avail", 0)
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab nofoldenable

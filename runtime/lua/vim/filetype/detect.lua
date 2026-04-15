@@ -63,6 +63,20 @@ function M.app(path, bufnr)
   end
 end
 
+--- @param bufnr integer
+--- @return boolean
+local function is_objectscript_routime(bufnr)
+  local line1 = getline(bufnr, 1)
+  line1 = fn.substitute(line1, [[^\ufeff]], '', '')
+  if matchregex(line1, [[\c^\s*routine\>]]) then
+    return true
+  end
+  if matchregex(line1, [[\c\<iris\>]]) then
+    return true
+  end
+  return table.concat(getlines(bufnr, 1, 3), ''):find('%%RO') ~= nil
+end
+
 -- This function checks for the kind of assembly that is wanted by the user, or
 -- can be detected from the beginning of the file.
 --- @type vim.filetype.mapfn
@@ -82,6 +96,17 @@ function M.asm(path, bufnr)
   end
   return syntax, function(b)
     vim.b[b].asmsyntax = syntax
+  end
+end
+
+--- @type vim.filetype.mapfn
+function M.mac(path, bufnr)
+  if vim.g.filetype_mac then
+    return vim.g.filetype_mac
+  elseif is_objectscript_routime(bufnr) then
+    return 'objectscript_routine'
+  else
+    return M.asm(path, bufnr)
   end
 end
 
@@ -896,6 +921,9 @@ function M.inc(path, bufnr)
   if vim.g.filetype_inc then
     return vim.g.filetype_inc
   end
+  if is_objectscript_routime(bufnr) then
+    return 'objectscript_routine'
+  end
   for _, line in ipairs(getlines(bufnr, 1, 20)) do
     if line:lower():find('perlscript') then
       return 'aspperl'
@@ -943,6 +971,17 @@ function M.install(path, bufnr)
     return 'php'
   end
   return M.bash(path, bufnr)
+end
+
+--- @type vim.filetype.mapfn
+function M.int(_, bufnr)
+  if vim.g.filetype_int then
+    return vim.g.filetype_int
+  elseif is_objectscript_routime(bufnr) then
+    return 'objectscript_routine'
+  else
+    return 'hex'
+  end
 end
 
 --- Innovation Data Processing
@@ -2121,6 +2160,10 @@ local function match_from_hashbang(contents, path, dispatch_extension)
     if opts.vim_regex and matchregex(name, k) or name:find(k) then
       return ft
     end
+  end
+
+  if name == 'uv' and matchregex(first_line, [[\<uv run\>]]) then
+    return 'python'
   end
 
   -- If nothing matched, check the extension table. For a hashbang like

@@ -679,7 +679,7 @@ static int get_indent_nolabel(linenr_T lnum)  // XXX
 
   fp.col = (colnr_T)(p - l);
   fp.lnum = lnum;
-  getvcol(curwin, &fp, &col, NULL, NULL);
+  getvcol(curwin, &fp, &col, NULL, NULL, 0);
   return (int)col;
 }
 
@@ -754,7 +754,7 @@ static int cin_first_id_amount(void)
   p = skipwhite(p + len);
   fp.lnum = curwin->w_cursor.lnum;
   fp.col = (colnr_T)(p - line);
-  getvcol(curwin, &fp, &col, NULL, NULL);
+  getvcol(curwin, &fp, &col, NULL, NULL, 0);
   return (int)col;
 }
 
@@ -803,7 +803,7 @@ static int cin_get_equal_amount(linenr_T lnum)
 
   fp.lnum = lnum;
   fp.col = (colnr_T)(s - line);
-  getvcol(curwin, &fp, &col, NULL, NULL);
+  getvcol(curwin, &fp, &col, NULL, NULL, 0);
   return (int)col;
 }
 
@@ -1367,7 +1367,7 @@ static int get_baseclass_amount(int col)
     }
   } else {
     curwin->w_cursor.col = col;
-    getvcol(curwin, &curwin->w_cursor, &vcol, NULL, NULL);
+    getvcol(curwin, &curwin->w_cursor, &vcol, NULL, NULL, 0);
     amount = (int)vcol;
   }
   if (amount < curbuf->b_ind_cpp_baseclass) {
@@ -2044,7 +2044,7 @@ int get_c_indent(void)
     }
     if (trypos != NULL) {
       // find how indented the line beginning the comment is
-      getvcol(curwin, trypos, &col, NULL, NULL);
+      getvcol(curwin, trypos, &col, NULL, NULL, 0);
       amount = col;
       goto theend;
     }
@@ -2057,13 +2057,14 @@ int get_c_indent(void)
     char lead_start[COM_MAX_LEN];             // start-comment string
     char lead_middle[COM_MAX_LEN];            // middle-comment string
     char lead_end[COM_MAX_LEN];               // end-comment string
+    int lead_end_len;
     char *p;
     int start_align = 0;
     int start_off = 0;
     int done = false;
 
     // find how indented the line beginning the comment is
-    getvcol(curwin, comment_pos, &col, NULL, NULL);
+    getvcol(curwin, comment_pos, &col, NULL, NULL, 0);
     amount = col;
     *lead_start = NUL;
     *lead_middle = NUL;
@@ -2089,20 +2090,20 @@ int get_c_indent(void)
       if (*p == ':') {
         p++;
       }
-      (void)copy_option_part(&p, lead_end, COM_MAX_LEN, ",");
+      lead_end_len = (int)copy_option_part(&p, lead_end, COM_MAX_LEN, ",");
       if (what == COM_START) {
         STRCPY(lead_start, lead_end);
-        lead_start_len = (int)strlen(lead_start);
+        lead_start_len = lead_end_len;
         start_off = off;
         start_align = align;
       } else if (what == COM_MIDDLE) {
         STRCPY(lead_middle, lead_end);
-        lead_middle_len = (int)strlen(lead_middle);
+        lead_middle_len = lead_end_len;
       } else if (what == COM_END) {
         // If our line starts with the middle comment string, line it
         // up with the comment opener per the 'comments' option.
         if (strncmp(theline, lead_middle, (size_t)lead_middle_len) == 0
-            && strncmp(theline, lead_end, strlen(lead_end)) != 0) {
+            && strncmp(theline, lead_end, (size_t)lead_end_len) != 0) {
           done = true;
           if (curwin->w_cursor.lnum > 1) {
             // If the start comment string matches in the previous
@@ -2133,7 +2134,7 @@ int get_c_indent(void)
         // If our line starts with the end comment string, line it up
         // with the middle comment
         if (strncmp(theline, lead_middle, (size_t)lead_middle_len) != 0
-            && strncmp(theline, lead_end, strlen(lead_end)) == 0) {
+            && strncmp(theline, lead_end, (size_t)lead_end_len) == 0) {
           amount = get_indent_lnum(curwin->w_cursor.lnum - 1);
           // XXX
           if (off != 0) {
@@ -2176,7 +2177,7 @@ int get_c_indent(void)
             comment_pos->col = (colnr_T)(skipwhite(look) - start);
           }
         }
-        getvcol(curwin, comment_pos, &col, NULL, NULL);
+        getvcol(curwin, comment_pos, &col, NULL, NULL, 0);
         amount = col;
         if (curbuf->b_ind_in_comment2 || *look == NUL) {
           amount += curbuf->b_ind_in_comment;
@@ -2363,7 +2364,7 @@ int get_c_indent(void)
           // Find how indented the paren is, or the character after it
           // if we did the above "if".
           if (our_paren_pos.col > 0) {
-            getvcol(curwin, &our_paren_pos, &col, NULL, NULL);
+            getvcol(curwin, &our_paren_pos, &col, NULL, NULL, 0);
             if (cur_amount > (int)col) {
               cur_amount = col;
             }
@@ -2446,7 +2447,7 @@ int get_c_indent(void)
       // a whole and then add the "imaginary indent" to that.
       look = skipwhite(start);
       if (*look == '{') {
-        getvcol(curwin, trypos, &col, NULL, NULL);
+        getvcol(curwin, trypos, &col, NULL, NULL, 0);
         amount = col;
         if (*start == '{') {
           start_brace = BRACE_IN_COL0;

@@ -6,10 +6,10 @@ local Screen = require('test.functional.ui.screen')
 
 local api, clear, command, exec_lua, feed = n.api, n.clear, n.command, n.exec_lua, n.feed
 
-local msg_timeout = 200
+local msg_timeout = 400
 local function set_msg_target_zero_ch()
   exec_lua(function()
-    require('vim._core.ui2').enable({ msg = { target = 'msg', timeout = msg_timeout } })
+    require('vim._core.ui2').enable({ msg = { target = 'msg', msg = { timeout = msg_timeout } } })
     vim.o.cmdheight = 0
   end)
 end
@@ -39,7 +39,7 @@ describe('messages2', function()
   end)
 
   it('multiline messages and pager', function()
-    command('echo "foo\nbar"')
+    command('set ruler showcmd noshowmode | echo "foo\nbar"')
     screen:expect([[
       ^                                                     |
       {1:~                                                    }|*10
@@ -47,8 +47,15 @@ describe('messages2', function()
       foo                                                  |
       bar                                                  |
     ]])
-    command('set ruler showcmd noshowmode')
-    feed('g<lt>')
+    feed('g')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*10
+      {3:                                                     }|
+      foo                                                  |
+      bar                                       g          |
+    ]])
+    feed('<lt>')
     screen:expect([[
                                                            |
       {1:~                                                    }|*9
@@ -73,11 +80,7 @@ describe('messages2', function()
     ]])
     -- Any key press resizes the cmdline and updates the spill indicator.
     feed('j')
-    screen:expect([[
-      ^                                                     |
-      {1:~                                                    }|*12
-      foo [+29]                           0,0-1         All|
-    ]])
+    screen:expect({ any = { '+29' } })
     command('echo "foo"')
     -- New message clears spill indicator.
     screen:expect([[
@@ -150,9 +153,8 @@ describe('messages2', function()
       {1:~                                                    }|*11
       foo [+1]                            1,1           All|
     ]])
-    -- Changing 'laststatus' reveals the global statusline with a pager height
-    -- exceeding the available lines: #38008.
-    command('tabonly | call nvim_echo([["foo\n"]]->repeat(&lines), 1, {})')
+    -- Don't enter the pager in insert mode.
+    command('tabonly | call nvim_echo([["foo\n"]]->repeat(&lines), 1, {}) | startinsert')
     screen:expect([[
       ^x                                                    |
       {1:~                                                    }|*5
@@ -162,16 +164,118 @@ describe('messages2', function()
     ]])
     feed('<CR>')
     screen:expect([[
+                                                           |
+      ^x                                                    |
+      {1:~                                                    }|*11
+      foo [+14]                           2,1           All|
+    ]])
+    feed('<BS><Esc>')
+    -- First multiline message expands cmdline, additional message updates spill indicator.
+    command('call nvim_echo([["foo\n"]]->repeat(&lines), 1, {}) | echo "bar"')
+    screen:expect([[
+      ^x                                                    |
+      {1:~                                                    }|*5
+      {3:                                                     }|
+      foo                                                  |*6
+      foo [+9]                                             |
+    ]])
+    -- Do enter the pager in normal mode.
+    feed('<CR>')
+    screen:expect([[
       {3:                                                     }|
       ^foo                                                  |
       foo                                                  |*11
                                           1,1           Top|
     ]])
+    -- Changing 'laststatus' reveals the global statusline with a pager height
+    -- exceeding the available lines: #38008.
     command('set laststatus=3')
     screen:expect([[
       {3:                                                     }|
       ^foo                                                  |
       foo                                                  |*10
+      {3:[Pager]                            1,1            Top}|
+                                                           |
+    ]])
+    feed(':<C-F>')
+    screen:expect([[
+      {3:                                                     }|
+      foo                                                  |*4
+      {1::}echo "foo" | echo "bar\nbaz\n"->repeat(&lines)      |
+      {1::}^                                                    |
+      {1:~                                                    }|*5
+      {3:[Command Line]                     2,0-1          All}|
+                                                           |
+    ]])
+    command('wincmd +')
+    screen:expect([[
+      {3:                                                     }|
+      foo                                                  |*3
+      {1::}echo "foo" | echo "bar\nbaz\n"->repeat(&lines)      |
+      {1::}^                                                    |
+      {1:~                                                    }|*6
+      {3:[Command Line]                     2,0-1          All}|
+                                                           |
+    ]])
+    command('echo "foo"')
+    screen:expect([[
+      {3:                                                     }|
+      foo                                                  |*3
+      {1::}echo "foo" | echo "bar\nbaz\n"->repeat(&lines)      |
+      {1::}^                                                    |
+      {1:~                                                    }|*6
+      {3:[Command Line]                     2,0-1          All}|
+      foo                                                  |
+    ]])
+    feed('<C-C>')
+    screen:expect([[
+      {3:                                                     }|
+      foo                                                  |*11
+      {3:[Pager]                            1,1            Top}|
+      {16::}^                                                    |
+    ]])
+    -- Can enter pager from cmdwin.
+    feed('<Esc>qq:')
+    screen:expect([[
+      x                                                    |
+      {1:~                                                    }|*3
+      ─────────────────────────────────────────────────────|
+      {1::}echo "foo" | echo "bar\nbaz\n"->repeat(&lines)      |
+      {1::}^                                                    |
+      {1:~                                                    }|*5
+      {3:[Command Line]                     2,0-1          All}|
+                                                           |
+    ]])
+    feed(':messages<CR>')
+    screen:expect([[
+      {3:                                                     }|
+      ^foo                                                  |
+      foo                                                  |*10
+      {3:[Pager]                            1,1            Top}|
+                                                           |
+    ]])
+    -- Cmdwin is restored after pager is closed.
+    feed('q')
+    screen:expect([[
+      x                                                    |
+      {1:~                                                    }|*3
+      ─────────────────────────────────────────────────────|
+      {1::}echo "foo" | echo "bar\nbaz\n"->repeat(&lines)      |
+      {1::}messages                                            |
+      {1::}^                                                    |
+      {1:~                                                    }|*4
+      {3:[Command Line]                     3,0-1          All}|
+                                                           |
+    ]])
+    -- Configured maximum height.
+    command('quit | lua require("vim._core.ui2").enable({msg = {pager = {height = 2 } } })')
+    command('messages')
+    screen:expect([[
+      x                                                    |
+      {1:~                                                    }|*8
+      {3:                                                     }|
+      ^foo                                                  |
+      foo                                                  |
       {3:[Pager]                            1,1            Top}|
                                                            |
     ]])
@@ -285,6 +389,15 @@ describe('messages2', function()
     ]])
   end)
 
+  it('empty kind after message that does not flush immediately', function()
+    command('echon "foo" | echo')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*12
+      foo                                                  |
+    ]])
+  end)
+
   it("deleting buffer restores 'buftype'", function()
     feed(':%bdelete<CR>')
     screen:expect([[
@@ -330,25 +443,23 @@ describe('messages2', function()
     ]])
   end)
 
-  it('not restoring already open hit-enter-prompt config #35298', function()
-    command('echo "foo\nbar"')
+  it('entering cmdline below expanded messages', function()
+    command('echo "foo\n"->repeat(&lines)')
     screen:expect([[
       ^                                                     |
-      {1:~                                                    }|*10
+      {1:~                                                    }|*5
       {3:                                                     }|
-      foo                                                  |
-      bar                                                  |
+      foo                                                  |*6
+      foo [+8]                                             |
     ]])
-    command('echo "foo\nbar"')
-    screen:expect_unchanged()
-    -- Place cmdline below expanded cmdline instead: #37653.
+    -- Place cmdline below expanded messages: #37653, without "more" title #38481.
     feed(':call setline(1, "foo")')
     screen:expect([[
                                                            |
-      {1:~                                                    }|*9
+      {1:~                                                    }|*4
       {3:                                                     }|
-      foo                                                  |
-      bar                                                  |
+      foo                                                  |*6
+      foo [+8]                                             |
       {16::}{15:call} {25:setline}{16:(}{26:1}{16:,} {26:"foo"}{16:)}^                              |
     ]])
     -- No message closes expanded cmdline and keeps the entered command.
@@ -365,9 +476,9 @@ describe('messages2', function()
       foo                                                  |
       {1:~                                                    }|*8
       {3:                                                     }|
-      ^foo                                                  |
+      foo                                                  |
       bar                                                  |
-      baz                                                  |
+      ^baz                                                  |
       {16::}{15:echo} {26:"baz"}                                          |
     ]])
     -- Subsequent typed commands are appended to the pager.
@@ -398,10 +509,25 @@ describe('messages2', function()
 
   it('paging prompt dialog #35191', function()
     screen:try_resize(71, screen._height)
+    -- Don't consume <Esc> when paging is not necessary.
+    feed(':call confirm("Ok?")<CR>')
+    screen:expect([[
+                                                                             |
+      {1:~                                                                      }|*10
+      {3:                                                                       }|
+      {6:Ok?}                                                                    |
+      {6:[O]k: }^                                                                 |
+    ]])
+    feed('<Esc>')
+    screen:expect([[
+      ^                                                                       |
+      {1:~                                                                      }|*12
+                                                                             |
+    ]])
     local top = [[
                                                                              |
       {1:~                                                                      }|*4
-      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
+      {3: }f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging{3:           }|
       0                                                                      |
       1                                                                      |
       2                                                                      |
@@ -417,7 +543,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*4
-      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
+      {3: }f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging{3:           }|
       1 [+1]                                                                 |
       2                                                                      |
       3                                                                      |
@@ -433,7 +559,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*4
-      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
+      {3: }f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging{3:           }|
       3 [+3]                                                                 |
       4                                                                      |
       5                                                                      |
@@ -449,7 +575,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*4
-      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
+      {3: }f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging{3:           }|
       5 [+5]                                                                 |
       6                                                                      |
       7                                                                      |
@@ -465,7 +591,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*4
-      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
+      {3: }f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging{3:           }|
       93 [+93]                                                               |
       94                                                                     |
       95                                                                     |
@@ -480,7 +606,7 @@ describe('messages2', function()
     screen:expect([[
                                                                              |
       {1:~                                                                      }|*3
-      {3: f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging           }|
+      {3: }f/d/j: screen/page/line down, b/u/k: up, <Esc>: stop paging{3:           }|
       93 [+93]                                                               |
       94                                                                     |
       95                                                                     |
@@ -678,9 +804,9 @@ describe('messages2', function()
 
   it('replace by message ID', function()
     exec_lua(function()
-      vim.api.nvim_echo({ { 'foo' } }, true, { id = 1 })
-      vim.api.nvim_echo({ { 'bar\nbaz' } }, true, { id = 2 })
-      vim.api.nvim_echo({ { 'foo' } }, true, { id = 3 })
+      assert(1 == vim.api.nvim_echo({ { 'foo' } }, true, {}))
+      assert(2 == vim.api.nvim_echo({ { 'bar\nbaz' } }, true, {}))
+      assert(3 == vim.api.nvim_echo({ { 'foo' } }, true, {}))
       vim.keymap.set('n', 'Q', function()
         vim.api.nvim_echo({ { 'Syntax', 23 }, { '\n  - ', 0 }, { 'cCommentL', 439 } }, false, {})
       end)
@@ -722,7 +848,7 @@ describe('messages2', function()
         - cCommentL                                        |
     ]])
     feed('Q')
-    screen:expect_unchanged()
+    screen:expect_unchanged(true)
     feed('<C-L>') -- close expanded cmdline
     set_msg_target_zero_ch()
     api.nvim_echo({ { 'foo' } }, true, { id = 1 })

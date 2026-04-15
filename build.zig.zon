@@ -1,7 +1,7 @@
 .{
     .name = .neovim,
     .fingerprint = 0x66eb090879307a38,
-    .version = "0.12.0",
+    .version = "0.13.0",
     .minimum_zig_version = "0.15.2",
 
     .dependencies = .{
@@ -25,8 +25,8 @@
             .lazy = true,
         },
         .treesitter = .{
-            .url = "git+https://github.com/tree-sitter/tree-sitter?ref=v0.26.7#6f2e8a6cf4d7025e2b2a7227d270640273100138",
-            .hash = "tree_sitter-0.26.7-Tw2sR9S2CwCSBy6UtwPyp13J-P2VC_4hC1VxL8DSC6Jf",
+            .url = "git+https://github.com/tree-sitter/tree-sitter#64698af1ac6abb97f5a548cfbaf6e88bca2d8782",
+            .hash = "tree_sitter-0.27.0-Tw2sR3PCCwChW63BNQ5OXb1i17eT58LSeWSdweWuZ6lF",
             .lazy = true,
         },
         .libuv = .{
@@ -40,10 +40,6 @@
             .url = "git+https://github.com/allyourcodebase/libiconv#9def4c8a1743380e85bcedb80f2c15b455e236f3",
             .hash = "libiconv-1.18.0-p9sJwWnqAACzVYeWgXB5r5lOQ74XwTPlptixV0JPRO28",
             .lazy = true,
-        },
-        .lua_dev_deps = .{
-            .url = "https://github.com/neovim/deps/raw/06ef2b58b0876f8de1a3f5a710473dcd7afff251/opt/lua-dev-deps.tar.gz",
-            .hash = "N-V-__8AAGevEQCHAkCozca5AIdN9DFc3Luf3g3r2AcbyOrm",
         },
         .treesitter_c = .{
             .url = "git+https://github.com/tree-sitter/tree-sitter-c?ref=v0.24.1#7fa1be1b694b6e763686793d97da01f36a0e5c12",

@@ -41,6 +41,8 @@ static Map(uint64_t, int) combine_attr_entries = MAP_INIT;
 static Map(uint64_t, int) blend_attr_entries = MAP_INIT;
 static Map(uint64_t, int) blendthrough_attr_entries = MAP_INIT;
 static Set(cstr_t) urls = SET_INIT;
+/// Interned font names, referenced by index in HlAttrs.font.
+static Set(cstr_t) fonts = SET_INIT;
 
 #define attr_entry(i) attr_entries.keys[i]
 
@@ -221,7 +223,7 @@ int ns_get_hl(NS *ns_hl, int hl_id, bool link, bool nodefault)
       fallback = false;
       Dict(highlight) dict = KEYDICT_INIT;
       if (api_dict_to_keydict(&dict, KeyDict_highlight_get_field, ret.data.dict, &err)) {
-        attrs = dict2hlattrs(&dict, true, &it.link_id, &err);
+        attrs = dict2hlattrs(&dict, true, &it.link_id, NULL, &err);
         fallback = GET_BOOL_OR_TRUE(&dict, highlight, fallback);
         tmp = dict.fallback;  // or false
         if (it.link_id >= 0) {
@@ -291,6 +293,28 @@ bool win_check_ns_hl(win_T *wp)
   return hl_check_ns();
 }
 
+/// Get highlight attributes for a highlight group
+///
+/// @param ns_id Namespace ID (0 for global namespace)
+/// @param hl_id Highlight group ID (1-based)
+/// @param[in] optional If non-NULL, passed to syn_ns_id2attr to track
+///                      whether the group was explicitly defined in the namespace.
+/// @param[out] attrs Pointer to store the attributes
+/// @return true if highlight group exists and has valid attributes
+bool hl_ns_get_attrs(int ns_id, int hl_id, bool *optional, HlAttrs *attrs)
+{
+  bool opt = optional ? *optional : true;
+  int syn_attr = syn_ns_id2attr(ns_id, hl_id, &opt);
+  if (optional) {
+    *optional = opt;
+  }
+  if (syn_attr <= 0) {
+    return false;
+  }
+  *attrs = syn_attr2entry(syn_attr);
+  return true;
+}
+
 /// Get attribute code for a builtin highlight group.
 ///
 /// The final syntax group could be modified by hi-link or 'winhighlight'.
@@ -300,11 +324,7 @@ int hl_get_ui_attr(int ns_id, int idx, int final_id, bool optional)
   bool available = false;
 
   if (final_id > 0) {
-    int syn_attr = syn_ns_id2attr(ns_id, final_id, &optional);
-    if (syn_attr > 0) {
-      attrs = syn_attr2entry(syn_attr);
-      available = true;
-    }
+    available = hl_ns_get_attrs(ns_id, final_id, &optional, &attrs);
   }
 
   if (HLF_PNI <= idx && idx <= HLF_PST) {
@@ -518,6 +538,37 @@ const char *hl_get_url(uint32_t index)
   return urls.keys[index];
 }
 
+// Intern a font name and return its stable index for use in HlAttrs.font.
+///
+/// @param font_name The font name to add
+/// @return Font index, or -1 if font_name is NULL or empty
+int32_t hl_add_font_idx(const char *font_name)
+{
+  if (font_name == NULL || *font_name == '\0') {
+    return -1;
+  }
+
+  MHPutStatus status;
+  uint32_t k = set_put_idx(cstr_t, &fonts, font_name, &status);
+  if (status != kMHExisting) {
+    fonts.keys[k] = xstrdup(font_name);
+  }
+
+  return (int32_t)k;
+}
+
+/// Get a font name by its index.
+///
+/// @param index Font index
+/// @return Font name, or NULL if index is invalid
+const char *hl_get_font(int32_t index)
+{
+  if (index < 0 || !fonts.keys) {
+    return NULL;
+  }
+  return fonts.keys[index];
+}
+
 /// Get attribute code for forwarded :terminal highlights.
 int hl_get_term_attr(HlAttrs *aep)
 {
@@ -533,6 +584,11 @@ void clear_hl_tables(bool reinit)
     xfree((void *)url);
   });
 
+  const char *font = NULL;
+  set_foreach(&fonts, font, {
+    xfree((void *)font);
+  });
+
   if (reinit) {
     set_clear(HlEntry, &attr_entries);
     highlight_init();
@@ -540,6 +596,7 @@ void clear_hl_tables(bool reinit)
     map_clear(uint64_t, &blend_attr_entries);
     map_clear(uint64_t, &blendthrough_attr_entries);
     set_clear(cstr_t, &urls);
+    set_clear(cstr_t, &fonts);
     memset(highlight_attr_last, -1, sizeof(highlight_attr_last));
     highlight_attr_set_all();
     highlight_changed();
@@ -551,6 +608,7 @@ void clear_hl_tables(bool reinit)
     map_destroy(uint64_t, &blendthrough_attr_entries);
     map_destroy(ColorKey, &ns_hls);
     set_destroy(cstr_t, &urls);
+    set_destroy(cstr_t, &fonts);
   }
 }
 
@@ -1003,51 +1061,58 @@ void hlattrs2dict(Dict *hl, Dict *hl_attrs, HlAttrs ae, bool use_rgb, bool short
   if (ae.hl_blend > -1 && (use_rgb || !short_keys)) {
     PUT_C(*hl, "blend", INTEGER_OBJ(ae.hl_blend));
   }
+  const char *font = hl_get_font(ae.font);
+  if (font != NULL) {
+    PUT_C(*hl, "font", STRING_OBJ(cstr_as_string(font)));
+  }
 }
 
-HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *err)
+HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, HlAttrs *base, Error *err)
 {
 #define HAS_KEY_X(d, key) HAS_KEY(d, highlight, key)
   HlAttrs hlattrs = HLATTRS_INIT;
-  int32_t fg = -1;
-  int32_t bg = -1;
-  int32_t ctermfg = -1;
-  int32_t ctermbg = -1;
-  int32_t sp = -1;
-  int blend = -1;
-  int32_t mask = 0;
-  int32_t cterm_mask = 0;
+  int32_t fg = base ? base->rgb_fg_color : -1;
+  int32_t bg = base ? base->rgb_bg_color : -1;
+  int32_t ctermfg = base ? (base->cterm_fg_color == 0 ? -1 : base->cterm_fg_color - 1) : -1;
+  int32_t ctermbg = base ? (base->cterm_bg_color == 0 ? -1 : base->cterm_bg_color - 1) : -1;
+  int32_t sp = base ? base->rgb_sp_color : -1;
+  int blend = base ? base->hl_blend : -1;
+  int32_t mask = base ? base->rgb_ae_attr : 0;
+  int32_t cterm_mask = base ? base->cterm_ae_attr : 0;
   bool cterm_mask_provided = false;
 
-#define CHECK_FLAG(d, m, name, extra, flag) \
-  if (d->name##extra) { \
-    if (flag & HL_UNDERLINE_MASK) { \
-      m &= ~HL_UNDERLINE_MASK; \
+#define CHECK_FLAG_WITH_KEY(d, m, name, extra, flag) \
+  if (HAS_KEY_X(d, name)) { \
+    int32_t flag_ = (flag); \
+    int32_t cmask_ = (flag_ & HL_UNDERLINE_MASK) ? HL_UNDERLINE_MASK : flag_; \
+    if (d->name##extra) { \
+      m = (m & ~cmask_) | flag_; \
+    } else if ((m & cmask_) == flag_) { \
+      m &= ~cmask_; \
     } \
-    m |= flag; \
   }
 
-  CHECK_FLAG(dict, mask, reverse, , HL_INVERSE);
-  CHECK_FLAG(dict, mask, bold, , HL_BOLD);
-  CHECK_FLAG(dict, mask, italic, , HL_ITALIC);
-  CHECK_FLAG(dict, mask, underline, , HL_UNDERLINE);
-  CHECK_FLAG(dict, mask, undercurl, , HL_UNDERCURL);
-  CHECK_FLAG(dict, mask, underdouble, , HL_UNDERDOUBLE);
-  CHECK_FLAG(dict, mask, underdotted, , HL_UNDERDOTTED);
-  CHECK_FLAG(dict, mask, underdashed, , HL_UNDERDASHED);
-  CHECK_FLAG(dict, mask, standout, , HL_STANDOUT);
-  CHECK_FLAG(dict, mask, strikethrough, , HL_STRIKETHROUGH);
-  CHECK_FLAG(dict, mask, altfont, , HL_ALTFONT);
-  CHECK_FLAG(dict, mask, dim, , HL_DIM);
-  CHECK_FLAG(dict, mask, blink, , HL_BLINK);
-  CHECK_FLAG(dict, mask, conceal, , HL_CONCEALED);
-  CHECK_FLAG(dict, mask, overline, , HL_OVERLINE);
+  CHECK_FLAG_WITH_KEY(dict, mask, reverse, , HL_INVERSE);
+  CHECK_FLAG_WITH_KEY(dict, mask, bold, , HL_BOLD);
+  CHECK_FLAG_WITH_KEY(dict, mask, italic, , HL_ITALIC);
+  CHECK_FLAG_WITH_KEY(dict, mask, underline, , HL_UNDERLINE);
+  CHECK_FLAG_WITH_KEY(dict, mask, undercurl, , HL_UNDERCURL);
+  CHECK_FLAG_WITH_KEY(dict, mask, underdouble, , HL_UNDERDOUBLE);
+  CHECK_FLAG_WITH_KEY(dict, mask, underdotted, , HL_UNDERDOTTED);
+  CHECK_FLAG_WITH_KEY(dict, mask, underdashed, , HL_UNDERDASHED);
+  CHECK_FLAG_WITH_KEY(dict, mask, standout, , HL_STANDOUT);
+  CHECK_FLAG_WITH_KEY(dict, mask, strikethrough, , HL_STRIKETHROUGH);
+  CHECK_FLAG_WITH_KEY(dict, mask, altfont, , HL_ALTFONT);
+  CHECK_FLAG_WITH_KEY(dict, mask, dim, , HL_DIM);
+  CHECK_FLAG_WITH_KEY(dict, mask, blink, , HL_BLINK);
+  CHECK_FLAG_WITH_KEY(dict, mask, conceal, , HL_CONCEALED);
+  CHECK_FLAG_WITH_KEY(dict, mask, overline, , HL_OVERLINE);
   if (use_rgb) {
-    CHECK_FLAG(dict, mask, fg_indexed, , HL_FG_INDEXED);
-    CHECK_FLAG(dict, mask, bg_indexed, , HL_BG_INDEXED);
+    CHECK_FLAG_WITH_KEY(dict, mask, fg_indexed, , HL_FG_INDEXED);
+    CHECK_FLAG_WITH_KEY(dict, mask, bg_indexed, , HL_BG_INDEXED);
   }
-  CHECK_FLAG(dict, mask, nocombine, , HL_NOCOMBINE);
-  CHECK_FLAG(dict, mask, default, _, HL_DEFAULT);
+  CHECK_FLAG_WITH_KEY(dict, mask, nocombine, , HL_NOCOMBINE);
+  CHECK_FLAG_WITH_KEY(dict, mask, default, _, HL_DEFAULT);
 
   if (HAS_KEY_X(dict, fg)) {
     fg = object_to_color(dict->fg, "fg", use_rgb, err);
@@ -1084,14 +1149,14 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
     blend = (int)blend0;
   }
 
-  if (HAS_KEY_X(dict, link) || HAS_KEY_X(dict, global_link)) {
+  if (HAS_KEY_X(dict, link) || HAS_KEY_X(dict, link_global)) {
     if (!link_id) {
       api_set_error(err, kErrorTypeValidation, "Invalid Key: '%s'",
-                    HAS_KEY_X(dict, global_link) ? "global_link" : "link");
+                    HAS_KEY_X(dict, link_global) ? "link_global" : "link");
       return hlattrs;
     }
-    if (HAS_KEY_X(dict, global_link)) {
-      *link_id = (int)dict->global_link;
+    if (HAS_KEY_X(dict, link_global)) {
+      *link_id = (int)dict->link_global;
       mask |= HL_GLOBAL;
     } else {
       *link_id = (int)dict->link;
@@ -1111,6 +1176,16 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
     }
 
     cterm_mask_provided = true;
+    cterm_mask = 0;
+
+#define CHECK_FLAG(d, m, name, extra, flag) \
+  if (d->name##extra) { \
+    if (flag & HL_UNDERLINE_MASK) { \
+      m &= ~HL_UNDERLINE_MASK; \
+    } \
+    m |= flag; \
+  }
+
     CHECK_FLAG(cterm, cterm_mask, reverse, , HL_INVERSE);
     CHECK_FLAG(cterm, cterm_mask, bold, , HL_BOLD);
     CHECK_FLAG(cterm, cterm_mask, italic, , HL_ITALIC);
@@ -1129,6 +1204,7 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
     CHECK_FLAG(cterm, cterm_mask, nocombine, , HL_NOCOMBINE);
   }
 #undef CHECK_FLAG
+#undef CHECK_FLAG_WITH_KEY
 
   if (HAS_KEY_X(dict, ctermfg)) {
     ctermfg = object_to_color(dict->ctermfg, "ctermfg", false, err);
@@ -1161,6 +1237,13 @@ HlAttrs dict2hlattrs(Dict(highlight) *dict, bool use_rgb, int *link_id, Error *e
     hlattrs.cterm_bg_color = bg == -1 ? 0 : (int16_t)(bg + 1);
     hlattrs.cterm_fg_color = fg == -1 ? 0 : (int16_t)(fg + 1);
     hlattrs.cterm_ae_attr = mask;
+  }
+
+  if (HAS_KEY_X(dict, font)) {
+    String str = dict->font;
+    if (str.size > 0 && STRICMP(str.data, "NONE") != 0) {
+      hlattrs.font = hl_add_font_idx(str.data);
+    }
   }
 
   return hlattrs;

@@ -178,10 +178,10 @@ static bool event_teardown(void)
   multiqueue_process_events(main_loop.events);
   loop_poll_events(&main_loop, 0);  // Drain thread_events, fast_events.
   input_stop();
+  server_teardown();
   channel_teardown();
   proc_teardown(&main_loop);
   timer_teardown();
-  server_teardown();
   signal_teardown();
   terminal_teardown();
 
@@ -364,7 +364,7 @@ int main(int argc, char **argv)
 
   // NORETURN: Start builtin UI client.
   if (ui_client_channel_id) {
-    ui_client_run(remote_ui);  // NORETURN
+    ui_client_run();  // NORETURN
   }
   assert(!ui_client_channel_id && !use_builtin_ui);
   // Nvim server...
@@ -436,10 +436,9 @@ int main(int argc, char **argv)
   // Wait for UIs to set up Nvim or show early messages
   // and prompts (--cmd, swapfile dialog, …).
   bool use_remote_ui = (embedded_mode && !headless_mode);
-  bool listen_and_embed = params.listen_addr != NULL;
   if (use_remote_ui) {
     TIME_MSG("waiting for UI");
-    remote_ui_wait_for_attach(!listen_and_embed);
+    remote_ui_wait_for_attach();
     TIME_MSG("done waiting for UI");
     firstwin->w_prev_height = firstwin->w_height;  // may have changed
   }
@@ -859,17 +858,6 @@ void getout(int exitval)
   // Apply 'titleold'.
   if (p_title && *p_titleold != NUL) {
     ui_call_set_title(cstr_as_string(p_titleold));
-  }
-
-  if (restarting) {
-    Error err = ERROR_INIT;
-    if (!remote_ui_restart(current_ui, &err)) {
-      if (ERROR_SET(&err)) {
-        ELOG("%s", err.msg);  // UI disappeared already?
-        api_clear_error(&err);
-      }
-    }
-    restarting = false;
   }
 
   if (garbage_collect_at_exit) {
@@ -1515,9 +1503,10 @@ scripterror:
 
       if (parmp->diff_mode && os_isdir(p) && GARGCOUNT > 0
           && !os_isdir(alist_name(&GARGLIST[0]))) {
-        char *r = concat_fnames(p, path_tail(alist_name(&GARGLIST[0])), true);
+        const char *tail = path_tail(alist_name(&GARGLIST[0]));
+        String ret = concat_fnames(cstr_as_string(p), cstr_as_string(tail), true);
         xfree(p);
-        p = r;
+        p = ret.data;
       }
 
 #ifdef CASE_INSENSITIVE_FILENAME

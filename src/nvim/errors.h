@@ -63,6 +63,7 @@ EXTERN const char e_nogroup[] INIT(= N_("E28: No such highlight group name: %s")
 EXTERN const char e_noinstext[] INIT(= N_("E29: No inserted text yet"));
 EXTERN const char e_nolastcmd[] INIT(= N_("E30: No previous command line"));
 EXTERN const char e_nomap[] INIT(= N_("E31: No such mapping"));
+EXTERN const char e_noident[] INIT(= N_("E349: No identifier under cursor"));
 EXTERN const char e_nomatch[] INIT(= N_("E479: No match"));
 EXTERN const char e_nomatch2[] INIT(= N_("E480: No match: %s"));
 EXTERN const char e_noname[] INIT(= N_("E32: No file name"));
@@ -177,6 +178,7 @@ EXTERN const char e_cannot_change_value[] INIT(= N_("E742: Cannot change value")
 EXTERN const char e_cannot_change_value_of_str[] INIT(= N_("E742: Cannot change value of %.*s"));
 EXTERN const char e_cannot_set_variable_in_sandbox_str[] INIT(= N_("E794: Cannot set variable in the sandbox: \"%.*s\""));
 EXTERN const char e_cannot_delete_variable_str[] INIT(= N_("E795: Cannot delete variable %.*s"));
+EXTERN const char e_invalwindow[] INIT(= N_("E957: Invalid window number"));
 EXTERN const char e_problem_creating_internal_diff[] INIT(= N_("E960: Problem creating the internal diff"));
 
 EXTERN const char e_cannot_define_autocommands_for_all_events[] INIT(= N_("E1155: Cannot define autocommands for ALL events"));

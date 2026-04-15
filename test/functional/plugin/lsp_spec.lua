@@ -583,13 +583,13 @@ describe('LSP', function()
         local detach_called1 = false
         local detach_called2 = false
         vim.api.nvim_create_autocmd('LspDetach', {
-          buffer = bufnr1,
+          buf = bufnr1,
           callback = function()
             detach_called1 = true
           end,
         })
         vim.api.nvim_create_autocmd('LspDetach', {
-          buffer = bufnr2,
+          buf = bufnr2,
           callback = function()
             detach_called2 = true
           end,
@@ -806,13 +806,41 @@ describe('LSP', function()
             exec_lua(function()
               _G.BUFFER = vim.api.nvim_get_current_buf()
               vim.lsp.buf_attach_client(_G.BUFFER, _G.TEST_RPC_CLIENT_ID)
-              vim.api.nvim_exec_autocmds('BufWritePost', { buffer = _G.BUFFER, modeline = false })
+              vim.api.nvim_exec_autocmds('BufWritePost', { buf = _G.BUFFER, modeline = false })
             end)
           else
             client:stop()
           end
         end,
       }
+    end)
+
+    it('saveas sends didOpen to multiple attached servers if filename changed', function()
+      local tmpfile_new = tmpname(false)
+      exec_lua(create_server_definition)
+      local messages = exec_lua(function()
+        local server1 = _G._create_server()
+        local server2 = _G._create_server()
+        local client1_id = assert(vim.lsp.start({ name = 'dummy1', cmd = server1.cmd }))
+        local client2_id = assert(vim.lsp.start({ name = 'dummy2', cmd = server2.cmd }))
+
+        vim.cmd('saveas ' .. tmpfile_new)
+
+        vim.lsp.get_client_by_id(client1_id):stop()
+        vim.lsp.get_client_by_id(client2_id):stop()
+
+        return {
+          server1 = server1.messages,
+          server2 = server2.messages,
+        }
+      end)
+      eq('textDocument/didClose', messages.server1[3].method)
+      eq('textDocument/didOpen', messages.server1[4].method)
+      eq('textDocument/didSave', messages.server1[5].method)
+
+      eq('textDocument/didClose', messages.server2[3].method)
+      eq('textDocument/didOpen', messages.server2[4].method)
+      eq('textDocument/didSave', messages.server2[5].method)
     end)
 
     it('BufWritePre does not send notifications if server lacks willSave capabilities', function()
@@ -828,7 +856,7 @@ describe('LSP', function()
         })
         local client_id = assert(vim.lsp.start({ name = 'dummy', cmd = server.cmd }))
         local buf = vim.api.nvim_get_current_buf()
-        vim.api.nvim_exec_autocmds('BufWritePre', { buffer = buf, modeline = false })
+        vim.api.nvim_exec_autocmds('BufWritePre', { buf = buf, modeline = false })
         vim.lsp.get_client_by_id(client_id):stop()
         return server.messages
       end)
@@ -864,7 +892,7 @@ describe('LSP', function()
         })
         local buf = vim.api.nvim_get_current_buf()
         local client_id = assert(vim.lsp.start({ name = 'dummy', cmd = server.cmd }))
-        vim.api.nvim_exec_autocmds('BufWritePre', { buffer = buf, modeline = false })
+        vim.api.nvim_exec_autocmds('BufWritePre', { buf = buf, modeline = false })
         vim.lsp.get_client_by_id(client_id):stop()
         return {
           messages = server.messages,
@@ -935,7 +963,7 @@ describe('LSP', function()
               _G.BUFFER = vim.api.nvim_get_current_buf()
               vim.api.nvim_buf_set_lines(_G.BUFFER, 0, -1, true, { 'help me' })
               vim.lsp.buf_attach_client(_G.BUFFER, _G.TEST_RPC_CLIENT_ID)
-              vim.api.nvim_exec_autocmds('BufWritePost', { buffer = _G.BUFFER, modeline = false })
+              vim.api.nvim_exec_autocmds('BufWritePost', { buf = _G.BUFFER, modeline = false })
             end)
           else
             client:stop()
@@ -2639,6 +2667,7 @@ describe('LSP', function()
           return vim.api.nvim_buf_get_lines(target_bufnr, 0, -1, false)
         end, make_workspace_edit(edits))
       )
+      eq(true, api.nvim_get_option_value('buflisted', { buf = target_bufnr }))
     end)
 
     it('apply_workspace_edit applies multiple edits', function()
@@ -3545,6 +3574,13 @@ describe('LSP', function()
       local pos = show_document(location(0, 9, 0, 9), true, true)
       eq(1, pos.line)
       eq(10, pos.col)
+
+      -- expectation: Cursor is placed past EOL (append position) in insert mode
+      n.feed('I')
+      pos = show_document(location(0, 16, 0, 16), true, true)
+      eq(1, pos.line)
+      eq(17, pos.col)
+      eq('i', api.nvim_get_mode().mode)
     end)
 
     it('jumps to a Location if focus is true via handler', function()
@@ -5326,7 +5362,8 @@ describe('LSP', function()
       n.feed(':vnew<CR>')
       api.nvim_win_set_buf(0, result.bufnr)
       api.nvim_win_set_cursor(0, { 3, 6 })
-      n.feed(':=vim.lsp.buf.definition({ reuse_win = true })<CR>')
+      n.feed(':set switchbuf=usetab<CR>')
+      n.feed(':=vim.lsp.buf.definition()<CR>')
       eq(displayed_result_win, api.nvim_get_current_win())
       exec_lua(function()
         vim.lsp.get_client_by_id(result.client_id):stop()
@@ -5494,6 +5531,7 @@ describe('LSP', function()
 
     it('connects to lsp server via rpc.connect using hostname', function()
       skip(is_os('bsd'), 'issue with host resolution in ci')
+      skip(t.is_arch('s390x'), 'issue with host resolution in ci')
       exec_lua(create_tcp_echo_server)
       exec_lua(function()
         local port = _G._create_tcp_server('::1')
@@ -5694,11 +5732,18 @@ describe('LSP', function()
         local function check(method, fname, ...)
           local bufnr = fname and vim.fn.bufadd(fname) or nil
           local client = assert(vim.lsp.get_client_by_id(client_id))
+          local keys = { ... }
+          local caps = {}
+          if #keys > 0 then
+            client:_provider_foreach(method, function(cap)
+              table.insert(caps, vim.tbl_get(cap, unpack(keys)) or vim.NIL)
+            end)
+          end
           result[#result + 1] = {
             method = method,
             fname = fname,
             supported = client:supports_method(method, bufnr),
-            cap = select('#', ...) > 0 and client:_provider_value_get(method, ...) or nil,
+            cap = #keys > 0 and caps or nil,
           }
         end
 
@@ -5978,7 +6023,11 @@ describe('LSP', function()
         { 'diag-ident-static' },
         exec_lua(function()
           local client = assert(vim.lsp.get_client_by_id(client_id))
-          return client:_provider_value_get('textDocument/diagnostic', 'identifier')
+          local result = {}
+          client:_provider_foreach('textDocument/diagnostic', function(cap)
+            table.insert(result, cap.identifier)
+          end)
+          return result
         end)
       )
     end)
@@ -6006,6 +6055,7 @@ describe('LSP', function()
               not is_ci() and fn.executable('inotifywait') == 0,
               'inotify-tools not installed and not on CI'
             )
+            skip(t.is_arch('s390x'), 'inotifywait not available on s390x CI')
           end
 
           if watchfunc == 'watch' then
@@ -6568,6 +6618,18 @@ describe('LSP', function()
   end)
 
   describe('vim.lsp.config() and vim.lsp.enable()', function()
+    ---@param names string[]
+    local function get_resolved(names)
+      return exec_lua(function(names_)
+        local rv = {}
+        local cs = vim.lsp._enabled_configs
+        for _, k in ipairs(names_) do
+          rv[k] = not not (cs[k] and cs[k].resolved_config)
+        end
+        return rv
+      end, names)
+    end
+
     it('merges settings from "*"', function()
       eq(
         {
@@ -6630,7 +6692,7 @@ describe('LSP', function()
 
         -- Exercise the codepath which had a regression:
         vim.lsp.enable('test_ls')
-        vim.api.nvim_exec_autocmds('FileType', { buffer = bufnr })
+        vim.api.nvim_exec_autocmds('FileType', { buf = bufnr })
 
         -- enable() does _not_ detach the client since it doesn't actually have a config.
         -- XXX: otoh, is it confusing to allow `enable("foo")` if there a "foo" _client_ without a "foo" _config_?
@@ -7113,6 +7175,56 @@ describe('LSP', function()
       -- And finally, disable it again.
       exec_lua([[vim.lsp.enable('foo', false)]])
       eq(false, exec_lua([[return vim.lsp.is_enabled('foo')]]))
+    end)
+
+    it('vim.lsp.get_configs()', function()
+      exec_lua(function()
+        vim.lsp.config('foo', {
+          cmd = { 'foo' },
+          filetypes = { 'foofile' },
+          root_markers = { '.foorc' },
+        })
+        vim.lsp.config('bar', {
+          cmd = { 'bar' },
+          root_markers = { '.barrc' },
+        })
+        vim.lsp.enable('foo')
+      end)
+
+      local function names(configs)
+        local config_names = vim
+          .iter(configs)
+          :map(function(config)
+            return config.name
+          end)
+          :totable()
+        table.sort(config_names)
+        return config_names
+      end
+
+      eq({ 'foo' }, names(exec_lua([[return vim.lsp.get_configs { enabled = true }]])))
+      -- Does NOT resolve non-enabled configs.
+      eq({ foo = true, bar = false }, get_resolved({ 'bar', 'foo' }))
+
+      eq({ 'bar' }, names(exec_lua([[return vim.lsp.get_configs { enabled = false }]])))
+
+      -- With no filter, return all configs
+      eq({ 'bar', 'foo' }, names(exec_lua([[return vim.lsp.get_configs()]])))
+
+      -- Confirm `filetype` works
+      eq({ 'foo' }, names(exec_lua([[return vim.lsp.get_configs { filetype = 'foofile' }]])))
+
+      -- Confirm filters combine
+      eq(
+        { 'foo' },
+        names(exec_lua([[return vim.lsp.get_configs { filetype = 'foofile', enabled = true }]]))
+      )
+      eq(
+        {},
+        names(exec_lua([[return vim.lsp.get_configs { filetype = 'foofile', enabled = false }]]))
+      )
+      -- Does NOT resolve non-enabled configs.
+      eq({ foo = true, bar = false }, get_resolved({ 'bar', 'foo' }))
     end)
   end)
 
