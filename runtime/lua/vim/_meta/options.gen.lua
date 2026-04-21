@@ -6018,8 +6018,9 @@ vim.o.sw = vim.o.shiftwidth
 vim.bo.shiftwidth = vim.o.shiftwidth
 vim.bo.sw = vim.bo.shiftwidth
 
---- This option helps to avoid all the `hit-enter` prompts caused by file
---- messages, for example with CTRL-G, and to avoid some other messages.
+--- Controls display of file messages (e.g. CTRL-G) and various other
+--- messages.
+---
 --- It is a list of flags:
 ---  flag	meaning when present	~
 ---   l	use "999L, 888B" instead of "999 lines, 888 bytes"	*shm-l*
@@ -8323,6 +8324,16 @@ vim.o.winminwidth = 1
 vim.o.wmw = vim.o.winminwidth
 vim.go.winminwidth = vim.o.winminwidth
 vim.go.wmw = vim.go.winminwidth
+
+--- If enabled, the window is pinned and will not be closed by `:only`
+--- and `:fclose`. Only commands specifically targeting the window can
+--- close it.
+---
+--- @type boolean
+vim.o.winpinned = false
+vim.o.wp = vim.o.winpinned
+vim.wo.winpinned = vim.o.winpinned
+vim.wo.wp = vim.wo.winpinned
 
 --- Minimal number of columns for the current window.  This is not a hard
 --- minimum, Vim will use fewer columns if there is not enough room.  If

@@ -432,7 +432,7 @@ describe('messages2', function()
     screen:expect([[
       ^                                                     |
       {1:~                                                    }|*12
-                                                           |
+      foo [+1]                                             |
     ]])
   end)
 
@@ -497,6 +497,20 @@ describe('messages2', function()
       baz                                                  |
       ^typed append                                         |
       {9:E35: No previous regular expression}                  |
+    ]])
+    -- Non-typed key doesn't dismiss expanded cmdline #39221
+    command('nnoremap b :ls!<cr>:b<space>')
+    feed('qb')
+    screen:expect([[
+      foo                                                  |
+      {1:~                                                    }|*6
+      {3:                                                     }|
+        1 %a + "[No Name]"                    line 1       |
+        2u a   "[Cmd]"                        line 0       |
+        3u a   "[Dialog]"                     line 0       |
+        4u a   "[Msg]"                        line 0       |
+        5u a   "[Pager]"                      line 0       |
+      {16::}{15:b} ^                                                  |
     ]])
   end)
 
@@ -961,6 +975,24 @@ describe('messages2', function()
       VisualNC       xxx cleared                           |
       ^VisualNC       xxx cleared                        {4:bar}|
       foo                                                  |
+    ]])
+  end)
+
+  it('message survives after closing tabpage without error #39055', function()
+    set_msg_target_zero_ch()
+    command('tabnew')
+    command('echo "hello"')
+    screen:expect([[
+      {24: [No Name] }{5: [No Name] }{2:                              }{24:X}|
+      ^                                                     |
+      {1:~                                                    }|*11
+      {1:~                                               }{4:hello}|
+    ]])
+    command('quit!')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*12
+      {1:~                                               }{4:hello}|
     ]])
   end)
 end)

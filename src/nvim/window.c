@@ -4248,10 +4248,12 @@ static int frame_minwidth(frame_T *topfrp, win_T *next_curwin)
 /// Buffers in the other windows become hidden if 'hidden' is set, or '!' is
 /// used and the buffer was modified.
 ///
-/// Used by ":bdel" and ":only".
+/// Used by ":tabclose" and ":only".
 ///
-/// @param forceit  always hide all other windows
-void close_others(int message, int forceit)
+/// @param message       if true, display error messages
+/// @param forceit       always hide all other windows
+/// @param ignore_pinned if true, also close pinned windows (for :tabclose)
+void close_others(int message, int forceit, bool ignore_pinned)
 {
   win_T *const old_curwin = curwin;
 
@@ -4280,7 +4282,8 @@ void close_others(int message, int forceit)
       curbuf = curwin->w_buffer;
     }
 
-    if (wp == curwin) {                 // don't close current window
+    // don't close current window or pinned windows
+    if (wp == curwin || (wp->w_p_wp && !ignore_pinned)) {
       continue;
     }
 
@@ -4312,7 +4315,17 @@ void close_others(int message, int forceit)
   }
 
   if (message && !ONE_WINDOW) {
-    emsg(_("E445: Other window contains changes"));
+    // Check if remaining windows are non-pinned
+    bool has_non_pinned = false;
+    for (win_T *wp = firstwin; wp != NULL; wp = wp->w_next) {
+      if (wp != curwin && !wp->w_p_wp) {
+        has_non_pinned = true;
+        break;
+      }
+    }
+    if (has_non_pinned) {
+      emsg(_("E445: Other window contains changes"));
+    }
   }
 }
 
@@ -6855,7 +6868,7 @@ static void win_fix_cursor(bool normal)
 
   wp->w_do_win_fix_cursor = false;
   // Determine valid cursor range.
-  int so = MIN(wp->w_view_height / 2, get_scrolloff_value(wp));
+  int so = (int)MIN(wp->w_view_height / 2, get_scrolloff_value(wp));
   linenr_T lnum = wp->w_cursor.lnum;
 
   wp->w_cursor.lnum = wp->w_topline;
