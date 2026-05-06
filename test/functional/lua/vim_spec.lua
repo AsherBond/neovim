@@ -969,6 +969,17 @@ describe('lua stdlib', function()
     eq(false, exec_lua('return vim.islist({1, 2, nil, 4})'))
     eq(false, exec_lua('return vim.islist({nil, 2, 3, 4})'))
     eq(false, exec_lua('return vim.islist({1, [1.5]=2, [3]=3})'))
+    eq(
+      false,
+      exec_lua([[
+        local t = setmetatable({ 1, [3] = 3 }, {
+          __index = function()
+            return 2
+          end,
+        })
+        return vim.islist(t)
+      ]])
+    )
   end)
 
   it('vim.tbl_isempty', function()
@@ -2371,10 +2382,9 @@ describe('lua stdlib', function()
     end)
 
     it('callback must be a function', function()
-      eq(
-        { false, 'vim.wait: callback must be callable' },
-        exec_lua [[return {pcall(function() vim.wait(1000, 13) end)}]]
-      )
+      local result = exec_lua [[return {pcall(function() vim.wait(1000, 13) end)}]]
+      eq(false, result[1])
+      matches('callback: expected callable, got number$', remove_trace(result[2]))
     end)
 
     it('waits if callback arg is nil', function()

@@ -853,53 +853,6 @@ vim.ui_detach({ns})                                          *vim.ui_detach()*
     Parameters: ~
       • {ns}  (`integer`) Namespace ID
 
-vim.wait({time}, {callback}, {interval}, {fast_only})             *vim.wait()*
-    Waits up to `time` milliseconds, until `callback` returns `true`
-    (success). Executes `callback` immediately, then on user events, internal
-    events, and approximately every `interval` milliseconds (default 200).
-    Returns all `callback` results on success.
-
-    Nvim processes other events while waiting. Cannot be called during an
-    |api-fast| event.
-
-    Examples: >lua
-        -- Wait for 100 ms, allowing other events to process.
-        vim.wait(100)
-
-        -- Wait up to 1000 ms or until `vim.g.foo` is true, at intervals of ~500 ms.
-        vim.wait(1000, function() return vim.g.foo end, 500)
-
-        -- Wait indefinitely until `vim.g.foo` is true, and get the callback results.
-        local ok, rv1, rv2, rv3 = vim.wait(math.huge, function()
-          return vim.g.foo, 'a', 42, { ok = { 'yes' } }
-        end)
-
-        -- Schedule a function to set a value in 100ms. This would wait 10s if blocked, but actually
-        -- only waits 100ms because `vim.wait` processes other events while waiting.
-        vim.defer_fn(function() vim.g.timer_result = true end, 100)
-        if vim.wait(10000, function() return vim.g.timer_result end) then
-          print('Only waiting a little bit of time!')
-        end
-<
-
-    Parameters: ~
-      • {time}       (`number`) Number of milliseconds to wait. Must be
-                     non-negative number, any fractional part is truncated.
-      • {callback}   (`fun(): boolean, ...?`) Optional callback. Waits until
-                     {callback} returns true
-      • {interval}   (`integer?`) (Approximate) number of milliseconds to wait
-                     between polls
-      • {fast_only}  (`boolean?`) If true, only |api-fast| events will be
-                     processed.
-
-    Return (multiple): ~
-        (`boolean`)
-        (`-1|-2?`)
-        • If callback returns `true` before timeout: `true, nil, ...`
-        • On timeout: `false, -1`
-        • On interrupt: `false, -2`
-        • On error: the error is raised.
-
 
 ==============================================================================
 LUA-VIMSCRIPT BRIDGE                                           *lua-vimscript*
@@ -1519,11 +1472,59 @@ vim.str_utfindex({s}, {encoding}, {index}, {strict_indexing})
     Return: ~
         (`integer`)
 
+vim.wait({time}, {callback}, {interval}, {fast_only})             *vim.wait()*
+    Waits up to `time` milliseconds, until `callback` returns `true`
+    (success). Executes `callback` immediately, then on user events, internal
+    events, and approximately every `interval` milliseconds (default 200).
+    Returns `true` plus any remaining callback results on success.
+
+    Nvim processes other events while waiting. Cannot be called during an
+    |api-fast| event.
+
+    Examples: >lua
+        -- Wait for 100 ms, allowing other events to process.
+        vim.wait(100)
+
+        -- Wait up to 1000 ms or until `vim.g.foo` is true, at intervals of ~500 ms.
+        vim.wait(1000, function() return vim.g.foo end, 500)
+
+        -- Wait indefinitely until `vim.g.foo` is true, and get the callback results.
+        local ok, rv1, rv2, rv3 = vim.wait(math.huge, function()
+          return vim.g.foo, 'a', 42, { ok = { 'yes' } }
+        end)
+
+        -- Schedule a function to set a value in 100ms. This would wait 10s if blocked, but actually
+        -- only waits 100ms because `vim.wait` processes other events while waiting.
+        vim.defer_fn(function() vim.g.timer_result = true end, 100)
+        if vim.wait(10000, function() return vim.g.timer_result end) then
+          print('Only waiting a little bit of time!')
+        end
+<
+
+    Parameters: ~
+      • {time}       (`number`) Number of milliseconds to wait. Must be
+                     non-negative number, any fractional part is truncated.
+      • {callback}   (`fun(): boolean, ...?`) Optional callback. Waits until
+                     {callback} returns true
+      • {interval}   (`integer?`) (Approximate) number of milliseconds to wait
+                     between polls
+      • {fast_only}  (`boolean?`) If true, only |api-fast| events will be
+                     processed.
+
+    Return (multiple): ~
+        (`boolean`)
+        (`-1|-2?`)
+        • If callback returns `true` before timeout: `true, ...` (remaining
+          callback results).
+        • On timeout: `false, -1`
+        • On interrupt: `false, -2`
+        • On error: the error is raised.
+
 
 ==============================================================================
 Lua module: vim.inspector                                      *vim.inspector*
 
-vim.inspect_pos({bufnr}, {row}, {col}, {filter})           *vim.inspect_pos()*
+vim.inspect_pos({buf}, {row}, {col}, {filter})             *vim.inspect_pos()*
     Get all the items at a given buffer position.
 
     Can also be pretty-printed with `:Inspect!`.                   *:Inspect!*
@@ -1532,21 +1533,21 @@ vim.inspect_pos({bufnr}, {row}, {col}, {filter})           *vim.inspect_pos()*
         Since: 0.9.0
 
     Parameters: ~
-      • {bufnr}   (`integer?`) defaults to the current buffer
+      • {buf}     (`integer?`) defaults to the current buffer
       • {row}     (`integer?`) row to inspect, 0-based. Defaults to the row of
                   the current cursor
       • {col}     (`integer?`) col to inspect, 0-based. Defaults to the col of
                   the current cursor
       • {filter}  (`table?`) Table with key-value pairs to filter the items
-                  • {syntax} (`boolean`, default: `true`) Include syntax based
-                    highlight groups.
-                  • {treesitter} (`boolean`, default: `true`) Include
-                    treesitter based highlight groups.
                   • {extmarks} (`boolean|"all"`, default: true) Include
                     extmarks. When `all`, then extmarks without a `hl_group`
                     will also be included.
                   • {semantic_tokens} (`boolean`, default: true) Include
                     semantic token highlights.
+                  • {syntax} (`boolean`, default: `true`) Include syntax based
+                    highlight groups.
+                  • {treesitter} (`boolean`, default: `true`) Include
+                    treesitter based highlight groups.
 
     Return: ~
         (`table`) a table with the following key-value pairs. Items are in
@@ -1559,7 +1560,7 @@ vim.inspect_pos({bufnr}, {row}, {col}, {filter})           *vim.inspect_pos()*
         • row: the row used to get the items
         • col: the col used to get the items
 
-vim.show_pos({bufnr}, {row}, {col}, {filter})                 *vim.show_pos()*
+vim.show_pos({buf}, {row}, {col}, {filter})                   *vim.show_pos()*
     Show all the items at a given buffer position.
 
     Can also be shown with `:Inspect`.                              *:Inspect*
@@ -1573,21 +1574,21 @@ vim.show_pos({bufnr}, {row}, {col}, {filter})                 *vim.show_pos()*
         Since: 0.9.0
 
     Parameters: ~
-      • {bufnr}   (`integer?`) defaults to the current buffer
+      • {buf}     (`integer?`) defaults to the current buffer
       • {row}     (`integer?`) row to inspect, 0-based. Defaults to the row of
                   the current cursor
       • {col}     (`integer?`) col to inspect, 0-based. Defaults to the col of
                   the current cursor
       • {filter}  (`table?`) A table with the following fields:
-                  • {syntax} (`boolean`, default: `true`) Include syntax based
-                    highlight groups.
-                  • {treesitter} (`boolean`, default: `true`) Include
-                    treesitter based highlight groups.
                   • {extmarks} (`boolean|"all"`, default: true) Include
                     extmarks. When `all`, then extmarks without a `hl_group`
                     will also be included.
                   • {semantic_tokens} (`boolean`, default: true) Include
                     semantic token highlights.
+                  • {syntax} (`boolean`, default: `true`) Include syntax based
+                    highlight groups.
+                  • {treesitter} (`boolean`, default: `true`) Include
+                    treesitter based highlight groups.
 
 
 
@@ -1596,9 +1597,9 @@ vim.show_pos({bufnr}, {row}, {col}, {filter})                 *vim.show_pos()*
 
     Fields: ~
       • {clear}  (`fun()`) See |Ringbuf:clear()|.
-      • {push}   (`fun(item: T)`) See |Ringbuf:push()|.
-      • {pop}    (`fun(): T?`) See |Ringbuf:pop()|.
       • {peek}   (`fun(): T?`) See |Ringbuf:peek()|.
+      • {pop}    (`fun(): T?`) See |Ringbuf:pop()|.
+      • {push}   (`fun(item: T)`) See |Ringbuf:push()|.
 
 
 Ringbuf:clear()                                              *Ringbuf:clear()*
@@ -1807,17 +1808,19 @@ vim.list.bisect({t}, {val}, {opts})                        *vim.list.bisect()*
       • {t}     (`any[]`) A comparable list.
       • {val}   (`any`) The value to search.
       • {opts}  (`table?`) A table with the following fields:
-                • {lo}? (`integer`, default: `1`) Start index of the list.
-                • {hi}? (`integer`, default: `#t + 1`) End index of the list,
-                  exclusive.
-                • {key}? (`fun(val: any): any`) Optional, compare the return
-                  value instead of the {val} itself if provided.
                 • {bound}? (`'lower'|'upper'`, default: `'lower'`) Specifies
                   the search variant.
                   • "lower": returns the first position where inserting {val}
                     keeps the list sorted.
                   • "upper": returns the last position where inserting {val}
                     keeps the list sorted..
+                • {hi}? (`integer`, default: `#t + 1`) End index of the list,
+                  exclusive.
+                • {key}? (`string|fun(val: any): any`) Optional, compare the
+                  return value instead of the {val} itself if provided. If a
+                  string, index each value by this field name. Key results are
+                  memoized per call.
+                • {lo}? (`integer`, default: `1`) Start index of the list.
 
     Return: ~
         (`integer`) index serves as either the lower bound or the upper bound
@@ -1830,10 +1833,11 @@ vim.list.unique({t}, {key})                                *vim.list.unique()*
     performed in-place and the input table is modified.
 
     Accepts an optional `key` argument, which if provided is called for each
-    value in the list to compute a hash key for uniqueness comparison. This is
-    useful for deduplicating table values or complex objects. If `key` returns
-    `nil` for a value, that value will be considered unique, even if multiple
-    values return `nil`.
+    value in the list to compute a hash key for uniqueness comparison. If
+    `key` is a string, it is used as the field name to index each value. Key
+    results are memoized per call. This is useful for deduplicating table
+    values or complex objects. If `key` returns `nil` for a value, that value
+    will be considered unique, even if multiple values return `nil`.
 
     Example: >lua
 
@@ -1842,7 +1846,7 @@ vim.list.unique({t}, {key})                                *vim.list.unique()*
         -- t is now {1, 2, 3}
 
         local t = { {id=1}, {id=2}, {id=1} }
-        vim.list.unique(t, function(x) return x.id end)
+        vim.list.unique(t, 'id')
         -- t is now { {id=1}, {id=2} }
 <
 
@@ -1851,8 +1855,8 @@ vim.list.unique({t}, {key})                                *vim.list.unique()*
 
     Parameters: ~
       • {t}    (`any[]`)
-      • {key}  (`fun(x: T): any?`) Optional hash function to determine
-               uniqueness of values
+      • {key}  (`string|fun(x: T): any?`) Optional field name or hash function
+               to determine uniqueness of values
 
     Return: ~
         (`any[]`) The deduplicated list
@@ -2377,9 +2381,9 @@ vim.filetype.add({filetypes})                             *vim.filetype.add()*
     Parameters: ~
       • {filetypes}  (`table`) A table containing new filetype maps (see
                      example).
-                     • {pattern}? (`vim.filetype.mapping`)
                      • {extension}? (`vim.filetype.mapping`)
                      • {filename}? (`vim.filetype.mapping`)
+                     • {pattern}? (`vim.filetype.mapping`)
 
                                                    *vim.filetype.get_option()*
 vim.filetype.get_option({filetype}, {option})
@@ -2457,6 +2461,9 @@ vim.filetype.match({args})                              *vim.filetype.match()*
                 Accepted keys are:
                 • {buf}? (`integer`) Buffer number to use for matching.
                   Mutually exclusive with {contents}
+                • {contents}? (`string[]`) An array of lines representing file
+                  contents to use for matching. Can be used with {filename}.
+                  Mutually exclusive with {buf}.
                 • {filename}? (`string`) Filename to use for matching. When
                   {buf} is given, defaults to the filename of the given buffer
                   number. The file need not actually exist in the filesystem.
@@ -2464,9 +2471,6 @@ vim.filetype.match({args})                              *vim.filetype.match()*
                   for filetype matching. This may result in failure to detect
                   the filetype in cases where the filename alone is not enough
                   to disambiguate the filetype.
-                • {contents}? (`string[]`) An array of lines representing file
-                  contents to use for matching. Can be used with {filename}.
-                  Mutually exclusive with {buf}.
 
     Return (multiple): ~
         (`string?`) The matched filetype, if any.
@@ -2506,6 +2510,15 @@ opening/closing it. Or use |io.lines()| to iterate lines in a text file.
 
 Example: >lua
     vim.print(vim.fn.readblob('.git/config'))
+<
+
+                                                              *vim.fs.write()*
+
+You can use |writefile()| to write a file without explicitly opening/closing
+it.
+
+Example: >lua
+    vim.fn.writefile('foo\0bar', 'data.bin', 'b')
 <
 
 
@@ -2549,12 +2562,12 @@ vim.fs.dir({path}, {opts})                                      *vim.fs.dir()*
                 |vim.fs.normalize()|.
       • {opts}  (`table?`) Optional keyword arguments:
                 • {depth}? (`integer`, default: `1`) How deep to traverse.
+                • {follow}? (`boolean`, default: `false`) Follow symbolic
+                  links.
                 • {skip}? (`fun(dir_name: string): boolean`) Predicate to
                   control traversal. Return false to stop searching the
                   current directory. Only useful when depth > 1 Return an
                   iterator over the items located in {path}
-                • {follow}? (`boolean`, default: `false`) Follow symbolic
-                  links.
 
     Return: ~
         (`Iterator`) over items in {path}. Each iteration yields two values:
@@ -2639,19 +2652,19 @@ vim.fs.find({names}, {opts})                                   *vim.fs.find()*
                  The function should return `true` if the given item is
                  considered a match.
       • {opts}   (`table?`) Optional keyword arguments:
+                 • {follow}? (`boolean`, default: `false`) Follow symbolic
+                   links.
+                 • {limit}? (`number`, default: `1`) Stop searching after this
+                   many matches. Use `math.huge` for "unlimited".
                  • {path}? (`string`) Path to begin searching from, defaults
                    to |current-directory|. Not expanded.
-                 • {upward}? (`boolean`, default: `false`) Search upward
-                   through parent directories. Otherwise, search child
-                   directories (recursively).
                  • {stop}? (`string`) Stop searching when this directory is
                    reached. The directory itself is not searched.
                  • {type}? (`string`) Find only items of the given type. If
                    omitted, all items that match {names} are included.
-                 • {limit}? (`number`, default: `1`) Stop searching after this
-                   many matches. Use `math.huge` for "unlimited".
-                 • {follow}? (`boolean`, default: `false`) Follow symbolic
-                   links.
+                 • {upward}? (`boolean`, default: `false`) Search upward
+                   through parent directories. Otherwise, search child
+                   directories (recursively).
 
     Return: ~
         (`string[]`) Normalized paths |vim.fs.normalize()| of all matching
@@ -2784,9 +2797,9 @@ vim.fs.rm({path}, {opts})                                        *vim.fs.rm()*
     Parameters: ~
       • {path}  (`string`) Path to remove (not expanded/resolved).
       • {opts}  (`table?`) A table with the following fields:
+                • {force}? (`boolean`) Ignore nonexistent files and arguments.
                 • {recursive}? (`boolean`) Remove directory contents
                   recursively.
-                • {force}? (`boolean`) Ignore nonexistent files and arguments.
 
 vim.fs.root({source}, {marker})                                *vim.fs.root()*
     Find the first parent directory containing a specific "marker", relative
@@ -2894,15 +2907,15 @@ vim.hl.on_yank({opts})                                      *vim.hl.on_yank()*
 
     Parameters: ~
       • {opts}  (`table?`) Optional parameters
+                • event event structure (default vim.v.event)
                 • higroup highlight group for yanked region (default
                   "IncSearch")
-                • timeout time in ms before highlight is cleared (default 150)
                 • on_macro highlight when executing macro (default false)
                 • on_visual highlight when yanking visual selection (default
                   true)
-                • event event structure (default vim.v.event)
                 • priority integer priority (default
                   |vim.hl.priorities|`.user`)
+                • timeout time in ms before highlight is cleared (default 150)
 
 vim.hl.priorities                                          *vim.hl.priorities*
     Table with default priorities used for highlighting:
@@ -2914,11 +2927,11 @@ vim.hl.priorities                                          *vim.hl.priorities*
       symbols or `on_yank` autocommands
 
                                                               *vim.hl.range()*
-vim.hl.range({bufnr}, {ns}, {higroup}, {start}, {finish}, {opts})
+vim.hl.range({buf}, {ns}, {higroup}, {start}, {finish}, {opts})
     Apply highlight group to range of text.
 
     Parameters: ~
-      • {bufnr}    (`integer`) Buffer number to apply highlighting to
+      • {buf}      (`integer`) Buffer number to apply highlighting to
       • {ns}       (`integer`) Namespace to add highlight to
       • {higroup}  (`string`) Highlight group to use for highlighting
       • {start}    (`[integer,integer]|string`) Start of region as a (line,
@@ -2926,12 +2939,12 @@ vim.hl.range({bufnr}, {ns}, {higroup}, {start}, {finish}, {opts})
       • {finish}   (`[integer,integer]|string`) End of region as a (line,
                    column) tuple or string accepted by |getpos()|
       • {opts}     (`table?`) A table with the following fields:
-                   • {regtype}? (`string`, default: `'v'` i.e. charwise) Type
-                     of range. See |getregtype()|
                    • {inclusive}? (`boolean`, default: `false`) Indicates
                      whether the range is end-inclusive
                    • {priority}? (`integer`, default:
                      `vim.hl.priorities.user`) Highlight priority
+                   • {regtype}? (`string`, default: `'v'` i.e. charwise) Type
+                     of range. See |getregtype()|
                    • {timeout}? (`integer`, default: -1 no timeout) Time in ms
                      before highlight is cleared
 
@@ -3733,21 +3746,21 @@ vim.loader.find({modname}, {opts})                         *vim.loader.find()*
       • {modname}  (`string`) Module name, or `"*"` to find the top-level
                    modules instead
       • {opts}     (`table?`) Options for finding a module:
-                   • {rtp}? (`boolean`, default: `true`) Search for modname in
-                     the runtime path.
+                   • {all}? (`boolean`, default: `false`) Search for all
+                     matches.
                    • {paths}? (`string[]`, default: `{}`) Extra paths to
                      search for modname
                    • {patterns}? (`string[]`, default:
                      `{"/init.lua", ".lua"}`) List of patterns to use when
                      searching for modules. A pattern is a string added to the
                      basename of the Lua module being searched.
-                   • {all}? (`boolean`, default: `false`) Search for all
-                     matches.
+                   • {rtp}? (`boolean`, default: `true`) Search for modname in
+                     the runtime path.
 
     Return: ~
         (`table[]`) A list of objects with the following fields:
-        • {modpath} (`string`) Path of the module
         • {modname} (`string`) Name of the module
+        • {modpath} (`string`) Path of the module
         • {stat}? (`uv.fs_stat.result`) The fs_stat of the module path. Won't
           be returned for `modname="*"`
 
@@ -4194,9 +4207,10 @@ Lua module: vim.net                                                  *vim.net*
       • {body}  (`string`) The HTTP body of the request
 
 
-vim.net.request({url}, {opts}, {on_response})              *vim.net.request()*
-    Makes an HTTP GET request to the given URL, asynchronously passing the
-    result to the specified `on_response`, `outpath` or `outbuf`.
+                                                           *vim.net.request()*
+vim.net.request({method}, {url}, {opts}, {on_response})
+    Makes an HTTP request to the given URL, asynchronously passing the result
+    to the specified `on_response`, `outpath` or `outbuf`.
 
     Examples: >lua
         -- Write response body to file.
@@ -4226,27 +4240,39 @@ vim.net.request({url}, {opts}, {on_response})              *vim.net.request()*
         vim.net.request('https://neovim.io/charter/', {
           headers = { Authorization = 'Bearer XYZ' },
         })
+
+        -- POST request with body.
+        vim.net.request('POST', 'https://example.com/api', {
+          body = '{"key": "value"}',
+          headers = {['Content-Type'] = 'application/json' }
+        })
 <
 
     Parameters: ~
+      • {method}       (`vim.net.HttpMethod`) (default: GET) The HTTP method
+                       (GET, POST, PUT, PATCH, HEAD, DELETE).
       • {url}          (`string`) The URL for the request.
       • {opts}         (`table?`) A table with the following fields:
-                       • {verbose}? (`boolean`) Enables verbose output.
-                       • {retry}? (`integer`) Number of retries on transient
-                         failures (default: 3).
-                       • {outpath}? (`string`) File path to save the response
-                         body to.
-                       • {outbuf}? (`integer`) Buffer to save the response
-                         body to.
+                       • {body}? (`string`) Request body for POST/PUT/PATCH
+                         requests.
                        • {headers}? (`table<string, string>`) Custom headers
                          to send with the request. Supports basic key/value
                          headers and empty headers as supported by curl. Does
                          not support "@filename" style, internal header
                          deletion ("Header:").
-      • {on_response}  (`fun(err: string?, response: vim.net.request.Response?)?`)
-                       Callback invoked on request completion. The `body`
-                       field in the response parameter contains the raw
-                       response data (text or binary).
+                       • {outbuf}? (`integer`) Buffer to save the response
+                         body to.
+                       • {outpath}? (`string`) File path to save the response
+                         body to.
+                       • {retry}? (`integer`) Number of retries on transient
+                         failures (default: 3).
+                       • {verbose}? (`boolean`) Enables verbose output.
+      • {on_response}  (`vim.net.request.ResponseFunc?`) Callback invoked on
+                       request completion.
+
+    Overloads: ~
+      • `fun(url: string, opts: vim.net.request.Opts, response: vim.net.request.ResponseFunc)`
+      • `fun(method: vim.net.HttpMethod, url: string, opts: vim.net.request.Opts, response: vim.net.request.ResponseFunc)`
 
     Return: ~
         (`{ close: fun() }`) Object with `close()` method which cancels the
@@ -4271,8 +4297,8 @@ by |vim.Pos| objects.
     To create a new |vim.Pos| object, call `vim.pos()`.
 
     Example: >lua
-        local pos1 = vim.pos(vim.api.nvim_get_current_buf(), 3, 5)
-        local pos2 = vim.pos(vim.api.nvim_get_current_buf(), 4, 0)
+        local pos1 = vim.pos(0, 3, 5)
+        local pos2 = vim.pos(0, 4, 0)
 
         -- Operators are overloaded for comparing two `vim.Pos` objects.
         if pos1 < pos2 then
@@ -4288,9 +4314,9 @@ by |vim.Pos| objects.
     as format conversions.
 
     Fields: ~
-      • {row}  (`integer`) 0-based byte index.
-      • {col}  (`integer`) 0-based byte index.
       • {buf}  (`integer`) buffer handle.
+      • {col}  (`integer`) 0-based byte index.
+      • {row}  (`integer`) 0-based byte index.
 
 
 cursor({buf}, {pos})                                        *vim.pos.cursor()*
@@ -4312,13 +4338,12 @@ lsp({buf}, {pos}, {position_encoding})                         *vim.pos.lsp()*
     Creates a new |vim.Pos| from `lsp.Position`.
 
     Example: >lua
-        local buf = vim.api.nvim_get_current_buf()
         local lsp_pos = {
           line = 3,
           character = 5
         }
 
-        local pos = vim.pos.lsp(buf, lsp_pos, 'utf-16')
+        local pos = vim.pos.lsp(0, lsp_pos, 'utf-16')
 <
 
     Parameters: ~
@@ -4350,8 +4375,7 @@ to_lsp({pos}, {position_encoding})                          *vim.pos.to_lsp()*
     Converts |vim.Pos| to `lsp.Position`.
 
     Example: >lua
-        local buf = vim.api.nvim_get_current_buf()
-        local pos = vim.pos(buf, 3, 5)
+        local pos = vim.pos(0, 3, 5)
 
         -- Convert to LSP position, you can call it in a method style.
         local lsp_pos = pos:to_lsp('utf-16')
@@ -4383,13 +4407,13 @@ Provides operations to compare, calculate, and convert ranges represented by
     format conversions.
 
     Example: >lua
-        local pos1 = vim.pos(vim.api.nvim_get_current_buf(), 3, 5)
-        local pos2 = vim.pos(vim.api.nvim_get_current_buf(), 4, 0)
+        local pos1 = vim.pos(0, 3, 5)
+        local pos2 = vim.pos(0, 4, 0)
 
         -- Create a range from two positions.
         local range1 = vim.range(pos1, pos2)
         -- Or create a range from four integers representing start and end positions.
-        local range2 = vim.range(vim.api.nvim_get_current_buf(), 3, 5, 4, 0)
+        local range2 = vim.range(0, 3, 5, 4, 0)
 
         -- Because `vim.Range` is end exclusive, `range1` and `range2` both represent
         -- a range starting at the row 3, column 5 and ending at where the row 3 ends
@@ -4402,23 +4426,22 @@ Provides operations to compare, calculate, and convert ranges represented by
 <
 
     Fields: ~
-      • {start_row}  (`integer`) 0-based byte index.
-      • {start_col}  (`integer`) 0-based byte index.
-      • {end_row}    (`integer`) 0-based byte index.
-      • {end_col}    (`integer`) 0-based byte index.
       • {buf}        (`integer`) Optional buffer handle.
+      • {end_col}    (`integer`) 0-based byte index.
+      • {end_row}    (`integer`) 0-based byte index.
+      • {start_col}  (`integer`) 0-based byte index.
+      • {start_row}  (`integer`) 0-based byte index.
 
 
 cursor({buf}, {start_pos}, {end_pos})                     *vim.range.cursor()*
     Creates a new |vim.Range| from mark-like range (see |api-indexing|).
 
     Example: >lua
-        local buf = vim.api.nvim_get_current_buf()
         local start = vim.api.nvim_win_get_cursor(0)
         -- move the cursor
         local end_ = vim.api.nvim_win_get_cursor(0)
 
-        local range = vim.range.cursor(buf, start, end_)
+        local range = vim.range.cursor(0, start, end_)
 <
 
     Parameters: ~
@@ -4431,9 +4454,7 @@ extmark({buf}, {start_row}, {start_col}, {end_row}, {end_col})
     Creates a new |vim.Range| from extmark range (see |api-indexing|).
 
     Example: >lua
-        local buf = vim.api.nvim_get_current_buf()
-
-        local range = vim.range.extmark(buf, 3, 5, 4, 0)
+        local range = vim.range.extmark(0, 3, 5, 4, 0)
 <
 
     Parameters: ~
@@ -4478,13 +4499,12 @@ lsp({buf}, {range}, {position_encoding})                     *vim.range.lsp()*
     Creates a new |vim.Range| from `lsp.Range`.
 
     Example: >lua
-        local buf = vim.api.nvim_get_current_buf()
         local lsp_range = {
           ['start'] = { line = 3, character = 5 },
           ['end'] = { line = 4, character = 0 }
         }
 
-        local range = vim.range.lsp(buf, lsp_range, 'utf-16')
+        local range = vim.range.lsp(0, lsp_range, 'utf-16')
 <
 
     Parameters: ~
@@ -4496,8 +4516,7 @@ to_cursor({range})                                     *vim.range.to_cursor()*
     Converts |vim.Range| to mark-like range (see |api-indexing|).
 
     Example: >lua
-        local buf = vim.api.nvim_get_current_buf()
-        local range = vim.range(buf, 3, 5, 4, 0)
+        local range = vim.range(0, 3, 5, 4, 0)
 
         -- Convert to cursor range, you can call it in a method style.
         local cursor_range = range:to_cursor()
@@ -4510,8 +4529,7 @@ to_extmark({range})                                   *vim.range.to_extmark()*
     Converts |vim.Range| to extmark range (see |api-indexing|).
 
     Example: >lua
-        local buf = vim.api.nvim_get_current_buf()
-        local range = vim.range(buf, 3, 5, 4, 0)
+        local range = vim.range(0, 3, 5, 4, 0)
 
         -- Convert to extmark range, you can call it in a method style.
         local extmark_range = range:to_extmark()
@@ -4524,8 +4542,7 @@ to_lsp({range}, {position_encoding})                      *vim.range.to_lsp()*
     Converts |vim.Range| to `lsp.Range`.
 
     Example: >lua
-        local buf = vim.api.nvim_get_current_buf()
-        local range = vim.range(buf, 3, 5, 4, 0)
+        local range = vim.range(0, 3, 5, 4, 0)
 
         -- Convert to LSP range, you can call it in a method style.
         local lsp_range = range:to_lsp('utf-16')
@@ -4619,14 +4636,14 @@ within a single line.
 
 
                                                           *regex:match_line()*
-regex:match_line({bufnr}, {line_idx}, {start}, {end_})
-    Matches line at `line_idx` (zero-based) in buffer `bufnr`. Match is
+regex:match_line({buf}, {line_idx}, {start}, {end_})
+    Matches line at `line_idx` (zero-based) in buffer `buf`. Match is
     restricted to byte index range `start` and `end_` if given, otherwise see
     |regex:match_str()|. Returned byte indices are relative to `start` if
     given.
 
     Parameters: ~
-      • {bufnr}     (`integer`)
+      • {buf}       (`integer`)
       • {line_idx}  (`integer`)
       • {start}     (`integer?`)
       • {end_}      (`integer?`)
@@ -4705,10 +4722,10 @@ vim.secure.trust({opts})                                  *vim.secure.trust()*
                     it,
                   • `'deny'` to add a file to the trust database and deny it,
                   • `'remove'` to remove file from the trust database
-                • {path}? (`string`) Path to a file to update. Mutually
-                  exclusive with {bufnr}.
                 • {bufnr}? (`integer`) Buffer number to update. Mutually
                   exclusive with {path}.
+                • {path}? (`string`) Path to a file to update. Mutually
+                  exclusive with {bufnr}.
 
     Return (multiple): ~
         (`boolean`) success true if operation was successful
@@ -4814,24 +4831,24 @@ Lua module: vim.system                                        *lua-vim-system*
     Fields: ~
       • {code}     (`integer`)
       • {signal}   (`integer`)
-      • {stdout}?  (`string`) `nil` if stdout is disabled or has a custom
-                   handler.
       • {stderr}?  (`string`) `nil` if stderr is disabled or has a custom
+                   handler.
+      • {stdout}?  (`string`) `nil` if stdout is disabled or has a custom
                    handler.
 
 *vim.SystemObj*
 
     Fields: ~
       • {cmd}         (`string[]`) Command name and args
-      • {pid}         (`integer`) Process ID
+      • {is_closing}  (`fun(self: vim.SystemObj): boolean`) See
+                      |SystemObj:is_closing()|.
       • {kill}        (`fun(self: vim.SystemObj, signal: integer|string)`) See
                       |SystemObj:kill()|.
+      • {pid}         (`integer`) Process ID
       • {wait}        (`fun(self: vim.SystemObj, timeout: integer?): vim.SystemCompleted`)
                       See |SystemObj:wait()|.
       • {write}       (`fun(self: vim.SystemObj, data: string[]|string?)`) See
                       |SystemObj:write()|.
-      • {is_closing}  (`fun(self: vim.SystemObj): boolean`) See
-                      |SystemObj:is_closing()|.
 
 
 SystemObj:is_closing()                                *SystemObj:is_closing()*
@@ -4930,28 +4947,12 @@ vim.system({cmd}, {opts}, {on_exit})                            *vim.system()*
     Parameters: ~
       • {cmd}      (`string[]`) Command to execute
       • {opts}     (`table?`) A table with the following fields:
-                   • {cwd}? (`string`) Set the current working directory for
-                     the sub-process.
-                   • {env}? (`table<string,string|number>`) Set environment
-                     variables for the new process. Inherits the current
-                     environment with `NVIM` set to |v:servername|.
                    • {clear_env}? (`boolean`) `env` defines the job
                      environment exactly, instead of merging current
                      environment. Note: if `env` is `nil`, the current
                      environment is used but without `NVIM` set.
-                   • {stdin}? (`string|string[]|true`) If `true`, then a pipe
-                     to stdin is opened and can be written to via the
-                     `write()` method to SystemObj. If `string` or `string[]`
-                     then will be written to stdin and closed.
-                   • {stdout}? (`fun(err:string?, data: string?)|boolean`,
-                     default: `true`) Handle output from stdout.
-                   • {stderr}? (`fun(err:string?, data: string?)|boolean`,
-                     default: `true`) Handle output from stderr.
-                   • {text}? (`boolean`) Handle stdout and stderr as text.
-                     Normalizes line endings by replacing `\r\n` with `\n`.
-                   • {timeout}? (`integer`) Run the command with a time limit
-                     in ms. Upon timeout the process is sent the TERM signal
-                     (15) and the exit code is set to 124.
+                   • {cwd}? (`string`) Set the current working directory for
+                     the sub-process.
                    • {detach}? (`boolean`) Spawn the child process in a
                      detached state - this will make it a process group
                      leader, and will effectively enable the child to keep
@@ -4959,6 +4960,22 @@ vim.system({cmd}, {opts}, {on_exit})                            *vim.system()*
                      process will still keep the parent's event loop alive
                      unless the parent process calls |uv.unref()| on the
                      child's process handle.
+                   • {env}? (`table<string,string|number>`) Set environment
+                     variables for the new process. Inherits the current
+                     environment with `NVIM` set to |v:servername|.
+                   • {stderr}? (`fun(err:string?, data: string?)|boolean`,
+                     default: `true`) Handle output from stderr.
+                   • {stdin}? (`string|string[]|true`) If `true`, then a pipe
+                     to stdin is opened and can be written to via the
+                     `write()` method to SystemObj. If `string` or `string[]`
+                     then will be written to stdin and closed.
+                   • {stdout}? (`fun(err:string?, data: string?)|boolean`,
+                     default: `true`) Handle output from stdout.
+                   • {text}? (`boolean`) Handle stdout and stderr as text.
+                     Normalizes line endings by replacing `\r\n` with `\n`.
+                   • {timeout}? (`integer`) Run the command with a time limit
+                     in ms. Upon timeout the process is sent the TERM signal
+                     (15) and the exit code is set to 124.
       • {on_exit}  (`fun(out: vim.SystemCompleted)?`) Called when subprocess
                    exits. When provided, the command runs asynchronously. See
                    return of SystemObj:wait().
@@ -4996,6 +5013,29 @@ vim.text.diff({a}, {b}, {opts})                              *vim.text.diff()*
       • {a}     (`string`) First string to compare
       • {b}     (`string`) Second string to compare
       • {opts}  (`table?`) Optional parameters:
+                • {algorithm}? (`'myers'|'minimal'|'patience'|'histogram'`,
+                  default: `'myers'`) Diff algorithm to use. Values:
+                  • `myers`: the default algorithm
+                  • `minimal`: spend extra time to generate the smallest
+                    possible diff
+                  • `patience`: patience diff algorithm
+                  • `histogram`: histogram diff algorithm
+                • {ctxlen}? (`integer`) Context length
+                • {ignore_blank_lines}? (`boolean`) Ignore blank lines
+                • {ignore_cr_at_eol}? (`boolean`) Ignore carriage return at
+                  end-of-line
+                • {ignore_whitespace}? (`boolean`) Ignore whitespace
+                • {ignore_whitespace_change}? (`boolean`) Ignore whitespace
+                  change
+                • {ignore_whitespace_change_at_eol}? (`boolean`) Ignore
+                  whitespace change at end-of-line.
+                • {indent_heuristic}? (`boolean`) Use the indent heuristic for
+                  the internal diff library.
+                • {interhunkctxlen}? (`integer`) Inter hunk context length
+                • {linematch}? (`boolean|integer`) Run linematch on the
+                  resulting hunks from xdiff. When integer, only hunks upto
+                  this size in lines are run through linematch. Requires
+                  `result_type = indices`, ignored otherwise.
                 • {on_hunk}?
                   (`fun(start_a: integer, count_a: integer, start_b: integer, count_b: integer): integer?`)
                   Invoked for each hunk in the diff. Return a negative number
@@ -5009,29 +5049,6 @@ vim.text.diff({a}, {b}, {opts})                              *vim.text.diff()*
                   • `unified`: String in unified format.
                   • `indices`: Array of hunk locations. Note: This option is
                     ignored if `on_hunk` is used.
-                • {linematch}? (`boolean|integer`) Run linematch on the
-                  resulting hunks from xdiff. When integer, only hunks upto
-                  this size in lines are run through linematch. Requires
-                  `result_type = indices`, ignored otherwise.
-                • {algorithm}? (`'myers'|'minimal'|'patience'|'histogram'`,
-                  default: `'myers'`) Diff algorithm to use. Values:
-                  • `myers`: the default algorithm
-                  • `minimal`: spend extra time to generate the smallest
-                    possible diff
-                  • `patience`: patience diff algorithm
-                  • `histogram`: histogram diff algorithm
-                • {ctxlen}? (`integer`) Context length
-                • {interhunkctxlen}? (`integer`) Inter hunk context length
-                • {ignore_whitespace}? (`boolean`) Ignore whitespace
-                • {ignore_whitespace_change}? (`boolean`) Ignore whitespace
-                  change
-                • {ignore_whitespace_change_at_eol}? (`boolean`) Ignore
-                  whitespace change at end-of-line.
-                • {ignore_cr_at_eol}? (`boolean`) Ignore carriage return at
-                  end-of-line
-                • {ignore_blank_lines}? (`boolean`) Ignore blank lines
-                • {indent_heuristic}? (`boolean`) Use the indent heuristic for
-                  the internal diff library.
 
     Return: ~
         (`string|integer[][]?`) See {opts.result_type}. `nil` if
@@ -5107,14 +5124,14 @@ vim.ui.input({opts}, {on_confirm})                            *vim.ui.input()*
 
     Parameters: ~
       • {opts}        (`table?`) Additional options. See |input()|
-                      • {prompt}? (`string`) Text of the prompt
-                      • {default}? (`string`) Default reply to the input
                       • {completion}? (`string`) Specifies type of completion
                         supported for input. Supported types are the same that
                         can be supplied to a user-defined command using the
                         "-complete=" argument. See |:command-completion|
+                      • {default}? (`string`) Default reply to the input
                       • {highlight}? (`function`) Function that will be used
                         for highlighting user inputs.
+                      • {prompt}? (`string`) Text of the prompt
       • {on_confirm}  (`fun(input?: string)`) Called once the user confirms or
                       abort the input. `input` is what the user typed (it
                       might be an empty string if nothing was entered), or
@@ -5164,13 +5181,28 @@ vim.ui.progress_status()                            *vim.ui.progress_status()*
 
 vim.ui.select({items}, {opts}, {on_choice})                  *vim.ui.select()*
     Prompts the user to pick from a list of items, allowing arbitrary
-    (potentially asynchronous) work until `on_choice`.
+    (potentially asynchronous) work until `on_choice`. This is the standard
+    "picker" interface, used by |z=|, |:tselect|, etc.
+
+    Plugins may override `vim.ui.select` to provide a custom picker; they are
+    expected to call the `format_item` and `preview_item` handlers (if any)
+    provided by the caller. They may also use the `kind` hint (if provided by
+    the caller) to decide how to handle some items.
+
+    Note: the default `vim.ui.select` currently doesn't support preview.
 
     Example: >lua
         vim.ui.select({ 'tabs', 'spaces' }, {
           prompt = 'Select tabs or spaces:',
           format_item = function(item)
             return ('I choose %s!'):format(item)
+          end,
+          preview_item = function(item)
+            local lines = { 'This is ' .. vim.inspect(item) }
+            local buf = vim.api.nvim_create_buf(false, true)
+            vim.api.nvim_buf_set_lines(buf, 0, -1, false, lines)
+            vim.bo[buf].bufhidden = 'wipe'
+            return { buf = buf }
           end,
         }, function(choice)
           vim.o.expandtab = choice == 'spaces'
@@ -5180,19 +5212,114 @@ vim.ui.select({items}, {opts}, {on_choice})                  *vim.ui.select()*
 
     Parameters: ~
       • {items}      (`any[]`) Arbitrary items
-      • {opts}       (`table`) Additional options
-                     • {prompt}? (`string`) Text of the prompt. Defaults to
-                       `Select one of:`
-                     • {format_item}? (`fun(item: any):string`) Function to
-                       format an individual item from `items`. Defaults to
-                       `tostring`.
+      • {opts}       (`table`) Options
+                     • {format_item}? (`fun(item: any):string`, default:
+                       `tostring`) Decides how to format items when displayed
+                       in the picker.
                      • {kind}? (`string`) Arbitrary hint string indicating the
-                       item shape. Plugins reimplementing `vim.ui.select` may
-                       wish to use this to infer the structure or semantics of
-                       `items`, or the context in which select() was called.
+                       item shape. The picker may wish to use this to infer
+                       the structure or semantics of `items`, or the context
+                       in which select() was called.
+                     • {preview_item}?
+                       (`fun(item: any):{buf?:integer, pos?:[integer,integer], pos_end?:[integer,integer]}`)
+                       Decides how to preview an item by preparing a scratch
+                       buffer with the item details (including text,
+                       highlighting, etc.). When the picker decides to
+                       "preview" an item, it should call this function. Must
+                       return a table with these keys:
+                       • {buf}? (`integer`) Buffer containing the previewed
+                         item details, or nil if no preview should be shown.
+                       • {pos}? (`[integer, integer]`) Specifies the
+                         (1,0)-indexed cursor position in the preview buffer.
+                         If nil, should be treated as `{ 1, 0 }`.
+                       • {pos_end}? (`[integer, integer]`) Specifies the
+                         (1,0)-indexed (end-exclusive) end position of the
+                         preview range. If nil, no range is intended for a
+                         preview.
+                     • {prompt}? (`string`, default: `"Select one of:"`)
+                       Prompt text.
       • {on_choice}  (`fun(item: T?, idx: integer?)`) Called once the user
                      made a choice. `idx` is the 1-based index of `item`
-                     within `items`. `nil` if the user aborted the dialog.
+                     within `items`, or `nil` if the user aborted the dialog.
+
+
+==============================================================================
+Lua module: vim.ui.img                                            *vim.ui.img*
+
+EXPERIMENTAL: This API may change in the future. Its semantics are not yet
+finalized.
+
+This provides a functional API for displaying images in Nvim. Currently
+supports PNG images via the Kitty graphics protocol.
+
+To override the image backend, replace `vim.ui.img` with your own
+implementation providing set/get/del.
+
+Examples: >lua
+    -- Load image bytes from disk and display at row 5, column 10
+    local id = vim.ui.img.set(
+     vim.fn.readblob('/path/to/img.png'),
+     { row = 5, col = 10, width = 40, height = 20, zindex = 50 }
+    )
+
+    -- Update the image position
+    vim.ui.img.set(id, { row = 8, col = 12 })
+
+    -- Retrieve the current image opts
+    local opts = vim.ui.img.get(id)
+
+    -- Remove the image
+    vim.ui.img.del(id)
+
+    -- Remove all images
+    vim.ui.img.del(math.huge)
+<
+
+
+vim.ui.img.del({id})                                        *vim.ui.img.del()*
+    Delete an image, or all images if `math.huge` is given as the id.
+
+    Parameters: ~
+      • {id}  (`integer`) image id, or `math.huge` to delete all images
+
+    Return: ~
+        (`boolean`) found true if any image existed
+
+vim.ui.img.get({id})                                        *vim.ui.img.get()*
+    Get the opts for an image.
+
+    Parameters: ~
+      • {id}  (`integer`)
+
+    Return: ~
+        (`table?`) opts copy of image opts, or nil if not found
+        • {col}? (`integer`) starting column (1-indexed)
+        • {height}? (`integer`) height in cells
+        • {row}? (`integer`) starting row (1-indexed)
+        • {width}? (`integer`) width in cells
+        • {zindex}? (`integer`) stacking order (higher = on top)
+
+vim.ui.img.set({data_or_id}, {opts})                        *vim.ui.img.set()*
+    Display an image or update an existing one.
+
+    When {data_or_id} is a string, displays the image bytes at the position
+    given by {opts}. Returns an integer id for later use.
+
+    When {data_or_id} is an integer (a previously returned id), updates the
+    image with new {opts}.
+
+    Parameters: ~
+      • {data_or_id}  (`string|integer`) image bytes (string) or existing id
+                      (integer)
+      • {opts}        (`table?`) A table with the following fields:
+                      • {col}? (`integer`) starting column (1-indexed)
+                      • {height}? (`integer`) height in cells
+                      • {row}? (`integer`) starting row (1-indexed)
+                      • {width}? (`integer`) width in cells
+                      • {zindex}? (`integer`) stacking order (higher = on top)
+
+    Return: ~
+        (`integer`) id
 
 
 ==============================================================================
@@ -5217,11 +5344,11 @@ vim.uri_encode({str}, {rfc})                                *vim.uri_encode()*
     Return: ~
         (`string`) encoded string
 
-vim.uri_from_bufnr({bufnr})                             *vim.uri_from_bufnr()*
+vim.uri_from_bufnr({buf})                               *vim.uri_from_bufnr()*
     Gets a URI from a bufnr.
 
     Parameters: ~
-      • {bufnr}  (`integer`)
+      • {buf}  (`integer`)
 
     Return: ~
         (`string`) URI
@@ -5313,9 +5440,9 @@ versions (1.2.3-rc1) are not matched. >
 
     Fields: ~
       • {from}  (`vim.Version`)
-      • {to}?   (`vim.Version`)
       • {has}   (`fun(self: vim.VersionRange, version: string|vim.Version): boolean`)
                 See |VersionRange:has()|.
+      • {to}?   (`vim.Version`)
 
 
 VersionRange:has({version})                               *VersionRange:has()*

@@ -3203,6 +3203,7 @@ static void expand_by_function(int type, char *base, Callback *cb)
   assert(curbuf != NULL);
 
   const bool is_cpt_function = (cb != NULL);
+  const bool use_sandbox = is_cpt_function && was_set_insecurely(curwin, kOptComplete, OPT_LOCAL);
   if (!is_cpt_function) {
     char *funcname = get_complete_funcname(type);
     if (*funcname == NUL) {
@@ -3224,9 +3225,16 @@ static void expand_by_function(int type, char *base, Callback *cb)
   // switching to another window, it should not be needed and may end up in
   // Insert mode in another buffer.
   textlock++;
+  if (use_sandbox) {
+    sandbox++;
+  }
 
   // Call a function, which returns a list or dict.
-  if (callback_call(cb, 2, args, &rettv)) {
+  const bool called = callback_call(cb, 2, args, &rettv);
+  if (use_sandbox) {
+    sandbox--;
+  }
+  if (called) {
     switch (rettv.v_type) {
     case VAR_LIST:
       matchlist = rettv.vval.v_list;
@@ -4146,7 +4154,34 @@ static void get_next_cmdline_completion(void)
   int num_matches;
   if (expand_cmdline(&compl_xp, compl_pattern.data,
                      (int)compl_pattern.size, &num_matches, &matches) == EXPAND_OK) {
-    ins_compl_add_matches(num_matches, matches, false);
+    int add_r = OK;
+    Direction dir = compl_direction;
+
+    for (int i = 0; i < num_matches && add_r != FAIL; i++) {
+      char *(cptext[CPT_COUNT]) = { NULL, NULL, NULL, NULL };
+
+      if (compl_xp.xp_files_abbr != NULL) {
+        cptext[CPT_ABBR] = compl_xp.xp_files_abbr[i];
+      }
+      if (compl_xp.xp_files_kind != NULL) {
+        cptext[CPT_KIND] = compl_xp.xp_files_kind[i];
+      }
+      if (compl_xp.xp_files_menu != NULL) {
+        cptext[CPT_MENU] = compl_xp.xp_files_menu[i];
+      }
+      if (compl_xp.xp_files_info != NULL) {
+        cptext[CPT_INFO] = compl_xp.xp_files_info[i];
+      }
+
+      add_r = ins_compl_add(matches[i], -1, NULL, cptext, false, NULL, dir,
+                            CP_FAST, false, NULL, FUZZY_SCORE_NONE, false);
+      if (add_r == OK) {
+        // if dir was BACKWARD then honor it just once
+        dir = FORWARD;
+      }
+    }
+    FreeWild(num_matches, matches);
+    free_xp_files_extra(&compl_xp, num_matches);
   }
 }
 
@@ -5796,6 +5831,7 @@ static int get_userdefined_compl_info(colnr_T curs_col, Callback *cb, int *start
   const int save_State = State;
 
   const bool is_cpt_function = (cb != NULL);
+  const bool use_sandbox = is_cpt_function && was_set_insecurely(curwin, kOptComplete, OPT_LOCAL);
   if (!is_cpt_function) {
     // Call 'completefunc' or 'omnifunc' or 'thesaurusfunc' and get pattern
     // length as a string
@@ -5816,7 +5852,13 @@ static int get_userdefined_compl_info(colnr_T curs_col, Callback *cb, int *start
 
   pos_T pos = curwin->w_cursor;
   textlock++;
+  if (use_sandbox) {
+    sandbox++;
+  }
   colnr_T col = (colnr_T)callback_call_retnr(cb, 2, args);
+  if (use_sandbox) {
+    sandbox--;
+  }
   textlock--;
 
   State = save_State;

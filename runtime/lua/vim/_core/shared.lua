@@ -376,13 +376,45 @@ end
 
 vim.list = {}
 
----TODO(ofseed): memoize, string value support, type alias.
+--- Returns a `key` function with per-call memoization.
 ---@generic T
----@param v T
----@param key? fun(v: T): any
----@return any
-local function key_fn(v, key)
-  return key and key(v) or v
+---@param key? string|fun(val: T): any
+---@return fun(v: T): any
+local function make_key_fn(key)
+  vim.validate('key', key, { 'string', 'function' }, true)
+
+  if not key then
+    return function(v)
+      return v
+    end
+  end
+
+  if type(key) == 'string' then
+    local field = key
+    ---@param v any
+    key = function(v)
+      return v and v[field] or nil
+    end
+  end
+
+  -- Keep memoized keys local to one list operation to avoid stale results.
+  local cache = {} --- @type table<any,any>
+
+  return function(v)
+    if v == nil then
+      return key(v)
+    end
+
+    local cached = cache[v]
+    if cached ~= nil then
+      -- Use `vim.NIL` to remember that `key(v)` returned `nil`.
+      return cached == vim.NIL and nil or cached
+    end
+
+    local result = key(v)
+    cache[v] = result == nil and vim.NIL or result
+    return result
+  end
 end
 
 --- Removes duplicate values from a |lua-list| in-place.
@@ -392,6 +424,8 @@ end
 ---
 --- Accepts an optional `key` argument, which if provided is called for each
 --- value in the list to compute a hash key for uniqueness comparison.
+--- If `key` is a string, it is used as the field name to index each value.
+--- Key results are memoized per call.
 --- This is useful for deduplicating table values or complex objects.
 --- If `key` returns `nil` for a value, that value will be considered unique,
 --- even if multiple values return `nil`.
@@ -404,18 +438,19 @@ end
 --- -- t is now {1, 2, 3}
 ---
 --- local t = { {id=1}, {id=2}, {id=1} }
---- vim.list.unique(t, function(x) return x.id end)
+--- vim.list.unique(t, 'id')
 --- -- t is now { {id=1}, {id=2} }
 --- ```
 ---
 --- @since 14
 --- @generic T
 --- @param t T[]
---- @param key? fun(x: T): any Optional hash function to determine uniqueness of values
+--- @param key? string|fun(x: T): any Optional field name or hash function to determine uniqueness of values
 --- @return T[] : The deduplicated list
 --- @see |Iter:unique()|
 function vim.list.unique(t, key)
   vim.validate('t', t, 'table')
+  local key_fn = make_key_fn(key)
   local seen = {} --- @type table<any,boolean>
 
   local finish = #t
@@ -423,7 +458,7 @@ function vim.list.unique(t, key)
   local j = 1
   for i = 1, finish do
     local v = t[i]
-    local vh = key_fn(v, key)
+    local vh = key_fn(v)
     if not seen[vh] then
       t[j] = v
       if vh ~= nil then
@@ -452,7 +487,9 @@ end
 ---@field hi? integer
 ---
 --- Optional, compare the return value instead of the {val} itself if provided.
----@field key? fun(val: any): any
+--- If a string, index each value by this field name.
+--- Key results are memoized per call.
+---@field key? string|fun(val: any): any
 ---
 --- Specifies the search variant.
 ---   - "lower": returns the first position
@@ -465,18 +502,18 @@ end
 ---@generic T
 ---@param t T[]
 ---@param val T
----@param key? fun(val: any): any
 ---@param lo integer
 ---@param hi integer
+---@param key_fn fun(val: any): any
 ---@return integer i in range such that `t[j]` < {val} for all j < i,
 ---                and `t[j]` >= {val} for all j >= i,
 ---                or return {hi} if no such index is found.
-local function lower_bound(t, val, lo, hi, key)
+local function lower_bound(t, val, lo, hi, key_fn)
   local bit = require('bit') -- Load bitop on demand
-  local val_key = key_fn(val, key)
+  local val_key = key_fn(val)
   while lo < hi do
     local mid = bit.rshift(lo + hi, 1) -- Equivalent to floor((lo + hi) / 2)
-    if key_fn(t[mid], key) < val_key then
+    if key_fn(t[mid]) < val_key then
       lo = mid + 1
     else
       hi = mid
@@ -488,18 +525,18 @@ end
 ---@generic T
 ---@param t T[]
 ---@param val T
----@param key? fun(val: any): any
 ---@param lo integer
 ---@param hi integer
+---@param key_fn fun(val: any): any
 ---@return integer i in range such that `t[j]` <= {val} for all j < i,
 ---                and `t[j]` > {val} for all j >= i,
 ---                or return {hi} if no such index is found.
-local function upper_bound(t, val, lo, hi, key)
+local function upper_bound(t, val, lo, hi, key_fn)
   local bit = require('bit') -- Load bitop on demand
-  local val_key = key_fn(val, key)
+  local val_key = key_fn(val)
   while lo < hi do
     local mid = bit.rshift(lo + hi, 1) -- Equivalent to floor((lo + hi) / 2)
-    if val_key < key_fn(t[mid], key) then
+    if val_key < key_fn(t[mid]) then
       hi = mid
     else
       lo = mid + 1
@@ -553,12 +590,12 @@ function vim.list.bisect(t, val, opts)
   opts = opts or {}
   local lo = opts.lo or 1
   local hi = opts.hi or #t + 1
-  local key = opts.key
+  local key_fn = make_key_fn(opts.key)
 
   if opts.bound == 'upper' then
-    return upper_bound(t, val, lo, hi, key)
+    return upper_bound(t, val, lo, hi, key_fn)
   else
-    return lower_bound(t, val, lo, hi, key)
+    return lower_bound(t, val, lo, hi, key_fn)
   end
 end
 
@@ -960,7 +997,7 @@ function vim.islist(t)
   for _ in
     pairs(t--[[@as table<any,any>]])
   do
-    if t[j] == nil then
+    if rawget(t, j) == nil then
       return false
     end
     j = j + 1
@@ -1669,14 +1706,14 @@ function vim._with(context, f)
   return vim._with_c(context, callback)
 end
 
---- @param bufnr? integer
+--- @param buf? integer
 --- @return integer
-function vim._resolve_bufnr(bufnr)
-  if bufnr == nil or bufnr == 0 then
+function vim._resolve_bufnr(buf)
+  if buf == nil or buf == 0 then
     return vim.api.nvim_get_current_buf()
   end
-  vim.validate('bufnr', bufnr, 'number')
-  return bufnr
+  vim.validate('buf', buf, 'number')
+  return buf
 end
 
 --- @generic T
