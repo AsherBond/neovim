@@ -4,13 +4,33 @@ local M = {}
 
 --- Called by builtin serverlist(). Returns the combined server list (own + peers).
 ---
+---@class vim.ServerInfo
+---@field addr string Server address (socket path, named pipe, or TCP host:port).
+---@field pid integer? PID of the Nvim process owning this server (nil if unreachable).
+---@field own boolean True if this server belongs to the current Nvim instance.
+
 --- @param opts? table Options:
----              - opts.peer is true, also discover peer servers.
---- @param addrs string[] Internal ("own") addresses, from `server_address_list`.
---- @return string[] # Combined list of servers (own + peers).
+---              - opts.peer (boolean): If true, also discover peer servers.
+---              - opts.info (boolean): If true, return a list of |vim.ServerInfo| dicts
+---                instead of a list of addresses. Implies peer=true.
+--- @param addrs string[] Internal ("own") addresses, from server_address_list.
+--- @return string[]|vim.ServerInfo[]
 function M.serverlist(opts, addrs)
-  if type(opts) ~= 'table' or not opts.peer then
+  if type(opts) ~= 'table' then
     return addrs
+  end
+
+  local peer = opts.peer == true
+  local want_info = opts.info == true
+  local discover = peer or want_info
+
+  if not discover then
+    return addrs
+  end
+
+  local own_set = {} ---@type table<string, true>
+  for _, a in ipairs(addrs) do
+    own_set[a] = true
   end
 
   -- Discover peer servers in stdpath("run").
@@ -21,21 +41,44 @@ function M.serverlist(opts, addrs)
     return name:match('nvim.*')
   end, { path = root, type = 'socket', limit = math.huge })
 
+  local peer_pids = {} ---@type table<string, integer>
+
   for _, socket in ipairs(socket_paths) do
-    if not vim.list_contains(addrs, socket) then
+    if not own_set[socket] and not vim.list_contains(addrs, socket) then
       local ok, chan = pcall(vim.fn.sockconnect, 'pipe', socket, { rpc = true })
-      if ok and chan then
+      if ok and chan and chan > 0 then
         -- Check that the server is responding
         -- TODO: do we need a timeout or error handling here?
-        if vim.fn.rpcrequest(chan, 'nvim_get_chan_info', 0).id then
+        local ok_chan, chan_info = pcall(vim.fn.rpcrequest, chan, 'nvim_get_chan_info', 0)
+        if ok_chan and type(chan_info) == 'table' and chan_info.id then
           table.insert(addrs, socket)
+          if want_info then
+            local ok_pid, pid = pcall(vim.fn.rpcrequest, chan, 'nvim_eval', 'getpid()')
+            if ok_pid and type(pid) == 'number' then
+              peer_pids[socket] = pid
+            end
+          end
         end
-        vim.fn.chanclose(chan)
+        pcall(vim.fn.chanclose, chan)
       end
     end
   end
 
-  return addrs
+  if not want_info then
+    return addrs
+  end
+
+  local self_pid = vim.fn.getpid()
+  local result = {} ---@type vim.ServerInfo[]
+  for _, addr in ipairs(addrs) do
+    local own = own_set[addr] == true
+    table.insert(result, {
+      addr = addr,
+      pid = own and self_pid or peer_pids[addr],
+      own = own,
+    })
+  end
+  return result
 end
 
 -- (Windows only) Canonical --listen address persisted across restarts.

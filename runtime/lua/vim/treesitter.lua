@@ -12,6 +12,7 @@ local M = vim._defer_require('vim.treesitter', {
   language = ..., --- @module 'vim.treesitter.language'
   languagetree = ..., --- @module 'vim.treesitter.languagetree'
   query = ..., --- @module 'vim.treesitter.query'
+  _select = ..., --- @module 'vim.treesitter._select'
 })
 
 local LanguageTree = M.languagetree
@@ -96,7 +97,7 @@ function M.get_parser(buf, lang, opts)
     if not api.nvim_buf_is_loaded(buf) then
       return nil, string.format('Buffer %s must be loaded to create parser', buf)
     end
-    local parser = vim.F.npcall(M._create_parser, buf, lang, opts)
+    local parser = vim.npcall(M._create_parser, buf, lang, opts)
     if not parser then
       return nil,
         string.format('Parser could not be created for buffer %s and language "%s"', buf, lang)
@@ -506,6 +507,44 @@ end
 ---@return string
 function M.foldexpr(lnum)
   return M._fold.foldexpr(lnum)
+end
+
+--- @class vim.treesitter.select.Opts
+--- @inlinedoc
+---
+--- Number of selections to make in the given direction (default 1)
+--- @field count integer?
+
+--- Starts or adjusts a |Visual| selection at cursor, based on tree nodes.
+---@param direction 'parent'|'child'|'next'|'prev'|'extend_next'|'extend_prev' Direction to select
+---                                                                            towards
+---@param opts vim.treesitter.select.Opts?
+function M.select(direction, opts)
+  vim.validate('direction', direction, 'string')
+  vim.validate('opts', opts, 'table', true)
+  opts = opts or {}
+  if opts.count then
+    vim.validate('count', opts.count, 'number')
+  end
+  local count = opts.count or 1
+
+  if direction == 'parent' then
+    return M._select.select_parent(count)
+  elseif direction == 'child' then
+    return M._select.select_child(count)
+  elseif direction == 'next' then
+    return M._select.select_next(count)
+  elseif direction == 'prev' then
+    return M._select.select_prev(count)
+  elseif direction == 'extend_next' then
+    return M._select.select_grow_next(count)
+  elseif direction == 'extend_prev' then
+    return M._select.select_grow_prev(count)
+  else
+    vim.validate('direction', direction, function()
+      return false, 'Invalid direction'
+    end)
+  end
 end
 
 return M

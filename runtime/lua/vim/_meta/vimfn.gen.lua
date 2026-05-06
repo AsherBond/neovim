@@ -8289,12 +8289,24 @@ function vim.fn.searchpos(pattern, flags, stopline, timeout, skip) end
 ---           will also be returned. (default: |FALSE|)
 ---           Not supported on Windows yet.
 ---
+---   info  : If |TRUE|, return a list of Dicts with detailed info
+---           instead of addresses. Implies `peer=true`. Each Dict
+---           has the following items:
+---             addr   (string)  Server address.
+---             pid    (number?) PID of the Nvim process owning the
+---                              server, or |v:null| if the peer is
+---                              unreachable.
+---             own    (bool)    Whether this server belongs to the
+---                              current Nvim instance.
+---           (default: |FALSE|)
+---
 --- Example: >vim
 ---   echo serverlist()
+---   echo serverlist(#{info: v:true})
 --- <
 ---
 --- @param opts? table
---- @return string[]
+--- @return string[]|vim.ServerInfo[]
 function vim.fn.serverlist(opts) end
 
 --- Opens a socket or named pipe at {address} and listens for

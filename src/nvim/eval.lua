@@ -9971,13 +9971,25 @@ M.funcs = {
                 will also be returned. (default: |FALSE|)
                 Not supported on Windows yet.
 
+        info  : If |TRUE|, return a list of Dicts with detailed info
+                instead of addresses. Implies `peer=true`. Each Dict
+                has the following items:
+                  addr   (string)  Server address.
+                  pid    (number?) PID of the Nvim process owning the
+                                   server, or |v:null| if the peer is
+                                   unreachable.
+                  own    (bool)    Whether this server belongs to the
+                                   current Nvim instance.
+                (default: |FALSE|)
+
       Example: >vim
       	echo serverlist()
+      	echo serverlist(#{info: v:true})
       <
     ]=],
     name = 'serverlist',
     params = { { 'opts', 'table' } },
-    returns = 'string[]',
+    returns = 'string[]|vim.ServerInfo[]',
     signature = 'serverlist([{opts}])',
   },
   serverstart = {

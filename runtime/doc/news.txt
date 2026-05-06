@@ -73,7 +73,8 @@ API
 
 DIAGNOSTICS
 
-• todo
+• `vim.diagnostic.Opts.Status.format` no longer accepts the table mapping
+  from severity to text. Use `vim.diagnostic.Opts.Signs.text` instead.
 
 EDITOR
 
@@ -118,6 +119,7 @@ API
   shape when an unfocused float is on top of the cursor.
 • |nvim_echo()| distinguishes zero percent from omitted percent for Progress
   events.
+• |nvim_create_user_command()| accepts `desc` for Vimscript commands.
 
 BUILD
 
@@ -174,6 +176,10 @@ LUA
   available.
 • |vim.list.unique()| and |vim.list.bisect()| now support passing a string
   as a shorthand of a `key`
+• |vim.isnil()| tests if a value is `nil` or |vim.NIL|.
+• |vim.nonnil()| returns the first argument which is not nil.
+• |vim.npcall()| calls the function `fn` in protected-mode like |pcall()|,
+  but returns `nil` on error.
 
 OPTIONS
 
@@ -216,6 +222,7 @@ TREESITTER
 • |v_]N| |v_[N| expand selection to sibling treesitter node.
 • |treesitter-highlight-conceal| can be removed by adding a `@noconceal`
   capture.
+• |vim.treesitter.select()| starts or adjusts a visual selection at cursor, based on tree nodes.
 
 TUI
 
@@ -234,6 +241,9 @@ VIMSCRIPT
 
 • |v:exitreason| is set before |QuitPre|.
 • |v:starttime| is the process start time (nanoseconds since UNIX epoch).
+• |serverlist()| accepts a new `info` option that returns a list of dicts
+  with `addr`, `pid` and `own` for each server (own + peers),
+  enabling pickers like the future `:connect` host selector.
 
 ==============================================================================
 CHANGED FEATURES                                                 *news-changed*

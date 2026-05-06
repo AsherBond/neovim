@@ -216,6 +216,37 @@ describe('server', function()
     eq(true, vim.list_contains(new_servs, peer_addr))
     eq(true, #servers_without_peer < #new_servs)
     eq(true, old_servs_num < #new_servs)
+
+    -- serverlist({info=true}) returns rich info dicts (implies peer=true)
+    local info_servs = fn.serverlist({ info = true })
+    eq(#new_servs, #info_servs)
+
+    local own_addr = fn.serverlist()[1]
+    local self_pid = fn.getpid()
+    ---@type table<string, table>
+    local by_addr = {}
+    for _, entry in ipairs(info_servs) do
+      eq('string', type(entry.addr))
+      eq('boolean', type(entry.own))
+      by_addr[entry.addr] = entry
+    end
+
+    -- own server: own=true, pid matches
+    local own_entry = by_addr[own_addr]
+    eq(true, own_entry ~= nil)
+    eq(true, own_entry.own)
+    eq(self_pid, own_entry.pid)
+
+    -- peer server: own=false, pid is from peer process
+    local peer_entry = by_addr[peer_addr]
+    eq(true, peer_entry ~= nil)
+    eq(false, peer_entry.own)
+    eq('number', type(peer_entry.pid))
+    n.set_session(client)
+    local peer_pid = fn.getpid()
+    n.set_session(current_server)
+    eq(peer_pid, peer_entry.pid)
+
     client:close()
   end)
 
