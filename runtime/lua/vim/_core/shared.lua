@@ -376,7 +376,6 @@ end
 
 vim.list = {}
 
---- Returns a `key` function with per-call memoization.
 ---@generic T
 ---@param key? string|fun(val: T): any
 ---@return fun(v: T): any
@@ -393,28 +392,11 @@ local function make_key_fn(key)
     local field = key
     ---@param v any
     key = function(v)
-      return v and v[field] or nil
+      return v and v[field]
     end
   end
 
-  -- Keep memoized keys local to one list operation to avoid stale results.
-  local cache = {} --- @type table<any,any>
-
-  return function(v)
-    if v == nil then
-      return key(v)
-    end
-
-    local cached = cache[v]
-    if cached ~= nil then
-      -- Use `vim.NIL` to remember that `key(v)` returned `nil`.
-      return cached == vim.NIL and nil or cached
-    end
-
-    local result = key(v)
-    cache[v] = result == nil and vim.NIL or result
-    return result
-  end
+  return key
 end
 
 --- Removes duplicate values from a |lua-list| in-place.
@@ -425,7 +407,6 @@ end
 --- Accepts an optional `key` argument, which if provided is called for each
 --- value in the list to compute a hash key for uniqueness comparison.
 --- If `key` is a string, it is used as the field name to index each value.
---- Key results are memoized per call.
 --- This is useful for deduplicating table values or complex objects.
 --- If `key` returns `nil` for a value, that value will be considered unique,
 --- even if multiple values return `nil`.
@@ -488,7 +469,6 @@ end
 ---
 --- Optional, compare the return value instead of the {val} itself if provided.
 --- If a string, index each value by this field name.
---- Key results are memoized per call.
 ---@field key? string|fun(val: any): any
 ---
 --- Specifies the search variant.
@@ -680,8 +660,8 @@ end
 ---
 ---@param behavior 'error'|'keep'|'force'|fun(key:any, prev_value:any?, value:any): any Decides what to do if a key is found in more than one map:
 ---      - "error": raise an error
----      - "keep":  use value from the leftmost map
 ---      - "force": use value from the rightmost map
+---      - "keep":  use value from the leftmost map
 ---      - If a function, it receives the current key, the previous value in the currently merged table (if present), the current value and should
 ---        return the value for the given key in the merged table.
 ---@param ... table Two or more tables
@@ -713,8 +693,8 @@ end
 ---@generic T2: table
 ---@param behavior 'error'|'keep'|'force'|fun(key:any, prev_value:any?, value:any): any Decides what to do if a key is found in more than one map:
 ---      - "error": raise an error
----      - "keep":  use value from the leftmost map
 ---      - "force": use value from the rightmost map
+---      - "keep":  use value from the leftmost map
 ---      - If a function, it receives the current key, the previous value in the currently merged table (if present), the current value and should
 ---        return the value for the given key in the merged table.
 ---@param ... T2 Two or more tables
