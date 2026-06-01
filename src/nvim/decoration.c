@@ -30,13 +30,13 @@
 
 #include "decoration.c.generated.h"
 
-uint32_t decor_freelist = UINT32_MAX;
+static uint32_t decor_freelist = UINT32_MAX;
 
 // Decorations might be requested to be deleted in a callback in the middle of redrawing.
 // In this case, there might still be live references to the memory allocated for the decoration.
 // Keep a "to free" list which can be safely processed when redrawing is done.
-DecorVirtText *to_free_virt = NULL;
-uint32_t to_free_sh = UINT32_MAX;
+static DecorVirtText *to_free_virt = NULL;
+static uint32_t to_free_sh = UINT32_MAX;
 
 /// Add highlighting to a buffer, bounded by two cursor positions,
 /// with an offset.
@@ -651,7 +651,7 @@ void decor_range_add_sh(DecorState *state, int start_row, int start_col, int end
     decor_range_insert(state, &range);
   }
 
-  if (sh->flags & (kSHUIWatched)) {
+  if (sh->flags & kSHUIWatched) {
     range.kind = kDecorKindUIWatched;
     range.data.ui.ns_id = ns;
     range.data.ui.mark_id = mark_id;
@@ -898,7 +898,7 @@ bool decor_conceal_line(win_T *wp, int row, bool check_cursor)
     if (mark.pos.row > row) {
       break;
     }
-    if (mt_conceal_lines(mark) && ns_in_win(pair.start.ns, wp)) {
+    if (mt_conceal_lines(mark) && ns_in_win(mark.ns, wp)) {
       return true;
     }
     marktree_itr_next_filter(wp->w_buffer->b_marktree, itr, row + 1, 0, conceal_filter);
@@ -1200,7 +1200,7 @@ void decor_to_dict_legacy(Dict *dict, DecorInline decor, bool hl_name, Arena *ar
     uint32_t idx = decor.data.ext.sh_idx;
     while (idx != DECOR_ID_INVALID) {
       DecorSignHighlight *sh = &kv_A(decor_items, idx);
-      if (sh->flags & (kSHIsSign)) {
+      if (sh->flags & kSHIsSign) {
         sh_sign = *sh;
       } else {
         sh_hl = *sh;

@@ -4034,6 +4034,27 @@ func Test_fuzzy_completion_cmd_k()
   set wildoptions&
 endfunc
 
+" Issue #20241: with 'ignorecase', a lowercase "k"-prefixed input should
+" still complete a user command starting with "K".
+func Test_cmdline_complete_user_cmd_k_with_ignorecase()
+  command! Kz echo "hello"
+  command! Gz echo "here"
+
+  set noignorecase
+  call assert_equal([], getcompletion('kz', 'cmdline'))
+  call assert_equal([], getcompletion('gz', 'cmdline'))
+  call assert_equal(['Kz'], getcompletion('Kz', 'cmdline'))
+  call assert_equal(['Gz'], getcompletion('Gz', 'cmdline'))
+
+  set ignorecase
+  call assert_equal(['Kz'], getcompletion('kz', 'cmdline'))
+  call assert_equal(['Gz'], getcompletion('gz', 'cmdline'))
+
+  set ignorecase&
+  delcommand Kz
+  delcommand Gz
+endfunc
+
 " Test for fuzzy completion for user defined custom completion function
 func Test_fuzzy_completion_custom_func()
   func Tcompl(a, c, p)
@@ -4630,8 +4651,8 @@ func Test_customlist_dict_completion_info_popup()
   let lines =<< trim END
     func DictComp(A, L, P)
       return [
-            \ {'word': 'apple',  'kind': 'f', 'menu': 'fruit',     'info': 'A red fruit'},
-            \ {'word': 'banana', 'kind': 'f', 'menu': 'fruit',     'info': 'A yellow fruit'},
+            \ {'word': 'apple',  'kind': 'f', 'menu': 'fruit',     'info': 'A red fruit',    'abbr': '🍎'},
+            \ {'word': 'banana', 'kind': 'f', 'menu': 'fruit',     'info': 'A yellow fruit', 'abbr': '🍌'},
             \ {'word': 'carrot', 'kind': 'v', 'menu': 'vegetable', 'info': 'An orange vegetable'},
             \ 'plain',
             \ ]
@@ -4685,6 +4706,38 @@ func Test_customlist_dict_completion_info_popup()
   call term_sendkeys(buf, "\<C-U>sign un\<C-X>\<C-V>")
   call VerifyScreenDump(buf, 'Test_customlist_info_popup_11', {})
 
+  call StopVimInTerminal(buf)
+endfunc
+
+func Test_cmdline_complete_findfunc_dict()
+  CheckScreendump
+
+  let lines =<< trim END
+    set wildmenu wildoptions=pum completeopt=menu,popup
+    func FindComplete(cmdarg, cmdcomplete)
+      return [
+            \ 'Xplain',
+            \ {'word': 'Xfile1', 'kind': 'F', 'menu': 'file', 'info': '1st file'},
+            \ {'word': 'Xfile2', 'kind': 'F', 'menu': 'file', 'info': '2nd file'},
+            \ {'word': 'Xdir1',  'kind': 'D', 'menu': 'dir',  'info': '1st dir'},
+            \ {'word': 'Xdir2',  'kind': 'D', 'menu': 'dir',  'info': '2nd dir'},
+            \ ]
+    endfunc
+    set findfunc=FindComplete
+  END
+  call writefile(lines, 'XTest_compl_findfunc_dict', 'D')
+  let rows = 12
+  let buf = RunVimInTerminal('-S XTest_compl_findfunc_dict', {'rows': rows})
+
+  call term_sendkeys(buf, ":find \<Tab>")
+  call WaitForTermCurPosAndLinesToMatch(buf, [rows, (strlen(':find Xplain') + 1)], g:test_timeout, ((rows - 5), '^\~\s\+Xplain\s\+$'))
+  call VerifyScreenDump(buf, 'Test_compl_findfunc_dict_01', {})
+
+  call term_sendkeys(buf, "\<PageDown>")
+  call WaitForTermCurPosAndLinesToMatch(buf, [rows, (strlen(':find Xdir1') + 1)], g:test_timeout, ((rows - 2), '1st dir'))
+  call VerifyScreenDump(buf, 'Test_compl_findfunc_dict_02', {})
+
+  call term_sendkeys(buf, "\<Esc>")
   call StopVimInTerminal(buf)
 endfunc
 

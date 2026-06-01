@@ -277,16 +277,18 @@ lua_State *get_global_lstate(void)
 /// The returned string points to memory on the Lua stack. Use or duplicate it before using
 /// `lstate` again.
 ///
-/// @param[out] len length of error (can be NULL)
+/// @param[out] len length of error
 static const char *nlua_get_error(lua_State *lstate, size_t *len)
+  FUNC_ATTR_NONNULL_RET
 {
-  if (luaL_getmetafield(lstate, -1, "__tostring")) {
-    if (lua_isfunction(lstate, -1) && luaL_callmeta(lstate, -2, "__tostring")) {
-      // call __tostring, convert the result and replace error with it
-      lua_replace(lstate, -3);
+  if (lua_type(lstate, -1) != LUA_TSTRING) {
+    lua_getglobal(lstate, "tostring");
+    lua_pushvalue(lstate, -2);
+    if (lua_pcall(lstate, 1, 1, 0) || lua_type(lstate, -1) != LUA_TSTRING) {
+      lua_pop(lstate, 1);
+      lua_pushstring(lstate, "[UNPRINTABLE ERROR]");
     }
-    // pop __tostring.
-    lua_pop(lstate, 1);
+    lua_replace(lstate, -2);
   }
 
   return lua_tolstring(lstate, -1, len);
@@ -306,6 +308,7 @@ void nlua_error(lua_State *const lstate, const char *const msg)
     fprintf(stderr, msg, (int)len, str);
     fprintf(stderr, "\n");
   } else {
+    msg_ext_no_fast();
     semsg_multiline("lua_error", msg, (int)len, str);
   }
 
@@ -342,6 +345,7 @@ static void nlua_luv_error_event(void **argv)
   luv_err_t type = (luv_err_t)(intptr_t)argv[1];
   switch (type) {
   case kCallback:
+    msg_ext_no_fast();
     semsg_multiline("lua_error", "Lua callback:\n%s", error);
     break;
   case kThread:
@@ -431,10 +435,11 @@ static int nlua_luv_thread_common_cfpcall(lua_State *lstate, int nargs, int nres
       pthread_exit(0);
 #endif
     }
-    const char *error = lua_tostring(lstate, -1);
+    size_t len;
+    const char *error = nlua_get_error(lstate, &len);
     loop_schedule_deferred(&main_loop,
                            event_create(nlua_luv_error_event,
-                                        error != NULL ? xstrdup(error) : NULL,
+                                        xmemdupz(error, len),
                                         (void *)(intptr_t)(is_callback
                                                            ? kThreadCallback
                                                            : kThread)));
@@ -597,6 +602,17 @@ static int nlua_check_interrupt(lua_State *lstate)
 
   lua_pushboolean(lstate, interrupted);
   return 1;
+}
+
+static int nlua_os_exit(lua_State *lstate)
+{
+  int status = 0;
+  if (lua_gettop(lstate) >= 1 && !lua_isnil(lstate, 1)) {
+    status = lua_isboolean(lstate, 1) ? (lua_toboolean(lstate, 1) ? 0 : 1)
+                                      : (int)luaL_checkinteger(lstate, 1);
+  }
+  getout(status);
+  return 0;  // Unreachable, but MSVC does not infer getout() is noreturn.
 }
 
 static nlua_ref_state_t *nlua_new_ref_state(lua_State *lstate, bool is_thread)
@@ -839,6 +855,12 @@ static bool nlua_state_init(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL
   lua_pop(lstate, 1);
 #endif
 
+  // os.exit()
+  lua_getglobal(lstate, "os");
+  lua_pushcfunction(lstate, &nlua_os_exit);
+  lua_setfield(lstate, -2, "exit");
+  lua_pop(lstate, 1);
+
   // vim
   lua_newtable(lstate);
 
@@ -1049,6 +1071,7 @@ static void nlua_print_event(void **argv)
   HlMessageChunk chunk = { { .data = argv[0], .size = (size_t)(intptr_t)argv[1] - 1 }, 0 };
   kv_push(msg, chunk);
   bool needs_clear = false;
+  msg_ext_no_fast();
   msg_multihl(NIL, msg, "lua_print", true, false, NULL, &needs_clear);
 }
 
@@ -1781,14 +1804,17 @@ Object nlua_call_ref(LuaRef ref, const char *name, Array args, LuaRetMode mode, 
 
 static int mode_ret(LuaRetMode mode)
 {
-  return mode == kRetMulti ? LUA_MULTRET : 1;
+  return (mode == kRetMulti || mode == kRetMultiStack) ? LUA_MULTRET : 1;
 }
 
 /// Like nlua_call_ref, but with an option to run in fast (api-fast) context.
 Object nlua_call_ref_ctx(bool fast, LuaRef ref, const char *name, Array args, LuaRetMode mode,
                          Arena *arena, Error *err)
 {
-  lua_State *const lstate = global_lstate;
+  // Use active_lstate (set by ENTER_LUA_ACTIVE_STATE in gen_api_dispatch.lua) so callbacks run on
+  // the caller's Lua thread. This matters for coroutines: with global_lstate, return values pushed
+  // by kRetMultiStack would land on the main thread's stack, instead of coroutine stack.
+  lua_State *const lstate = active_lstate;
   int top = lua_gettop(lstate);
   nlua_pushref(lstate, ref);
   int nargs = (int)args.size;
@@ -1824,7 +1850,7 @@ Object nlua_call_ref_ctx(bool fast, LuaRef ref, const char *name, Array args, Lu
 static Object nlua_call_pop_retval(lua_State *lstate, LuaRetMode mode, Arena *arena, int pretop,
                                    Error *err)
 {
-  if (mode != kRetMulti && lua_isnil(lstate, -1)) {
+  if (mode != kRetMulti && mode != kRetMultiStack && lua_isnil(lstate, -1)) {
     lua_pop(lstate, 1);
     return NIL;
   }
@@ -1858,6 +1884,9 @@ static Object nlua_call_pop_retval(lua_State *lstate, LuaRetMode mode, Arena *ar
     }
     res.size = (size_t)nres;
     return ARRAY_OBJ(res);
+  case kRetMultiStack:
+    ;
+    return NIL;
   }
   UNREACHABLE;
 }
@@ -2372,7 +2401,9 @@ int nlua_do_ucmd(ucmd_T *cmd, exarg_T *eap, bool preview)
   char nargs[2];
   if (cmd->uc_argt & EX_EXTRA) {
     if (cmd->uc_argt & EX_NOSPC) {
-      if (cmd->uc_argt & EX_NEEDARG) {
+      if (cmd->uc_argt & EX_ARGSPACE) {
+        nargs[0] = '_';
+      } else if (cmd->uc_argt & EX_NEEDARG) {
         nargs[0] = '1';
       } else {
         nargs[0] = '?';

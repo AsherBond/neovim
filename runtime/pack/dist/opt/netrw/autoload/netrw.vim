@@ -1,7 +1,7 @@
 " Creator:    Charles E Campbell
 " Previous Maintainer: Luca Saccarola <github.e41mv@aleeas.com>
 " Maintainer: This runtime file is looking for a new maintainer.
-" Last Change: 2026 May 05
+" Last Change: 2026 May 28
 " Copyright:  Copyright (C) 2016 Charles E. Campbell {{{1
 "             Permission is hereby granted to use and distribute this code,
 "             with or without modifications, provided that this copyright
@@ -2581,8 +2581,8 @@ function s:NetrwValidateHostname(hostname)
   " Username:
   let user_pat = '\%([a-zA-Z0-9._-]\+@\)\?'
   " Hostname: 1-64 chars, alphanumeric/dots/hyphens.
-  " No underscores. No leading/trailing dots/hyphens.
-  let host_pat = '[a-zA-Z0-9]\%([-a-zA-Z0-9.]\{0,62}[a-zA-Z0-9]\)\?'
+  " No leading/trailing dots/hyphens.
+  let host_pat = '[a-zA-Z0-9_]\%([-a-zA-Z0-9._]\{0,62}[a-zA-Z0-9_]\)\?'
   " Port: 16 bit unsigned integer
   let port_pat = '\%(:\d\{1,5\}\)\?$'
 
@@ -2707,7 +2707,7 @@ endfunction
 
 "  s:NetrwBookHistHandler: {{{2
 "    0: (user: <mb>)   bookmark current directory
-"    1: (user: <gb>)   change to the bookmarked directory
+"    1: (user: <gb>)   change to the bookmarked path
 "    2: (user: <qb>)   list bookmarks
 "    3: (browsing)     records current directory history
 "    4: (user: <u>)    go up   (previous) directory, using history
@@ -2737,11 +2737,33 @@ function s:NetrwBookHistHandler(chg,curdir)
         endtry
 
     elseif a:chg == 1
-        " change to the bookmarked directory
-        if exists("g:netrw_bookmarklist[v:count-1]")
-            exe "NetrwKeepj e ".fnameescape(g:netrw_bookmarklist[v:count-1])
+        " change to bookmarked path
+        if exists("g:netrw_bookmarklist") && !empty(g:netrw_bookmarklist)
+            let len_bookmarklist = len(g:netrw_bookmarklist)
+            let bookmark_num = v:count
+
+            " v:count value is set to zero if no count (prefix) is given to the `gb` map
+            if bookmark_num == 0
+                " list bookmarks and prompt for a bookmark number
+                let goto_list = [" # | Goto Bookmark:"]
+                let i = 0
+                while i < len_bookmarklist
+                    call add(goto_list, printf("%3d| %s", i + 1, g:netrw_bookmarklist[i]))
+                    let i += 1
+                endwhile
+                let bookmark_num = inputlist(goto_list)
+            endif
+
+            if bookmark_num > 0
+                if bookmark_num <= len_bookmarklist
+                    exe "NetrwKeepj e " . fnameescape(g:netrw_bookmarklist[bookmark_num - 1])
+                else
+                    echomsg "Sorry, bookmark#" . bookmark_num . " doesn't exist!"
+                endif
+            endif
+            " Exit silently if user cancels with `q` or empty after inputlist()
         else
-            echomsg "Sorry, bookmark#".v:count." doesn't exist!"
+            echo "Bookmark list is empty."
         endif
 
     elseif a:chg == 2
@@ -2842,16 +2864,38 @@ function s:NetrwBookHistHandler(chg,curdir)
         endif
 
     elseif a:chg == 6
-        if exists("s:netrwmarkfilelist_{curbufnr}")
+        if exists("s:netrwmarkfilelist_{curbufnr}") && !empty(s:netrwmarkfilelist_{curbufnr})
             call s:NetrwBookmark(1)
             echo "removed marked files from bookmarks"
+        elseif exists("g:netrw_bookmarklist") && !empty(g:netrw_bookmarklist)
+            let len_bookmarklist = len(g:netrw_bookmarklist)
+            let bookmark_num = v:count
+
+            " v:count value is set to zero if no count (prefix) is given to the `gb` map
+            if bookmark_num == 0
+                " list bookmarks and prompt for a bookmark number
+                let goto_list = [" # | Delete Bookmark:"]
+                let i = 0
+                while i < len_bookmarklist
+                    call add(goto_list, printf("%3d| %s", i + 1, g:netrw_bookmarklist[i]))
+                    let i += 1
+                endwhile
+                let bookmark_num = inputlist(goto_list)
+            endif
+
+            if bookmark_num > 0
+                if bookmark_num <= len_bookmarklist
+                    let bookmark_path = g:netrw_bookmarklist[bookmark_num - 1]
+                    call s:MergeBookmarks()
+                    NetrwKeepj call remove(g:netrw_bookmarklist, bookmark_num - 1)
+                    echo "removed " . bookmark_path . " from g:netrw_bookmarklist."
+                else
+                    echomsg "Sorry, bookmark#" . bookmark_num . " doesn't exist!"
+                endif
+            endif
+            " Exit silently if user cancels with `q` or empty after inputlist()
         else
-            " delete the v:count'th bookmark
-            let iremove = v:count
-            let dremove = g:netrw_bookmarklist[iremove - 1]
-            call s:MergeBookmarks()
-            NetrwKeepj call remove(g:netrw_bookmarklist,iremove-1)
-            echo "removed ".dremove." from g:netrw_bookmarklist"
+            echo "Bookmark list is empty."
         endif
 
         try
@@ -2935,7 +2979,7 @@ function s:NetrwBookHistSave()
         while ( first || cnt != g:netrw_dirhistcnt )
             let lastline= lastline + 1
             if exists("g:netrw_dirhist_{cnt}")
-                call setline(lastline,'let g:netrw_dirhist_'.cnt."='".g:netrw_dirhist_{cnt}."'")
+                call setline(lastline,'let g:netrw_dirhist_'.cnt.'='.string(g:netrw_dirhist_{cnt}))
             endif
             let first   = 0
             let cnt     = ( cnt - 1 ) % g:netrw_dirhistmax
@@ -4413,10 +4457,10 @@ endfunction
 
 "  s:NetrwHome: this function determines a "home" for saving bookmarks and history {{{2
 function s:NetrwHome()
-    if has('nvim')
-        let home = netrw#fs#PathJoin(stdpath('state'), 'netrw')
-    elseif exists('g:netrw_home')
+    if exists('g:netrw_home')
         let home = expand(g:netrw_home)
+    elseif has('nvim')
+        let home = netrw#fs#PathJoin(stdpath('state'), 'netrw')
     elseif exists('$MYVIMDIR')
         let home = expand('$MYVIMDIR')->substitute('/$', '', '')
     else
@@ -4814,6 +4858,12 @@ endfunction
 
 " s:NetrwMaps: {{{2
 function s:NetrwMaps(islocal)
+    " remove B flag from 'cpo' so that \<CR>, \<Bar>, etc. inside
+    " interpolated path names play back as literal text rather than
+    " the actual key — without this, a crafted directory name can
+    " inject keystrokes into the cmdline the mapping is typing
+    let _cpo = &cpo
+    set cpo-=B
 
     " mouse <Plug> maps: {{{3
     if g:netrw_mousemaps && g:netrw_retmap
@@ -5058,6 +5108,7 @@ function s:NetrwMaps(islocal)
         " support user-specified maps
         call netrw#UserMaps(0)
     endif " }}}3
+    let &cpo = _cpo
 endfunction
 
 " s:NetrwCommands: set up commands                              {{{2
@@ -5157,7 +5208,7 @@ function s:NetrwMarkFile(islocal,fname)
 
         else
             " remove filename from buffer's markfilelist
-            call filter(s:netrwmarkfilelist_{curbufnr},'v:val != a:fname')
+            call filter(s:netrwmarkfilelist_{curbufnr}, {_, v -> v !=# a:fname})
             if s:netrwmarkfilelist_{curbufnr} == []
                 " local markfilelist is empty; remove it entirely
                 call s:NetrwUnmarkList(curbufnr,curdir)
@@ -5178,7 +5229,6 @@ function s:NetrwMarkFile(islocal,fname)
 
     else
         " initialize new markfilelist
-
         let s:netrwmarkfilelist_{curbufnr}= []
         call add(s:netrwmarkfilelist_{curbufnr},substitute(a:fname,'[|@]$','',''))
 
@@ -5198,7 +5248,7 @@ function s:NetrwMarkFile(islocal,fname)
             call add(s:netrwmarkfilelist,netrw#fs#ComposePath(b:netrw_curdir,a:fname))
         else
             " remove new filename from global markfilelist
-            call filter(s:netrwmarkfilelist,'v:val != "'.dname.'"')
+            call filter(s:netrwmarkfilelist, {_, v -> v !=# dname})
             if s:netrwmarkfilelist == []
                 unlet s:netrwmarkfilelist
             endif
@@ -7221,7 +7271,7 @@ function s:NetrwTreeDisplay(dir,depth)
         " hide given patterns
         let listhide= split(g:netrw_list_hide,',')
         for pat in listhide
-            call filter(w:netrw_treedict[dir],'v:val !~ "'.escape(pat,'\\').'"')
+            call filter(w:netrw_treedict[dir], {_, v -> v !~# pat})
         endfor
 
     elseif g:netrw_hide == 2
@@ -8983,22 +9033,30 @@ function s:MakeSshCmd(sshcmd)
     return sshcmd
 endfunction
 
-" s:MakeBookmark: enters a bookmark into Netrw's bookmark system   {{{2
+" s:MakeBookmark: enters a bookmark into Netrw's bookmark system {{{2
+" Note that bookmark paths should always be absolute.
 function s:MakeBookmark(fname)
 
     if !exists("g:netrw_bookmarklist")
-        let g:netrw_bookmarklist= []
+        let g:netrw_bookmarklist = []
     endif
 
-    if index(g:netrw_bookmarklist,a:fname) == -1
-        " curdir not currently in g:netrw_bookmarklist, so include it
-        if isdirectory(s:NetrwFile(a:fname)) && a:fname !~ '/$'
-            call add(g:netrw_bookmarklist,a:fname.'/')
-        elseif a:fname !~ '/'
-            call add(g:netrw_bookmarklist,getcwd()."/".a:fname)
-        else
-            call add(g:netrw_bookmarklist,a:fname)
-        endif
+    " Normalize path to prevent duplicate entries
+    let bookmark_path = netrw#fs#AbsPath(s:NetrwFile(a:fname))
+    let ignore_case = 0
+    if has('win32')
+        let bookmark_path = substitute(bookmark_path, '\\', '/', 'ge')
+        let ignore_case = 1
+    endif
+    let bookmark_path = simplify(bookmark_path)
+
+    if isdirectory(bookmark_path) && bookmark_path !~ '/$'
+        let bookmark_path .= '/'
+    endif
+
+    if index(g:netrw_bookmarklist, bookmark_path, 0, ignore_case) == -1
+        " Not currently in the bookmarks list, so include it
+        call add(g:netrw_bookmarklist, bookmark_path)
         call sort(g:netrw_bookmarklist)
     endif
 

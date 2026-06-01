@@ -3041,6 +3041,30 @@ static int qf_jump_edit_buffer(qf_info_T *qi, qfline_T *qf_ptr, int forceit, int
   return retval;
 }
 
+/// Return the byte index in the current line for screen column "vcol"
+/// (zero-based).  A <tab> is always counted as 8 screen columns, matching the
+/// column numbers compilers report for the "%v" item in 'errorformat',
+/// regardless of the buffer's 'tabstop'.
+static int qf_screen_col_to_idx(colnr_T vcol)
+{
+  const char *line = get_cursor_line_ptr();
+  const char *p = line;
+  colnr_T col = 0;
+
+  while (*p != NUL && col < vcol) {
+    if (*p == TAB) {
+      col += 8 - (col % 8);
+    } else {
+      col += ptr2cells(p);
+    }
+    if (col > vcol) {
+      break;
+    }
+    MB_PTR_ADV(p);
+  }
+  return (int)(p - line);
+}
+
 /// Go to the error line in the current file using either line/column number or
 /// a search pattern.
 static void qf_jump_goto_line(linenr_T qf_lnum, int qf_col, char qf_viscol, char *qf_pattern)
@@ -3055,7 +3079,7 @@ static void qf_jump_goto_line(linenr_T qf_lnum, int qf_col, char qf_viscol, char
     if (qf_col > 0) {
       curwin->w_cursor.coladd = 0;
       if (qf_viscol == true) {
-        coladvance(curwin, qf_col - 1);
+        curwin->w_cursor.col = qf_screen_col_to_idx(qf_col - 1);
       } else {
         curwin->w_cursor.col = qf_col - 1;
       }
@@ -4199,7 +4223,7 @@ static void qf_update_buffer(qf_info_T *qi, qfline_T *old_last)
   // autocommands may cause trouble
   incr_quickfix_busy();
 
-  aco_save_T aco;
+  aco_save_T aco = { 0 };
 
   if (old_last == NULL) {
     // set curwin/curbuf to buf and save a few things
@@ -5794,7 +5818,7 @@ static int vgr_process_files(win_T *wp, qf_info_T *qi, vgr_args_T *cmd_args, boo
           // need to be done now, in that buffer.  And the modelines
           // need to be done (again).  But not the window-local
           // options!
-          aco_save_T aco;
+          aco_save_T aco = { 0 };
           aucmd_prepbuf(&aco, buf);
           apply_autocmds(EVENT_FILETYPE, buf->b_p_ft, buf->b_fname, true, buf);
           do_modelines(OPT_NOWIN);
@@ -5958,7 +5982,7 @@ static buf_T *load_dummy_buffer(char *fname, char *dirname_start, char *resultin
     // Make sure this buffer isn't wiped out by autocommands.
     newbuf->b_locked++;
     // set curwin/curbuf to buf and save a few things
-    aco_save_T aco;
+    aco_save_T aco = { 0 };
     aucmd_prepbuf(&aco, newbuf);
 
     // Need to set the filename for autocommands.
@@ -6585,12 +6609,16 @@ static int qf_get_properties(win_T *wp, dict_T *what, dict_T *retdict)
   return status;
 }
 
-/// Set the current index in the specified quickfix list
-/// @return OK
+/// Set the 'quickfixtextfunc' in the specified quickfix/location list
+/// @return OK or FAIL
 static int qf_setprop_qftf(qf_list_T *qfl, dictitem_T *di)
   FUNC_ATTR_NONNULL_ALL
 {
   Callback cb;
+
+  if (check_secure()) {
+    return FAIL;
+  }
 
   callback_free(&qfl->qf_qftf_cb);
   if (callback_from_typval(&cb, &di->di_tv)) {

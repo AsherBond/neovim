@@ -224,7 +224,7 @@ vim.go.awa = vim.go.autowriteall
 
 --- When set to "dark" or "light", adjusts the default color groups for
 --- that background type.  The `TUI` or other UI sets this on startup
---- (triggering `OptionSet`) if it can detect the background color.
+--- if it can detect the background color.
 ---
 --- This option does NOT change the background color, it tells Nvim what
 --- the "inherited" (terminal/GUI) background looks like.
@@ -652,14 +652,15 @@ vim.bo.buflisted = vim.o.buflisted
 vim.bo.bl = vim.bo.buflisted
 
 --- The value of this option specifies the type of a buffer:
----   <empty>	normal buffer
----   acwrite	buffer will always be written with `BufWriteCmd`s
----   help		help buffer (do not set this manually)
----   nofile	buffer is not related to a file, will not be written
----   nowrite	buffer will not be written
----   prompt	buffer where only the last section can be edited, for
+---   (empty)	Normal buffer.
+---   acwrite	Buffer will always be written with `BufWriteCmd`.
+---   help		Help buffer (do not set this manually).
+---   nofile	Buffer is not a file, will not be written.
+---   nowrite	Buffer represents a filepath (such as a directory),
+--- 		but will not be written.
+---   prompt	Buffer where only the last section can be edited, for
 --- 		use by plugins. `prompt-buffer`
----   quickfix	list of errors `:cwindow` or locations `:lwindow`
+---   quickfix	List of errors `:cwindow` or locations `:lwindow`
 ---   terminal	`terminal-emulator` buffer
 ---
 --- This option is used together with 'bufhidden' and 'swapfile' to
@@ -2240,6 +2241,7 @@ vim.go.ei = vim.go.eventignore
 --- 	`TabClosedPre`,
 --- 	`TabEnter`,
 --- 	`TabLeave`,
+--- 	`TabMoved`,
 --- 	`TabNew`,
 --- 	`TabNewEntered`,
 --- 	`TermClose`,
@@ -2625,7 +2627,8 @@ vim.go.fcs = vim.go.fillchars
 --- `String` and is the `:find` command argument.  The second argument is
 --- a `Boolean` and is set to `v:true` when the function is called to get
 --- a List of command-line completion matches for the `:find` command.
---- The function should return a List of strings.
+--- The function should return a List, which is handled similarly to the
+--- return value of a `:command-completion-customlist` function.
 ---
 --- The function is called only once per `:find` command invocation.
 --- The function can process all the directories specified in 'path'.
@@ -4157,7 +4160,7 @@ vim.wo.list = vim.o.list
 --- 			set listchars+=tab:>-,lead:.
 --- ```
 ---
---- 						*lcs-leadmultispace*
+---                                 *lcs-leadmultispace* *indent-guides*
 ---   leadmultispace:c...
 --- 		Like the `lcs-multispace` value, but for leading
 --- 		spaces only.  Also overrides `lcs-lead` for leading
@@ -4170,6 +4173,16 @@ vim.wo.list = vim.o.list
 ---
 --- 		Where "XXX" denotes the first non-blank characters in
 --- 		the line.
+---
+---                 Combined with `lcs-leadtab`, this can be used to show
+---                 "indentation guides" (vertical lines).
+--- 		For example, with 'shiftwidth' 2:
+---
+--- ```vim
+--- 			set list listchars=leadtab:\ \ │,tab:\ \ │,leadmultispace:\ \ │
+--- ```
+--- For richer rendering (per-level colors, treesitter-aware
+--- 		scopes, etc.) use a third-party plugin.
 --- 						*lcs-leadtab*
 ---   leadtab:xy[z]
 --- 		Like `lcs-tab`, but only for leading tabs.  When
@@ -4655,7 +4668,10 @@ vim.go.mh = vim.go.mousehide
 --- 		be acted upon, i.e. no cursor move.  This implies of
 --- 		course, that right clicking outside a selection will
 --- 		end Visual mode.
---- Overview of what button does what for each model:
+---
+--- For a detailed description of 'mousemodel' behaviour see
+--- `mouse-mode-table`.  Overview of what button does what for each model:
+---
 --- mouse		    extend		popup(_setpos) ~
 --- left click	    place cursor	place cursor
 --- left drag	    start selection	start selection
@@ -5445,9 +5461,9 @@ vim.wo.scr = vim.wo.scroll
 --- Maximum number of lines kept beyond the visible screen. Lines at the
 --- top are deleted if new lines exceed this limit.
 --- Minimum is 1, maximum is 1000000.
---- Only in `terminal` buffers.
+--- Only in `terminal` and `prompt-buffer` buffers.
 ---
---- Note: Lines that are not visible and kept in scrollback are not
+--- Note: Lines that are not visible and kept in terminal scrollback are not
 --- reflown when the terminal buffer is resized horizontally.
 ---
 --- @type integer
@@ -5917,6 +5933,7 @@ vim.go.shcf = vim.go.shellcmdflag
 --- Note: When using a pipe like "| tee", you'll lose the exit code of the
 --- shell command.  This might be configurable by your shell, look for
 --- the pipefail option (for bash and zsh, use ":set -o pipefail").
+--- Only a single "%s" value is allowed.
 ---
 --- @type string
 vim.o.shellpipe = "| tee"
@@ -5959,6 +5976,8 @@ vim.go.shq = vim.go.shellquote
 --- explicitly set before.
 --- In the future pipes may be used for filtering and this option will
 --- become obsolete (at least for Unix).
+--- 							*E1577*
+--- Only a single "%s" item is allowed in the option value.
 ---
 --- @type string
 vim.o.shellredir = ">"
@@ -6799,7 +6818,8 @@ vim.wo.stc = vim.wo.statuscolumn
 --- { NF  Evaluate expression between "%{" and "}" and substitute result.
 ---       Note that there is no "%" before the closing "}".  The
 ---       expression cannot contain a "}" character, call a function to
----       work around that.  See `stl-%{` below.
+---       work around that.  See `stl-%{` below.  Use "%0{" to insert the
+---       result verbatim.
 --- `{%` -  This is almost same as "{" except the result of the expression is
 ---       re-evaluated as a statusline format string.  Thus if the
 ---       return value of expr contains "%" items they will get expanded.
@@ -6851,7 +6871,7 @@ vim.wo.stc = vim.wo.statuscolumn
 ---          added without modifying code that reacts on mouse clicks on
 ---          this label.
 ---       Use `getmousepos()`.winid in the specified function to get the
----       corresponding window id of the clicked item.
+---       corresponding `window-ID` of the clicked item.
 --- \< -   Where to truncate line if too long.  Default is at the start.
 ---       No width fields allowed.
 --- = -   Separation point between alignment sections.  Each section will
@@ -6908,6 +6928,8 @@ vim.wo.stc = vim.wo.statuscolumn
 --- A result of all digits is regarded a number for display purposes.
 --- Otherwise the result is taken as flag text and applied to the rules
 --- described above.
+--- 							*stl-%0{*
+--- With %0{ neither applies: the result is inserted as a literal string.
 ---
 --- Watch out for errors in expressions.  They may render Vim unusable!
 --- If you are stuck, hold down ':' or 'Q' to get a prompt, then quit and

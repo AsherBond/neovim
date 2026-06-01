@@ -4241,6 +4241,21 @@ describe('vim.diagnostic', function()
       eq('%#DiagnosticSignError#⨯:1 %#DiagnosticSignWarn#⚠︎:1%##', result)
     end)
 
+    it('works when signs are disabled', function()
+      local result = exec_lua(function()
+        vim.diagnostic.config({ signs = false })
+
+        vim.diagnostic.set(_G.diagnostic_ns, 0, {
+          _G.make_error('Error 1', 0, 1, 0, 1),
+          _G.make_warning('Warning 1', 2, 2, 2, 2),
+        })
+
+        return vim.diagnostic.status()
+      end)
+
+      eq('%#DiagnosticSignError#E:1 %#DiagnosticSignWarn#W:1%##', result)
+    end)
+
     it('uses format function diagnostic.config().status.format', function()
       local result = exec_lua(function()
         local signs = {
@@ -4440,6 +4455,20 @@ describe('vim.diagnostic', function()
           }
         end)
       )
+    end)
+
+    it('does not redraw for buffer not in window', function()
+      local did_status = exec_lua(function()
+        _G.Status = function()
+          _G.did_status = (_G.did_status or 0) + 1
+        end
+        vim.o.laststatus, vim.o.statusline = 2, '%!v:lua._G.Status()'
+        vim.diagnostic.set(_G.diagnostic_ns, _G.diagnostic_bufnr, {
+          _G.make_error('Diagnostic #1', 1, 1, 1, 1),
+        })
+        return _G.did_status
+      end)
+      eq(nil, did_status)
     end)
   end)
 end)

@@ -701,6 +701,7 @@ int os_call_shell(char *cmd, int opts, char *extra_args)
 
   if (!emsg_silent && exitcode != 0 && !(opts & kShellOptSilent)) {
     msg_ext_set_kind("shell_ret");
+    msg_ext_no_fast();
     if (!ui_has(kUIMessages)) {
       msg_putchar('\n');
     }
@@ -1125,7 +1126,8 @@ static void out_data_event(void **argv)
   bool need_clear = true;
   int hl = (int)(intptr_t)argv[2] == STDERR_FILENO ? HLF_SE : HLF_SO;
   msg_ext_set_kind((int)(intptr_t)argv[2] == STDERR_FILENO ? "shell_err" : "shell_out");
-  msg_ext_append = true;
+  msg_ext_set_append(true);
+  msg_ext_no_fast();
   msg_multiline(cbuf_as_string((char *)argv[0], (size_t)argv[1]), hl, false, false, &need_clear);
   xfree(argv[0]);
   ui_flush();
@@ -1254,7 +1256,8 @@ static size_t write_output(char *output, size_t remaining, bool eof)
   size_t off = 0;
   while (off < remaining) {
     // CRLF
-    if (output[off] == CAR && output[off + 1] == NL) {
+    // special case: for binary mode, don't remove CR.
+    if (output[off] == CAR && output[off + 1] == NL && !curbuf->b_p_bin) {
       output[off] = NUL;
       ml_append(curwin->w_cursor.lnum++, output, (int)off + 1, false);
       size_t skip = off + 2;
@@ -1262,7 +1265,7 @@ static size_t write_output(char *output, size_t remaining, bool eof)
       remaining -= skip;
       off = 0;
       continue;
-    } else if (output[off] == CAR || output[off] == NL) {
+    } else if ((output[off] == CAR && !curbuf->b_p_bin) || output[off] == NL) {
       // Insert the line
       output[off] = NUL;
       ml_append(curwin->w_cursor.lnum++, output, (int)off + 1, false);
