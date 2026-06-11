@@ -7210,15 +7210,16 @@ local options = {
       cb = 'did_set_scrollbind',
       defaults = false,
       desc = [=[
-        See also |scroll-binding|.  When this option is set, scrolling the
-        current window also scrolls other scrollbind windows (windows that
-        also have this option set).  This option is useful for viewing the
-        differences between two versions of a file, see 'diff'.
-        See 'scrollopt' for options that determine how this option should be
-        interpreted.
-        This option is mostly reset when splitting a window to edit another
-        file.  This means that ":split | edit file" results in two windows
-        with scroll-binding, but ":split file" does not.
+        Enables synchronized scrolling (in all windows with this option set).
+        Useful for comparing two versions of a file, see 'diff'.
+        Behavior is controlled by 'scrollopt'. See |scroll-binding|.
+
+        This option is (usually) reset when splitting a window to edit another
+        file: ":split | edit file" results in two windows with scroll-binding,
+        but ":split file" does not.
+
+        Note: Consider calling |:syncbind| on |WinResized|, |WinEnter| events
+        (scoped to relevant buffers).
       ]=],
       full_name = 'scrollbind',
       scope = { 'win' },
@@ -7708,10 +7709,9 @@ local options = {
     {
       abbreviation = 'shcf',
       defaults = {
-        condition = 'MSWIN',
-        if_false = '-c',
-        if_true = '/s /c',
-        doc = '"-c"; Windows: "/s /c"',
+        if_true = '-c',
+        doc = [["-c"; Windows, when 'shell'
+               contains "cmd" somewhere: "/s /c"]],
       },
       desc = [=[
         Flag passed to the shell to execute "!" and ":!" commands; e.g.,
@@ -7750,12 +7750,12 @@ local options = {
         For MS-Windows the default is "2>&1| tee".  The stdout and stderr are
         saved in a file and echoed to the screen.
         For Unix the default is "| tee".  The stdout of the compiler is saved
-        in a file and echoed to the screen.  If the 'shell' option is "csh" or
-        "tcsh" after initializations, the default becomes "|& tee".  If the
-        'shell' option is "sh", "ksh", "mksh", "pdksh", "zsh", "zsh-beta",
-        "bash", "fish", "ash" or "dash" the default becomes "2>&1| tee".  This
-        means that stderr is also included.  Before using the 'shell' option a
-        path is removed, thus "/bin/sh" uses "sh".
+        in a file and echoed to the screen.  If the 'shell' option contains
+        "csh" (e.g. "tcsh") after initializations, the default becomes
+        "|& tee".  Otherwise, if it contains "sh" (e.g. "bash", "zsh"), the
+        default becomes "2>&1| tee".  This means that stderr is also included.
+        Before using the 'shell' option a path is removed, thus "/bin/sh" uses
+        "sh".
         The initialization of this option is done after reading the vimrc
         and the other initializations, so that when the 'shell' option is set
         there, the 'shellpipe' option changes automatically, unless it was
@@ -7820,12 +7820,12 @@ local options = {
         The name of the temporary file can be represented by "%s" if necessary
         (the file name is appended automatically if no %s appears in the value
         of this option).
-        The default is ">".  For Unix, if the 'shell' option is "csh" or
-        "tcsh" during initializations, the default becomes ">&".  If the
-        'shell' option is "sh", "ksh", "mksh", "pdksh", "zsh", "zsh-beta",
-        "bash" or "fish", the default becomes ">%s 2>&1".  This means that
-        stderr is also included.  For Win32, the Unix checks are done and
-        additionally "cmd" is checked for, which makes the default ">%s 2>&1".
+        The default is ">".  For Unix, if the 'shell' option contains "csh"
+        (e.g. "tcsh") during initializations, the default becomes ">&".
+        Otherwise, if it contains "sh" (e.g. "bash", "zsh"), the default
+        becomes ">%s 2>&1". This means that stderr is also included.  For
+        Win32, the Unix checks are done and additionally "cmd" is checked
+        for, which makes the default ">%s 2>&1".
         Also, the same names with ".exe" appended are checked for.
         The initialization of this option is done after reading the vimrc
         and the other initializations, so that when the 'shell' option is set
@@ -7850,7 +7850,8 @@ local options = {
         condition = 'MSWIN',
         if_true = false,
         if_false = true,
-        doc = 'on, Windows: off',
+        doc = [[on; Windows: off, except when 'shell'
+               contains "sh" somewhere]],
       },
       desc = [=[
         		only modifiable in MS-Windows
@@ -7912,10 +7913,9 @@ local options = {
     {
       abbreviation = 'sxq',
       defaults = {
-        condition = 'MSWIN',
-        if_false = '',
-        if_true = '"',
-        doc = '"", Windows: "\\""',
+        if_true = '',
+        doc = [[""; Windows, when 'shell'
+               contains "cmd" somewhere: "\""]],
       },
       desc = [=[
         Quoting character(s), put around the command passed to the shell, for
@@ -10497,7 +10497,10 @@ local options = {
         		is not supported for file and directory names and
         		instead wildcard expansion is used.
           pum		Display the completion matches using the popup menu in
-        		the same style as the |ins-completion-menu|.
+        		the same style as the |ins-completion-menu|.  When an
+        		info popup is shown next to the menu, it can be
+        		scrolled by moving the mouse pointer on top of it and
+        		using the scroll wheel.
           tagfile	When using CTRL-D to list matching tags, the kind of
         		tag and the file of the tag is listed.	Only one match
         		is displayed per line.  Often used tag kinds are:
