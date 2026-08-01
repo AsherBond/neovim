@@ -2,10 +2,11 @@ local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each, after_each, pending, finally =
+  t.describe, t.it, t.before_each, t.after_each, t.pending, t.finally
 local clear, feed = n.clear, n.feed
 local eval = n.eval
 local eq = t.eq
-local pcall_err = t.pcall_err
 local neq = t.neq
 local command = n.command
 local set_method_error = n.set_method_error
@@ -942,7 +943,7 @@ describe('ui/ext_messages', function()
         ^                         |
         {1:~                        }|*4
       ]],
-      ruler = { { '0,0-1   All', 9, 'MsgArea' } },
+      ruler = { { '0,0-1    All', 9, 'MsgArea' } },
     })
     command('hi clear MsgArea')
     feed('i')
@@ -952,7 +953,7 @@ describe('ui/ext_messages', function()
         {1:~                        }|*4
       ]],
       showmode = { { '-- INSERT --', 5, 'ModeMsg' } },
-      ruler = { { '0,1     All', 'MsgArea' } },
+      ruler = { { '0,1      All', 'MsgArea' } },
     }
     feed('abcde<cr>12345<esc>')
     screen:expect {
@@ -961,7 +962,7 @@ describe('ui/ext_messages', function()
         1234^5                    |
         {1:~                        }|*3
       ]],
-      ruler = { { '2,5     All', 'MsgArea' } },
+      ruler = { { '2,5      All', 'MsgArea' } },
     }
     feed('d')
     screen:expect {
@@ -971,7 +972,7 @@ describe('ui/ext_messages', function()
         {1:~                        }|*3
       ]],
       showcmd = { { 'd' } },
-      ruler = { { '2,5     All', 'MsgArea' } },
+      ruler = { { '2,5      All', 'MsgArea' } },
     }
     feed('<esc>^')
     screen:expect {
@@ -980,7 +981,7 @@ describe('ui/ext_messages', function()
         ^12345                    |
         {1:~                        }|*3
       ]],
-      ruler = { { '2,1     All', 'MsgArea' } },
+      ruler = { { '2,1      All', 'MsgArea' } },
     }
     feed('<c-v>k2l')
     screen:expect({
@@ -991,7 +992,7 @@ describe('ui/ext_messages', function()
       ]],
       showmode = { { '-- VISUAL BLOCK --', 5, 'ModeMsg' } },
       showcmd = { { '2x3' } },
-      ruler = { { '1,3     All', 'MsgArea' } },
+      ruler = { { '1,3      All', 'MsgArea' } },
     })
     feed('o<esc>d')
     screen:expect {
@@ -1001,7 +1002,7 @@ describe('ui/ext_messages', function()
         {1:~                        }|*3
       ]],
       showcmd = { { 'd' } },
-      ruler = { { '2,1     All', 'MsgArea' } },
+      ruler = { { '2,1      All', 'MsgArea' } },
     }
     feed('i')
     screen:expect {
@@ -1011,7 +1012,7 @@ describe('ui/ext_messages', function()
         {1:~                        }|*3
       ]],
       showcmd = { { 'di' } },
-      ruler = { { '2,1     All', 'MsgArea' } },
+      ruler = { { '2,1      All', 'MsgArea' } },
     }
     feed('w')
     screen:expect {
@@ -1020,7 +1021,7 @@ describe('ui/ext_messages', function()
         ^                         |
         {1:~                        }|*3
       ]],
-      ruler = { { '2,0-1   All', 'MsgArea' } },
+      ruler = { { '2,0-1    All', 'MsgArea' } },
     }
     command('set rulerformat=Foo%#ErrorMsg#Bar')
     screen:expect({
@@ -1727,6 +1728,54 @@ describe('ui/builtin messages', function()
     }
   end)
 
+  it('no cursor flicker during :write message (marks UI busy) #25974', function()
+    local fname = 'Xtest_write_busy'
+    finally(function()
+      os.remove(fname)
+    end)
+    local busy_start, busy_stop = 0, 0
+    screen._handle_busy_start = (function(orig)
+      return function()
+        orig(screen)
+        busy_start = busy_start + 1
+      end
+    end)(screen._handle_busy_start)
+    screen._handle_busy_stop = (function(orig)
+      return function()
+        orig(screen)
+        busy_stop = busy_stop + 1
+      end
+    end)(screen._handle_busy_stop)
+    command('write ' .. fname)
+    screen:expect({ any = 'written' })
+    eq(true, busy_start >= 1) -- cursor was hidden while the message was emitted
+    eq(busy_start, busy_stop) -- balanced: cursor restored afterwards
+  end)
+
+  it(':write message not clobbered by v:lua in statusline redraw #40616', function()
+    local fname = 'Xtest_write_progress'
+    finally(function()
+      os.remove(fname)
+    end)
+    exec_lua(function()
+      -- The Progress event fired by the ":write" message (since ff68fd6b8a84)
+      -- evaluates statusline mid-message.
+      _G.Statusline = function()
+        return 'STL'
+      end
+      vim.o.laststatus = 2
+      vim.o.statusline = '%{v:lua.Statusline()}'
+      vim.api.nvim_create_autocmd('Progress', {
+        callback = function()
+          vim.cmd('redrawstatus!')
+        end,
+      })
+    end)
+    command('write ' .. fname)
+    -- Should not be overwritten by "return Statusline(...)").
+    screen:expect({ any = ('"%s".*written'):format(fname) })
+  end)
+
   it(':hi Group output', function()
     screen:try_resize(70, 7)
     feed(':hi ErrorMsg<cr>')
@@ -2041,23 +2090,15 @@ describe('ui/builtin messages', function()
   it('prints lines in Ex mode correctly with a burst of carriage returns #19341', function()
     command('set number')
     api.nvim_buf_set_lines(0, 0, 0, true, { 'aaa', 'bbb', 'ccc' })
-    feed('gggQ<CR><CR>1<CR><CR>vi')
+    -- Empty lines advance the cursor and print; a bare address moves and prints.
+    feed('gg1q:<CR><CR>1<CR><CR>')
+    screen:expect({ any = vim.pesc('" bbb') })
+    feed('vi<CR>')
     screen:expect([[
-      Entering Ex mode.  Type "visual" to go to Normal mode.      |
-      {8:  2 }bbb                                                     |
-      {8:  3 }ccc                                                     |
-      :1                                                          |
-      {8:  1 }aaa                                                     |
-      {8:  2 }bbb                                                     |
-      :vi^                                                         |
-    ]])
-    feed('<CR>')
-    screen:expect([[
-      {8:  1 }aaa                                                     |
       {8:  2 }^bbb                                                     |
       {8:  3 }ccc                                                     |
       {8:  4 }                                                        |
-      {1:~                                                           }|*2
+      {1:~                                                           }|*3
                                                                   |
     ]])
   end)
@@ -2551,11 +2592,20 @@ describe('ui/msg_puts_printf', function()
 
     fn.mkdir(locale_dir, 'p')
     fn.filecopy(build_dir .. '/src/nvim/po/ja.mo', locale_dir .. '/nvim.mo')
+    -- "-Es" doesn't read stdin as commands, and the "Entering Ex mode" banner was removed, so
+    -- ":print" a translated message via "-S" (silent mode suppresses ":echo" output). #40966
+    t.write_file(
+      'Xes_ja.vim',
+      [[call setline(1, gettext("Entering Ex mode.  Type \"visual\" to go to Normal mode."))]]
+        .. '\n'
+        .. '.print\n'
+    )
     finally(function()
+      os.remove('Xes_ja.vim')
       n.rmdir(vim.fs.dirname(locale_dir))
     end)
 
-    cmd = cmd .. '"' .. nvim_prog .. '" -u NONE -i NONE -Es -V1'
+    cmd = cmd .. '"' .. nvim_prog .. '" -u NONE -i NONE -Es -S Xes_ja.vim'
     command([[call jobstart(']] .. cmd .. [[',{'term':v:true})]])
     screen:expect([[
       ^Exモードに入ります。ノー |

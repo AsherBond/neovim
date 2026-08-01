@@ -1,6 +1,7 @@
 local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 
+local describe, it, before_each = t.describe, t.it, t.before_each
 local assert_alive = n.assert_alive
 local command = n.command
 local feed_command = n.feed_command
@@ -55,7 +56,7 @@ describe('exit:', function()
 
   it('v:exiting=0, v:exitreason=quit on exit from Ex mode try-catch vim-patch:8.0.0184', function()
     test_exiting(function()
-      feed('gQ')
+      feed('1q:')
       feed_command('try', 'call NoFunction()', 'catch', 'echo "bye"', 'endtry', 'quit')
     end)
   end)

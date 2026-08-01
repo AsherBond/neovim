@@ -302,7 +302,7 @@ do
   local function cmd(opts)
     local ok, err = pcall(vim.api.nvim_cmd, opts, {})
     if not ok then
-      vim.api.nvim_echo({ { err:sub(#'Vim:' + 1) } }, true, { err = true })
+      vim.api.nvim_echo({ { require('vim._core.util').cmd_errmsg(err) } }, true, { err = true })
     end
   end
 
@@ -446,14 +446,12 @@ do
 
     -- Add empty lines
     vim.keymap.set('n', '[<Space>', function()
-      -- TODO: update once it is possible to assign a Lua function to options #25672
-      vim.go.operatorfunc = "v:lua.require'vim._core.util'.space_above"
+      vim.go.operatorfunc = require('vim._core.util').space_above
       return 'g@l'
     end, { expr = true, desc = 'Add empty line above cursor' })
 
     vim.keymap.set('n', ']<Space>', function()
-      -- TODO: update once it is possible to assign a Lua function to options #25672
-      vim.go.operatorfunc = "v:lua.require'vim._core.util'.space_below"
+      vim.go.operatorfunc = require('vim._core.util').space_below
       return 'g@l'
     end, { expr = true, desc = 'Add empty line below cursor' })
   end
@@ -548,7 +546,7 @@ do
     end
   end
 
-  local nvim_popupmenu_augroup = vim.api.nvim_create_augroup('nvim.popupmenu', {})
+  local nvim_popupmenu_augroup = vim.api.nvim_create_augroup('nvim.popupmenu')
   nvim_on('MenuPopup', nvim_popupmenu_augroup, {
     pattern = '*',
     desc = 'Mouse popup menu',
@@ -569,7 +567,7 @@ do
     end)
   end
 
-  local nvim_terminal_augroup = vim.api.nvim_create_augroup('nvim.terminal', {})
+  local nvim_terminal_augroup = vim.api.nvim_create_augroup('nvim.terminal')
   vim.api.nvim_create_autocmd('BufReadCmd', {
     pattern = 'term://*',
     group = nvim_terminal_augroup,
@@ -615,7 +613,7 @@ do
     local buf = vim.bo[ev.buf]
     local pos = ev.data.pos ---@type integer
     local buf_has_exitmsg = #(
-        vim.api.nvim_buf_get_extmarks(ev.buf, nvim_terminal_exitmsg_ns, 0, -1, {})
+        vim.api.nvim_buf_get_extmarks(ev.buf, nvim_terminal_exitmsg_ns, 0, -1)
       ) > 0
 
     -- `nvim_open_term` buffers do not have an attached 'channel'.
@@ -749,11 +747,11 @@ do
   vim.api.nvim_create_autocmd('CmdwinEnter', {
     pattern = '[:>]',
     desc = 'Limit syntax sync to maxlines=1 in the command window',
-    group = vim.api.nvim_create_augroup('nvim.cmdwin', {}),
+    group = vim.api.nvim_create_augroup('nvim.cmdwin'),
     command = 'syntax sync minlines=1 maxlines=1',
   })
 
-  nvim_on('SwapExists', vim.api.nvim_create_augroup('nvim.swapfile', {}), {
+  nvim_on('SwapExists', vim.api.nvim_create_augroup('nvim.swapfile'), {
     pattern = '*',
     desc = 'Skip the swapfile prompt when the swapfile is owned by a running Nvim process',
   }, function()
@@ -796,7 +794,7 @@ do
   -- attached terminal, and a |TermResponse| is not attributable to a UI, so the
   -- value reflects whichever terminal answers last (decided by response speed),
   -- not necessarily the most recently attached one.
-  local group = vim.api.nvim_create_augroup('nvim.tty', {})
+  local group = vim.api.nvim_create_augroup('nvim.tty')
 
   --- Set an option after startup (so that OptionSet is fired), but only if not
   --- already set by the user.
@@ -805,7 +803,7 @@ do
   --- @param value any Option value
   --- @param force boolean? Always set the value, even if already set
   local function setoption(option, value, force)
-    if not force and vim.api.nvim_get_option_info2(option, {}).was_set then
+    if not force and vim.api.nvim_get_option_info2(option).was_set then
       -- Don't do anything if option is already set
       return
     end
@@ -831,7 +829,7 @@ do
 
   --- True if 'background' was set by the user, not by our detection (sid_lua).
   local function bg_user_set()
-    local info = vim.api.nvim_get_option_info2('background', {})
+    local info = vim.api.nvim_get_option_info2('background')
     return info.was_set and info.last_set_sid ~= sid_lua
   end
 
@@ -925,7 +923,7 @@ do
   local function detect_background(sync, chan)
     -- Re-create (clear) the handler's augroup on each call so only the
     -- most-recently-attached TUI's handler remains.
-    local bg_group = vim.api.nvim_create_augroup('nvim.tty.background', {})
+    local bg_group = vim.api.nvim_create_augroup('nvim.tty.background')
 
     -- Send OSC 11 query. In the startup (sync) path also send a DSR probe: if
     -- the DSR response comes first, the terminal most likely doesn't support the
@@ -1093,7 +1091,7 @@ do
     detect_termguicolors(tty)
 
     -- Show progress bars in supporting terminals
-    nvim_on('Progress', vim.api.nvim_create_augroup('nvim.progress', {}), {
+    nvim_on('Progress', vim.api.nvim_create_augroup('nvim.progress'), {
       desc = 'Display native progress bars',
     }, function(ev)
       if ev.data.status == 'running' then
@@ -1127,7 +1125,7 @@ do
       return nil
     end
 
-    nvim_on('UIEnter', vim.api.nvim_create_augroup('nvim.tty.attach', {}), {}, function()
+    nvim_on('UIEnter', vim.api.nvim_create_augroup('nvim.tty.attach'), {}, function()
       local ui = attaching_tty()
       if not ui then
         return

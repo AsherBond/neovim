@@ -555,7 +555,12 @@ func s:StructMembers(typename, items, all)
       if complete_check()
         return []
       endif
-      exe 'silent! keepj noautocmd ' . n . 'vimgrep /\t' . typename . '\(\t\|$\)/j ' . fnames
+      " Match "typename" literally (\V): escaping alone is not enough, as e.g.
+      " an unclosed "[" makes vimgrep's pattern skipping fail and the rest of
+      " the tag value is then parsed as Ex commands.
+      exe 'silent! keepj noautocmd '
+        \ .. n .. 'vimgrep /\t\V' .. escape(typename, '/\') .. '\m\(\t\|$\)/j '
+        \ .. fnames
 
       let qflist = getqflist()
       if len(qflist) > 0 || match(typename, "::") < 0

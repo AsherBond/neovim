@@ -3,6 +3,7 @@ local n = require('test.functional.testnvim')()
 local tt = require('test.functional.testterm')
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each = t.describe, t.it, t.before_each
 local assert_alive = n.assert_alive
 local clear = n.clear
 local command = n.command
@@ -956,6 +957,20 @@ describe('statusline', function()
     eq('B:' .. truncated, rendered)
   end)
 
+  it('truncation inside nested nvim_eval_statusline correctly adjusts highlights', function()
+    exec_lua('vim.o.laststatus = 2')
+    exec_lua([[vim.o.statusline = "%{%repeat('%#Error#',20)%}"]])
+    exec_lua([[
+      vim.o.statusline = "%l%l%l%l%{%nvim_eval_statusline('test%#Error#%l%<',{'maxwidth':4,'highlights':1}).highlights%}"
+    ]])
+    screen:expect([[
+      ^                                        |
+      {1:~                                       }|*5
+      {3:< 'groups': ['StatusLine'], 'start': 0}]}|
+                                              |
+    ]])
+  end)
+
   it('no cmdline ruler for autocmd window #39938', function()
     command('set ruler laststatus=2')
     api.nvim_create_autocmd('BufDelete', { command = 'redrawstatus' })
@@ -1075,6 +1090,21 @@ describe('statusline', function()
     end)
     eq(true, #contexts > 0)
     eq(caller_win, contexts[#contexts].actual)
+  end)
+
+  it('%P %L updates in other windows', function()
+    screen:try_resize(40, 14)
+    command('set laststatus=2 statusline=%P\\ %L | split')
+    feed(':put=range(10)<cr>dgg')
+    screen:expect([[
+      ^                                        |
+      {1:~                                       }|*5
+      {3:All 1                                   }|
+                                              |
+      {1:~                                       }|*4
+      {2:All 1                                   }|
+      --No lines in buffer--                  |
+    ]])
   end)
 end)
 
@@ -1298,13 +1328,13 @@ describe("'statusline' in floatwin", function()
     command(set_stl)
     local has_stl = [[
                                     |
-      {1:~}┌──────────┐{1:                 }|
-      {1:~}│{4:^1         }│{1:                 }|
-      {1:~}│{4:2         }│{1:                 }|
-      {1:~}│{4:3         }│{1:                 }|
-      {1:~}│{4:4         }│{1:                 }|
-      {1:~}│{3:<Name] [+]}│{1:                 }|
-      {1:~}└──────────┘{1:                 }|
+      {1:~}{4:┌──────────┐}{1:                 }|
+      {1:~}{4:│^1         │}{1:                 }|
+      {1:~}{4:│2         │}{1:                 }|
+      {1:~}{4:│3         │}{1:                 }|
+      {1:~}{4:│4         │}{1:                 }|
+      {1:~}{4:│}{3:<Name] [+]}{4:│}{1:                 }|
+      {1:~}{4:└──────────┘}{1:                 }|
       {1:~                             }|*10
       {2:[No Name]                     }|
                                     |
@@ -1315,12 +1345,12 @@ describe("'statusline' in floatwin", function()
     api.nvim_win_set_config(win, { style = 'minimal' })
     local without_stl = [[
                                     |
-      {1:~}┌──────────┐{1:                 }|
-      {1:~}│{4:^1         }│{1:                 }|
-      {1:~}│{4:2         }│{1:                 }|
-      {1:~}│{4:3         }│{1:                 }|
-      {1:~}│{4:4         }│{1:                 }|
-      {1:~}└──────────┘{1:                 }|
+      {1:~}{4:┌──────────┐}{1:                 }|
+      {1:~}{4:│^1         │}{1:                 }|
+      {1:~}{4:│2         │}{1:                 }|
+      {1:~}{4:│3         │}{1:                 }|
+      {1:~}{4:│4         │}{1:                 }|
+      {1:~}{4:└──────────┘}{1:                 }|
       {1:~                             }|*11
       {2:[No Name]                     }|
                                     |
@@ -1343,12 +1373,12 @@ describe("'statusline' in floatwin", function()
     command(set_stl)
     screen:expect([[
       {24: }{102:2}{24:+ [No Name] }{5: }{101:2}{5:+ [No Name] }{2: }{24:X}|
-      ^ ┌──────────┐                 |
-      {1:~}│{4:1         }│{1:                 }|
-      {1:~}│{4:2         }│{1:                 }|
-      {1:~}│{4:3         }│{1:                 }|
-      {1:~}│{4:4         }│{1:                 }|
-      {1:~}└──────────┘{1:                 }|
+      ^ {4:┌──────────┐}                 |
+      {1:~}{4:│1         │}{1:                 }|
+      {1:~}{4:│2         │}{1:                 }|
+      {1:~}{4:│3         │}{1:                 }|
+      {1:~}{4:│4         │}{1:                 }|
+      {1:~}{4:└──────────┘}{1:                 }|
       {1:~                             }|*11
       {3:[No Name]                     }|
                                     |
@@ -1357,13 +1387,13 @@ describe("'statusline' in floatwin", function()
     api.nvim_win_set_config(win2, { style = 'minimal' })
     screen:expect([[
       {5: }{101:2}{5:+ [No Name] }{24: }{102:2}{24:+ [No Name] }{2: }{24:X}|
-       ┌──────────┐                 |
-      {1:~}│{4:^1         }│{1:                 }|
-      {1:~}│{4:2         }│{1:                 }|
-      {1:~}│{4:3         }│{1:                 }|
-      {1:~}│{4:4         }│{1:                 }|
-      {1:~}│{3:<Name] [+]}│{1:                 }|
-      {1:~}└──────────┘{1:                 }|
+       {4:┌──────────┐}                 |
+      {1:~}{4:│^1         │}{1:                 }|
+      {1:~}{4:│2         │}{1:                 }|
+      {1:~}{4:│3         │}{1:                 }|
+      {1:~}{4:│4         │}{1:                 }|
+      {1:~}{4:│}{3:<Name] [+]}{4:│}{1:                 }|
+      {1:~}{4:└──────────┘}{1:                 }|
       {1:~                             }|*10
       {2:[No Name]                     }|
                                     |
@@ -1371,12 +1401,12 @@ describe("'statusline' in floatwin", function()
     command('tabnext')
     screen:expect([[
       {24: }{102:2}{24:+ [No Name] }{5: }{101:2}{5:+ [No Name] }{2: }{24:X}|
-      ^ ┌──────────┐                 |
-      {1:~}│{4:1         }│{1:                 }|
-      {1:~}│{4:2         }│{1:                 }|
-      {1:~}│{4:3         }│{1:                 }|
-      {1:~}│{4:4         }│{1:                 }|
-      {1:~}└──────────┘{1:                 }|
+      ^ {4:┌──────────┐}                 |
+      {1:~}{4:│1         │}{1:                 }|
+      {1:~}{4:│2         │}{1:                 }|
+      {1:~}{4:│3         │}{1:                 }|
+      {1:~}{4:│4         │}{1:                 }|
+      {1:~}{4:└──────────┘}{1:                 }|
       {1:~                             }|*11
       {3:[No Name]                     }|
                                     |
@@ -1385,13 +1415,13 @@ describe("'statusline' in floatwin", function()
     command('tabclose | set laststatus=2')
     screen:expect([[
                                     |
-      {1:~}┌──────────┐{1:                 }|
-      {1:~}│{4:^1         }│{1:                 }|
-      {1:~}│{4:2         }│{1:                 }|
-      {1:~}│{4:3         }│{1:                 }|
-      {1:~}│{4:4         }│{1:                 }|
-      {1:~}│{3:<Name] [+]}│{1:                 }|
-      {1:~}└──────────┘{1:                 }|
+      {1:~}{4:┌──────────┐}{1:                 }|
+      {1:~}{4:│^1         │}{1:                 }|
+      {1:~}{4:│2         │}{1:                 }|
+      {1:~}{4:│3         │}{1:                 }|
+      {1:~}{4:│4         │}{1:                 }|
+      {1:~}{4:│}{3:<Name] [+]}{4:│}{1:                 }|
+      {1:~}{4:└──────────┘}{1:                 }|
       {1:~                             }|*10
       {2:[No Name]                     }|
                                     |
@@ -1399,12 +1429,12 @@ describe("'statusline' in floatwin", function()
     command('set laststatus=0')
     screen:expect([[
                                     |
-      {1:~}┌──────────┐{1:                 }|
-      {1:~}│{4:^1         }│{1:                 }|
-      {1:~}│{4:2         }│{1:                 }|
-      {1:~}│{4:3         }│{1:                 }|
-      {1:~}│{4:4         }│{1:                 }|
-      {1:~}└──────────┘{1:                 }|
+      {1:~}{4:┌──────────┐}{1:                 }|
+      {1:~}{4:│^1         │}{1:                 }|
+      {1:~}{4:│2         │}{1:                 }|
+      {1:~}{4:│3         │}{1:                 }|
+      {1:~}{4:│4         │}{1:                 }|
+      {1:~}{4:└──────────┘}{1:                 }|
       {1:~                             }|*12
                                     |
     ]])
@@ -1412,12 +1442,12 @@ describe("'statusline' in floatwin", function()
     command('set laststatus=3')
     screen:expect([[
                                     |
-      {1:~}┌──────────┐{1:                 }|
-      {1:~}│{4:^1         }│{1:                 }|
-      {1:~}│{4:2         }│{1:                 }|
-      {1:~}│{4:3         }│{1:                 }|
-      {1:~}│{4:4         }│{1:                 }|
-      {1:~}└──────────┘{1:                 }|
+      {1:~}{4:┌──────────┐}{1:                 }|
+      {1:~}{4:│^1         │}{1:                 }|
+      {1:~}{4:│2         │}{1:                 }|
+      {1:~}{4:│3         │}{1:                 }|
+      {1:~}{4:│4         │}{1:                 }|
+      {1:~}{4:└──────────┘}{1:                 }|
       {1:~                             }|*11
       {3:[No Name] [+]                 }|
                                     |
@@ -1425,12 +1455,12 @@ describe("'statusline' in floatwin", function()
     api.nvim_buf_set_name(buf, 'stl_test')
     screen:expect([[
                                     |
-      {1:~}┌──────────┐{1:                 }|
-      {1:~}│{4:^1         }│{1:                 }|
-      {1:~}│{4:2         }│{1:                 }|
-      {1:~}│{4:3         }│{1:                 }|
-      {1:~}│{4:4         }│{1:                 }|
-      {1:~}└──────────┘{1:                 }|
+      {1:~}{4:┌──────────┐}{1:                 }|
+      {1:~}{4:│^1         │}{1:                 }|
+      {1:~}{4:│2         │}{1:                 }|
+      {1:~}{4:│3         │}{1:                 }|
+      {1:~}{4:│4         │}{1:                 }|
+      {1:~}{4:└──────────┘}{1:                 }|
       {1:~                             }|*11
       {3:stl_test [+]                  }|
                                     |

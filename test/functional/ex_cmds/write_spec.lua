@@ -1,6 +1,8 @@
 local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 
+local describe, it, before_each, after_each, pending =
+  t.describe, t.it, t.before_each, t.after_each, t.pending
 local eq, eval, clear, write_file, source, insert =
   t.eq, n.eval, n.clear, t.write_file, n.source, n.insert
 local pcall_err = t.pcall_err
@@ -128,16 +130,14 @@ describe(':write', function()
     )
 
     eq('Vim(write):E32: No file name', pcall_err(command, 'write ++p Xotherdir/'))
-    if not is_os('win') then
-      eq(
-        ('Vim(write):E17: "' .. fn.fnamemodify('.', ':p:h') .. '" is a directory'),
-        pcall_err(command, 'write ++p .')
-      )
-      eq(
-        ('Vim(write):E17: "' .. fn.fnamemodify('.', ':p:h') .. '" is a directory'),
-        pcall_err(command, 'write ++p ./')
-      )
-    end
+    eq(
+      ('Vim(write):E17: "' .. fn.fnamemodify('.', ':p:h') .. '" is a directory'),
+      pcall_err(command, 'write ++p .')
+    )
+    eq(
+      ('Vim(write):E17: "' .. fn.fnamemodify('.', ':p:h') .. '" is a directory'),
+      pcall_err(command, 'write ++p ./')
+    )
 
     t.matches(
       'E474: Invalid argument',
@@ -149,12 +149,10 @@ describe(':write', function()
     command('let $HOME=""')
     eq(fn.fnamemodify('.', ':p:h'), fn.fnamemodify('.', ':p:h:~'))
     -- Message from check_overwrite
-    if not is_os('win') then
-      eq(
-        ('Vim(write):E17: "' .. fn.fnamemodify('.', ':p:h') .. '" is a directory'),
-        pcall_err(command, 'write .')
-      )
-    end
+    eq(
+      ('Vim(write):E17: "' .. fn.fnamemodify('.', ':p:h') .. '" is a directory'),
+      pcall_err(command, 'write .')
+    )
     api.nvim_set_option_value('writeany', true, {})
     -- Message from buf_write
     eq('Vim(write):E502: "." is a directory', pcall_err(command, 'write .'))

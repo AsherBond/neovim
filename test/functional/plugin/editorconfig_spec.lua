@@ -1,6 +1,8 @@
 local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 
+local describe, it, before_each, setup, teardown =
+  t.describe, t.it, t.before_each, t.setup, t.teardown
 local clear = n.clear
 local command = n.command
 local eq = t.eq
@@ -120,8 +122,8 @@ end)
 
 describe('editorconfig', function()
   before_each(function()
-    -- Remove -u NONE so that plugins (i.e. editorconfig.lua) are loaded
-    clear({ args_rm = { '-u' } })
+    -- Use --clean so that plugins (i.e. editorconfig.lua) are loaded
+    clear({ args = { '--clean' } })
   end)
 
   it('sets indent options', function()

@@ -390,7 +390,7 @@ static void next_search_hl(win_T *win, match_T *search_hl, match_T *shl, linenr_
   const int called_emsg_before = called_emsg;
 
   // for :{range}s/pat only highlight inside the range
-  if ((lnum < search_first_line || lnum > search_last_line) && cur == NULL) {
+  if ((lnum < Search.first_line || lnum > Search.last_line) && cur == NULL) {
     shl->lnum = 0;
     return;
   }
@@ -423,7 +423,7 @@ static void next_search_hl(win_T *win, match_T *search_hl, match_T *shl, linenr_
     // 3. Vi compatible searching: continue at end of previous match.
     if (shl->lnum == 0) {
       matchcol = 0;
-    } else if (vim_strchr(p_cpo, CPO_SEARCH) == NULL
+    } else if (vim_strchr(p_cpo, kCpoSearch) == NULL
                || (shl->rm.endpos[0].lnum == 0
                    && shl->rm.endpos[0].col <= shl->rm.startpos[0].col)) {
       matchcol = shl->rm.startpos[0].col;

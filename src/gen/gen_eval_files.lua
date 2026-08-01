@@ -571,6 +571,12 @@ local function render_eval_doc(f, fun, write)
     write('')
   end
 
+  if fun.fast then
+    write(util.md_to_vimdoc('Attributes: ~', 16, 16, TEXT_WIDTH))
+    write(util.md_to_vimdoc('|api-fast|', 18, 18, TEXT_WIDTH))
+    write('')
+  end
+
   if #params > 0 then
     write(util.md_to_vimdoc('Parameters: ~', 16, 16, TEXT_WIDTH))
     for i, param in ipairs(params) do
@@ -651,11 +657,18 @@ local function render_option_meta(_f, opt, write)
     write('--- ' .. l)
   end
 
-  if opt.type == 'string' and not opt.list and opt.values then
-    local values = {} --- @type string[]
-    for _, e in ipairs(opt.values) do
-      values[#values + 1] = fmt("'%s'", e)
+  -- A non-list string option with a fixed value set (e.g. 'ambiwidth', 'tagcase') documents its
+  -- exact value union; everything else uses its Lua type.
+  local values = {} --- @type string[]
+  if opt.type == 'string' and not opt.list and opt.schema then
+    for _, v in ipairs(require('nvim.options').schema_values(opt.schema)) do
+      values[#values + 1] = fmt("'%s'", v)
     end
+  end
+  if opt.type == 'func' or opt.type == 'expr' then
+    -- "Callback" option ('operatorfunc', 'foldexpr', …).
+    write('--- @type string|function')
+  elseif #values > 0 then
     write('--- @type ' .. table.concat(values, '|'))
   else
     write('--- @type ' .. OPTION_TYPES[opt.type])
@@ -869,7 +882,8 @@ local function render_option_doc(_f, opt, write)
     name_str = fmt("'%s'", opt.full_name)
   end
 
-  local otype = opt.type == 'boolean' and 'boolean' or opt.type
+  -- Callback (func/expr) options are labeled "string" in the help, their ":set" form.
+  local otype = (opt.type == 'func' or opt.type == 'expr') and 'string' or opt.type
   if opt.defaults.doc or opt.defaults.if_true ~= nil or opt.defaults.meta ~= nil then
     local v = render_option_default(opt.defaults --[[@as vim.option_defaults]], true)
     local pad = string.rep('\t', math.max(1, math.ceil((24 - #name_str) / 8)))

@@ -416,7 +416,7 @@ end
 local function set_options()
   vim.bo.swapfile = false
   vim.bo.buftype = 'nofile'
-  vim.bo.bufhidden = 'unload'
+  vim.bo.bufhidden = 'hide'
   vim.bo.modified = false
   vim.bo.readonly = true
   vim.bo.modifiable = false
@@ -427,10 +427,8 @@ end
 --- @type boolean?
 local localfile_arg
 
---- @param path string
---- @param silent boolean?
---- @return string
-local function get_page(path, silent)
+--- @return integer
+local function get_manwidth()
   -- Disable hard-wrap by using a big $MANWIDTH (max 1000 on some systems #9065).
   -- Soft-wrap: ftplugin/man.lua sets wrap/breakindent/….
   -- Hard-wrap: driven by `man`.
@@ -438,11 +436,20 @@ local function get_page(path, silent)
   if (vim.g.man_hardwrap or 1) ~= 1 then
     manwidth = 999
   elseif vim.env.MANWIDTH then
-    vim.env.MANWIDTH = vim._tointeger(vim.env.MANWIDTH) or 0
-    manwidth = math.min(vim.env.MANWIDTH, api.nvim_win_get_width(0) - vim.o.wrapmargin)
+    local env_manwidth = vim._tointeger(vim.env.MANWIDTH) or 0
+    manwidth = math.min(env_manwidth, api.nvim_win_get_width(0) - vim.o.wrapmargin)
   else
     manwidth = api.nvim_win_get_width(0) - vim.o.wrapmargin
   end
+  return manwidth
+end
+
+--- @param path string
+--- @param silent boolean?
+--- @param manwidth integer?
+--- @return string
+local function get_page(path, silent, manwidth)
+  manwidth = manwidth or get_manwidth()
 
   if localfile_arg == nil then
     local mpath = get_path('man')
@@ -503,6 +510,11 @@ local function get_paths(name, sect)
     or vim.env.MANPATH
 
   if not mandirs_raw then
+    -- Fall back to direct lookup ("man -w [sect] name"). NetBSD man lacks "-w". #25919
+    local ok, path = pcall(M._find_path, name, sect)
+    if ok and path then
+      return { path }
+    end
     return {}, "Could not determine man directories from: 'man -w', 'manpath' or $MANPATH"
   end
 
@@ -690,6 +702,7 @@ function M.init_pager()
   end
 
   set_options()
+  vim.bo.bufhidden = 'unload'
 end
 
 --- Combine the name and sect into a manpage reference so that all
@@ -755,7 +768,7 @@ function M.open_page(count, smods, args)
   end
   local buf = api.nvim_get_current_buf()
   local save_tfu = vim.bo[buf].tagfunc
-  vim.bo[buf].tagfunc = "v:lua.require'man'.goto_tag"
+  vim.bo[buf].tagfunc = M.goto_tag
 
   local target = ('%s(%s)'):format(name, sect)
 
@@ -794,10 +807,12 @@ function M.read_page(ref)
     return 'no manual entry for ' .. name
   end
 
-  local _, sect1 = parse_path(path)
-  local page = get_page(path)
+  local _, page_sect = parse_path(path)
+  local manwidth = get_manwidth()
+  local page = get_page(path, nil, manwidth)
 
-  vim.b.man_sect = sect1
+  vim.b.manwidth = manwidth
+  vim.b.man_sect = page_sect
   vim.bo.modifiable = true
   vim.bo.readonly = false
   vim.bo.swapfile = false
@@ -820,6 +835,20 @@ function M.read_page(ref)
   vim.cmd('1') -- Move cursor to first line
   highlight_man_page()
   set_options()
+end
+
+--- @return string? err
+function M.refresh_page()
+  if vim.bo.filetype ~= 'man' then
+    return
+  end
+
+  local ref = api.nvim_buf_get_name(0):match('man://(.*)')
+  if not ref or vim.b.manwidth == nil or vim.b.manwidth == get_manwidth() then
+    return
+  end
+
+  return M.read_page(ref)
 end
 
 function M.show_toc()

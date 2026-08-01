@@ -295,7 +295,7 @@ void *vim_findfile_init(char *path, char *filename, size_t filenamelen, char *st
   // If path is absolute, we do that later.
   if (path[0] == '.'
       && (vim_ispathsep(path[1]) || path[1] == NUL)
-      && (!tagfile || vim_strchr(p_cpo, CPO_DOTTAG) == NULL)
+      && (!tagfile || vim_strchr(p_cpo, kCpoDottag) == NULL)
       && rel_fname != NULL) {
     size_t len = (size_t)(path_tail(rel_fname) - rel_fname);
 
@@ -407,7 +407,9 @@ void *vim_findfile_init(char *path, char *filename, size_t filenamelen, char *st
         ff_expand_buffer.data[ff_expand_buffer.size++] = *wc_part++;
         ff_expand_buffer.data[ff_expand_buffer.size++] = *wc_part++;
 
-        llevel = strtol(wc_part, &errpt, 10);
+        errpt = wc_part;
+        // Use def=255 so that overflow/too-large values keep the "max expand" behavior.
+        llevel = getdigits(&errpt, false, 255);
         if (errpt != wc_part && llevel > 0 && llevel < 255) {
           ff_expand_buffer.data[ff_expand_buffer.size++] = (char)llevel;
         } else if (errpt != wc_part && llevel == 0) {
@@ -1594,7 +1596,7 @@ char *grab_file_name(int count, linenr_T *file_lnum)
 {
   int options = FNAME_MESS | FNAME_EXP | FNAME_REL | FNAME_UNESC;
   char *fname;
-  if (VIsual_active) {
+  if (Visual.active) {
     size_t len;
     char *ptr;
     if (get_visual_text(NULL, &ptr, &len) == FAIL) {
@@ -1741,9 +1743,13 @@ static char *eval_includeexpr(const char *const ptr, const size_t len)
   set_vim_var_string(VV_FNAME, ptr, (ptrdiff_t)len);
   current_sctx = curbuf->b_p_script_ctx[kBufOptIncludeexpr];
 
-  char *res = eval_to_string_safe(curbuf->b_p_inex,
-                                  was_set_insecurely(curwin, kOptIncludeexpr, OPT_LOCAL),
-                                  true);
+  const bool use_sandbox = was_set_insecurely(curwin, kOptIncludeexpr, OPT_LOCAL);
+  typval_T tv;
+  char *res = NULL;
+  if (eval_expr_option_tv(&curbuf->b_p_inex, use_sandbox, &tv)) {
+    res = xstrdup(tv_get_string(&tv));
+    tv_clear(&tv);
+  }
 
   set_vim_var_string(VV_FNAME, NULL, 0);
   current_sctx = save_sctx;
@@ -1770,7 +1776,7 @@ char *find_file_name_in_path(char *ptr, size_t len, int options, long count, cha
     len -= off;
   }
 
-  if ((options & FNAME_INCL) && *curbuf->b_p_inex != NUL) {
+  if ((options & FNAME_INCL) && curbuf->b_p_inex.type != kCallbackNone) {
     tofree = eval_includeexpr(ptr, len);
     if (tofree != NULL) {
       ptr = tofree;
@@ -1788,7 +1794,7 @@ char *find_file_name_in_path(char *ptr, size_t len, int options, long count, cha
     // If the file could not be found in a normal way, try applying
     // 'includeexpr' (unless done already).
     if (file_name == NULL
-        && !(options & FNAME_INCL) && *curbuf->b_p_inex != NUL) {
+        && !(options & FNAME_INCL) && curbuf->b_p_inex.type != kCallbackNone) {
       tofree = eval_includeexpr(ptr, len);
       if (tofree != NULL) {
         ptr = tofree;
@@ -1855,13 +1861,6 @@ void do_autocmd_dirchanged(char *new_dir, CdScope scope, CdCause cause, bool pre
     // Should never happen.
     abort();
   }
-
-#ifdef BACKSLASH_IN_FILENAME
-  char new_dir_buf[MAXPATHL];
-  STRCPY(new_dir_buf, new_dir);
-  slash_adjust(new_dir_buf);
-  new_dir = new_dir_buf;
-#endif
 
   if (pre) {
     tv_dict_add_str(dict, S_LEN("directory"), new_dir);

@@ -1339,8 +1339,6 @@ static int read_sofo_section(FILE *fd, slang_T *slang)
   int cnt;
   int res;
 
-  slang->sl_sofo = true;
-
   // <sofofromlen> <sofofrom>
   char *from = read_cnt_string(fd, 2, &cnt);
   if (cnt < 0) {
@@ -1543,6 +1541,8 @@ static int set_sofo(slang_T *lp, const char *from, const char *to)
   const char *s;
   const char *p;
 
+  free_sal_items(&lp->sl_sal);
+
   // Use "sl_sal" as an array with 256 pointers to a list of wide
   // characters.  The index is the low byte of the character.
   // The list contains from-to pairs with a terminating NUL.
@@ -1552,9 +1552,12 @@ static int set_sofo(slang_T *lp, const char *from, const char *to)
   ga_grow(gap, 256);
   memset(gap->ga_data, 0, sizeof(int *) * 256);
   gap->ga_len = 256;
+  lp->sl_sofo = true;
 
   // First count the number of items for each list.  Temporarily use
-  // sl_sal_first[] for this.
+  // sl_sal_first[] for this.  Reset it first: a preceding SN_SAL section
+  // may have set the entries to -1 via set_sal_first().
+  memset(lp->sl_sal_first, 0, sizeof(salfirst_T) * 256);
   for (p = from, s = to; *p != NUL && *s != NUL;) {
     const int c = mb_cptr2char_adv(&p);
     s += utf_ptr2len(s);
@@ -5683,7 +5686,7 @@ static void init_spellfile(void)
     (fname != NULL && strstr(path_tail(fname), ".ascii.") != NULL) ? "ascii" : spell_enc();
   vim_snprintf(buf + strlen(buf), buf_len - strlen(buf), ".%s.add", enc_suffix);
 
-  set_option_value_give_err(kOptSpellfile, CSTR_AS_OPTVAL(buf), OPT_LOCAL);
+  set_option_value_give_err(kOptSpellfile, CSTR_AS_OBJ(buf), OPT_LOCAL);
   xfree(buf);
 }
 

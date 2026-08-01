@@ -1800,13 +1800,15 @@ bool tv_callback_equal(const Callback *cb1, const Callback *cb2)
   }
   switch (cb1->type) {
   case kCallbackFuncref:
-    return strcmp(cb1->data.funcref, cb2->data.funcref) == 0;
+    return strequal(cb1->data.funcref, cb2->data.funcref);
   case kCallbackPartial:
     // FIXME: this is inconsistent with tv_equal but is needed for precision
     // maybe change dictwatcheradd to return a watcher id instead?
     return cb1->data.partial == cb2->data.partial;
   case kCallbackLua:
     return cb1->data.luaref == cb2->data.luaref;
+  case kCallbackExpr:
+    return strequal(cb1->data.expr, cb2->data.expr);
   case kCallbackNone:
     return true;
   }
@@ -1828,6 +1830,9 @@ void callback_free(Callback *callback)
     break;
   case kCallbackLua:
     NLUA_CLEAR_REF(callback->data.luaref);
+    break;
+  case kCallbackExpr:
+    xfree(callback->data.expr);
     break;
   case kCallbackNone:
     break;
@@ -1880,6 +1885,9 @@ void callback_copy(Callback *dest, Callback *src)
   case kCallbackLua:
     dest->data.luaref = api_new_luaref(src->data.luaref);
     break;
+  case kCallbackExpr:
+    dest->data.expr = xstrdup(src->data.expr);
+    break;
   default:
     dest->data.funcref = NULL;
     break;
@@ -1890,7 +1898,7 @@ void callback_copy(Callback *dest, Callback *src)
 char *callback_to_string(Callback *cb, Arena *arena)
 {
   if (cb->type == kCallbackLua) {
-    return nlua_funcref_str(cb->data.luaref, arena);
+    return nlua_funcref_str(cb->data.luaref, arena, true);
   }
 
   const size_t msglen = 100;
@@ -2494,11 +2502,14 @@ int tv_dict_add_list(dict_T *const d, const char *const key, const size_t key_le
 
   item->di_tv.v_type = VAR_LIST;
   item->di_tv.vval.v_list = list;
-  tv_list_ref(list);
   if (tv_dict_add(d, item) == FAIL) {
+    // Detach "list" so tv_dict_item_free() does not unref it: on failure
+    // ownership stays with the caller.
+    item->di_tv.vval.v_list = NULL;
     tv_dict_item_free(item);
     return FAIL;
   }
+  tv_list_ref(list);
   return OK;
 }
 
@@ -2537,11 +2548,14 @@ int tv_dict_add_dict(dict_T *const d, const char *const key, const size_t key_le
 
   item->di_tv.v_type = VAR_DICT;
   item->di_tv.vval.v_dict = dict;
-  dict->dv_refcount++;
   if (tv_dict_add(d, item) == FAIL) {
+    // Detach "dict" so tv_dict_item_free() does not unref it: on failure
+    // ownership stays with the caller.
+    item->di_tv.vval.v_dict = NULL;
     tv_dict_item_free(item);
     return FAIL;
   }
+  dict->dv_refcount++;
   return OK;
 }
 
@@ -2684,11 +2698,12 @@ int tv_dict_add_func(dict_T *const d, const char *const key, const size_t key_le
 
   item->di_tv.v_type = VAR_FUNC;
   item->di_tv.vval.v_string = xmemdupz(fp->uf_name, fp->uf_namelen);
+  // Reference before tv_dict_add() so tv_dict_item_free()'s unref stays balanced on failure.
+  func_ref(item->di_tv.vval.v_string);
   if (tv_dict_add(d, item) == FAIL) {
     tv_dict_item_free(item);
     return FAIL;
   }
-  func_ref(item->di_tv.vval.v_string);
   return OK;
 }
 

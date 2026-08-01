@@ -625,6 +625,14 @@ under it.  If not found, a new entry and item is prepended to the beginning of
 the Changelog.
 
 
+DIRECTORY					*ft-directory*
+
+The "directory" filetype is used for directory listing buffers, such as those
+opened by |:edit| with a directory path.  See |dir| for mappings and behavior.
+
+Directory entries end in "/" and use the |hl-Directory| highlight group.
+
+
 FORTRAN							*ft-fortran-plugin*
 
 Options:
@@ -778,14 +786,14 @@ in your vimrc: >
 
 JAVA							*ft-java-plugin*
 
+						*g:ftplugin_java_source_path*
 Whenever the variable "g:ftplugin_java_source_path" is defined and its value
 is a filename whose extension is either ".jar" or ".zip", e.g.: >
 	let g:ftplugin_java_source_path = '/path/to/src.jar'
 	let g:ftplugin_java_source_path = '/path/to/src.zip'
 <
-and the |zip| plugin has already been sourced, the |gf| command can be used to
-open the archive and the |n| command can be used to look for the selected type
-and the <Return> key can be used to load a listed file.
+and a zip plugin has already been sourced, the |gf| command can be used to open
+the selected entry.
 
 Note that the effect of using the "gf" command WITHIN a buffer loaded with the
 Zip plugin depends on the version of the Zip plugin.  For the Zip plugin
@@ -1237,6 +1245,13 @@ Currently no other formats are recognized.
 
 TYPST							*ft-typst-plugin*
 
+						   *g:typst_recommended_style*
+By default, the Typst filetype plugin enables the following options: >
+	setlocal expandtab shiftwidth=2 softtabstop=2
+
+To disable this, set the following variable: >
+	let g:typst_recommended_style = 0
+<
 							*g:typst_conceal*
 When |TRUE| the Typst filetype plugin will set the 'conceallevel' option to 2.
 

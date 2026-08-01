@@ -2,6 +2,7 @@ local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each = t.describe, t.it, t.before_each
 local clear = n.clear
 local command = n.command
 local eq = t.eq
@@ -962,6 +963,7 @@ describe('statuscolumn', function()
   end)
 
   it('works with cmdwin', function()
+    -- The cmdwin sets its own window-local 'statuscolumn' (cmdwin-char).
     feed(':set stc=%l<CR>q:k$')
     screen:expect([[
       {8: 7}aaaaa                                              |
@@ -969,11 +971,11 @@ describe('statuscolumn', function()
       {8: 9}aaaaa                                              |
       {8:10}aaaaa                                              |
       {2:[No Name] [+]                                        }|
-      {1::}{8:1}set stc=%^l                                         |
-      {1::}{8:2}                                                   |
+      {1::}set stc=%^l                                          |
+      {1::}                                                    |
       {1:~                                                    }|*5
       {3:[Command Line]                                       }|
-      :                                                    |
+      :set stc=%l                                          |
     ]])
   end)
 

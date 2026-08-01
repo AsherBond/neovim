@@ -213,7 +213,7 @@ local function buf_range_get_text(buf, range)
     end_row = end_row - 1
   end
 
-  local lines = api.nvim_buf_get_text(buf, start_row, start_col, end_row, end_col, {})
+  local lines = api.nvim_buf_get_text(buf, start_row, start_col, end_row, end_col)
   if append_newline then
     table.insert(lines, '')
   end
@@ -502,7 +502,7 @@ end
 --- Returns the fold level for {lnum} in the current buffer. Can be set directly to 'foldexpr':
 ---
 --- ```lua
---- vim.wo.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
+--- vim.wo.foldexpr = vim.treesitter.foldexpr
 --- ```
 ---
 ---@since 11

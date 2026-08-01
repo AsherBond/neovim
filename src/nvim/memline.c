@@ -55,12 +55,12 @@
 #include "nvim/buffer_defs.h"
 #include "nvim/change.h"
 #include "nvim/cursor.h"
+#include "nvim/dialog.h"
 #include "nvim/drawscreen.h"
 #include "nvim/eval/typval.h"
 #include "nvim/eval/vars.h"
 #include "nvim/ex_cmds_defs.h"
 #include "nvim/fileio.h"
-#include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/highlight_defs.h"
@@ -803,7 +803,7 @@ void ml_recover(bool checkext)
     if (n_swaps > 1) {
       // Several swapfiles found: prompt (async) via vim.ui.select().
       typval_T lua_args[] = { items_tv, { .v_type = VAR_UNKNOWN } };
-      nlua_call_vimfn("vim._core.swapfile", "select_swap", lua_args, NULL);
+      nlua_call_typval("vim._core.swapfile", "select_swap", lua_args, NULL);
       tv_clear(&items_tv);
       goto theend;
     }
@@ -981,7 +981,7 @@ void ml_recover(bool checkext)
     set_fileformat(b0_ff - 1, OPT_LOCAL);
   }
   if (b0_fenc != NULL) {
-    set_option_value_give_err(kOptFileencoding, CSTR_AS_OPTVAL(b0_fenc), OPT_LOCAL);
+    set_option_value_give_err(kOptFileencoding, CSTR_AS_OBJ(b0_fenc), OPT_LOCAL);
     xfree(b0_fenc);
   }
   unchanged(curbuf, true, true);
@@ -1110,6 +1110,18 @@ void ml_recover(bool checkext)
           // It is a data block.
           // Append all the lines in this block.
           bool has_error = false;
+
+          // Verify the cached block's actual size matches the
+          // pointer entry's pe_page_count.  mf_get() cache hits
+          // return the original block without resizing, so a
+          // crafted swap file referencing the same block twice
+          // with different pe_page_count values would cause an
+          // OOB write below.
+          if (hp->bh_page_count != page_count) {
+            error++;
+            ml_append(lnum++, _("??? BLOCK PAGE COUNT MISMATCH"), 0, true);
+            page_count = hp->bh_page_count;
+          }
 
           // Check the length of the block.
           // If wrong, use the length given in the pointer block.
@@ -3521,7 +3533,7 @@ static char *findswapname(buf_T *buf, char **dirp, char *old_fname, bool *found_
         //  - there is an old swapfile for the current file
         //  - the buffer was not recovered
         if (!differ && !(curbuf->b_flags & BF_RECOVERED)
-            && vim_strchr(p_shm, SHM_ATTENTION) == NULL) {
+            && vim_strchr(p_shm, kShmAttention) == NULL) {
           sea_choice_T choice = SEA_CHOICE_NONE;
 
           // It's safe to delete the swapfile if all these are true:

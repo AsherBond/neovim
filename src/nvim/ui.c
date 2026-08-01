@@ -220,7 +220,7 @@ void ui_refresh(void)
   // Reset 'cmdheight' for all tabpages when ext_messages toggles.
   if (had_message != ui_ext[kUIMessages]) {
     if (ui_refresh_cmdheight) {
-      set_option_value(kOptCmdheight, NUMBER_OPTVAL(had_message), 0);
+      set_option_value(kOptCmdheight, INTEGER_OBJ(had_message), 0);
       FOR_ALL_TABS(tp) {
         tp->tp_ch_used = had_message;
       }
@@ -617,15 +617,15 @@ void ui_check_mouse(void)
     return;
   }
 
-  int checkfor = MOUSE_NORMAL;  // assume normal mode
-  if (VIsual_active) {
-    checkfor = MOUSE_VISUAL;
+  int checkfor = kMouseNormal;  // assume normal mode
+  if (Visual.active) {
+    checkfor = kMouseVisual;
   } else if (State == MODE_HITRETURN || State == MODE_ASKMORE || State == MODE_SETWSIZE) {
-    checkfor = MOUSE_RETURN;
+    checkfor = kMouseReturn;
   } else if (State & MODE_INSERT) {
-    checkfor = MOUSE_INSERT;
+    checkfor = kMouseInsert;
   } else if (State & MODE_CMDLINE) {
-    checkfor = MOUSE_COMMAND;
+    checkfor = kMouseCommand;
   } else if (State == MODE_EXTERNCMD) {
     checkfor = ' ';  // don't use mouse for ":!cmd"
   }
@@ -652,8 +652,8 @@ bool ui_mouse_has(int mode)
       }
 
       break;
-    case MOUSE_HELP:
-      if (mode != MOUSE_RETURN && curbuf->b_help) {
+    case kMouseHelp:
+      if (mode != kMouseReturn && curbuf->b_help) {
         return true;
       }
 

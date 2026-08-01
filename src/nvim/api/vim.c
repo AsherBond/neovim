@@ -37,14 +37,14 @@
 #include "nvim/ex_docmd.h"
 #include "nvim/ex_eval.h"
 #include "nvim/fold.h"
-#include "nvim/getchar.h"
-#include "nvim/getchar_defs.h"
 #include "nvim/globals.h"
 #include "nvim/grid.h"
 #include "nvim/grid_defs.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
+#include "nvim/input.h"
+#include "nvim/input_defs.h"
 #include "nvim/insexpand.h"
 #include "nvim/keycodes.h"
 #include "nvim/log.h"
@@ -159,7 +159,7 @@ DictAs(get_hl_info) nvim_get_hl(Integer ns_id, Dict(get_highlight) *opts, Arena 
 ///                - fg: Color name or "#RRGGBB", see note.
 ///                - fg_indexed: boolean. Same as `bg_indexed`, for `fg` and `ctermfg`.
 ///                - font: GUI font name (string). Sets |highlight-font|. Use "NONE" to clear.
-///                - force: boolean (default false) Update the highlight group even if it already exists.
+///                - force: (boolean, default: false) Update the highlight group even if it already exists.
 ///                - italic: boolean
 ///                - link: Name of highlight group to link to. |:hi-link|
 ///                - link_global: Like "link", but always resolved in the global namespace (ns=0).
@@ -174,7 +174,7 @@ DictAs(get_hl_info) nvim_get_hl(Integer ns_id, Dict(get_highlight) *opts, Arena 
 ///                - underdotted: boolean
 ///                - underdouble: boolean
 ///                - underline: boolean
-///                - update: boolean (default false) Update specified attributes only, leave others unchanged.
+///                - update: (boolean, default: false) Update specified attributes only, leave others unchanged.
 /// @param[out] err Error details, if any
 void nvim_set_hl(uint64_t channel_id, Integer ns_id, String name, Dict(highlight) *val, Error *err)
   FUNC_API_SINCE(7)
@@ -265,27 +265,22 @@ void nvim_set_hl_ns_fast(Integer ns_id, Error *err)
   hl_check_ns();
 }
 
-/// Sends input-keys to Nvim, subject to various quirks controlled by `mode`
-/// flags. This is a blocking call, unlike |nvim_input()|.
+/// Sends input-keys to Nvim, subject to various quirks controlled by `mode` flags. This is
+/// a blocking call, unlike |nvim_input()|.
 ///
 /// On execution error: does not fail, but updates v:errmsg.
 ///
-/// To input sequences like [<C-o>] use |nvim_replace_termcodes()| (typically
-/// with escape_ks=false) to replace |keycodes|, then pass the result to
-/// nvim_feedkeys().
-///
-/// Example:
+/// To input keycodes like [<C-o>], pass the result of |nvim_replace_termcodes()|:
 ///
 /// ```vim
-/// :let key = nvim_replace_termcodes("<C-o>", v:true, v:false, v:true)
+/// :let key = nvim_replace_termcodes('<C-o>', v:true, v:false, v:true)
 /// :call nvim_feedkeys(key, 'n', v:false)
 /// ```
 ///
-/// @param keys         to be typed
-/// @param mode         behavior flags, see |feedkeys()|
-/// @param escape_ks    If true, escape K_SPECIAL bytes in `keys`.
-///                     This should be false if you already used
-///                     |nvim_replace_termcodes()|, and true otherwise.
+/// @param keys         Keys to send as input.
+/// @param mode         Behavior flags, see |feedkeys()|.
+/// @param escape_ks    If true, escape K_SPECIAL bytes in `keys`. Should be false if you used
+///                     |nvim_replace_termcodes()|, else true.
 /// @see feedkeys()
 /// @see vim_strsave_escape_ks
 void nvim_feedkeys(String keys, String mode, Boolean escape_ks)
@@ -481,10 +476,9 @@ error:
                 "invalid button or action");
 }
 
-/// Replaces terminal codes and |keycodes| ([<CR>], [<Esc>], ...) in a string with
-/// the internal representation.
+/// Converts terminal codes and |keycodes| ([<CR>], [<Esc>], …) in a key sequence, to the internal
+/// representation. See also Lua |vim.keycode()|.
 ///
-/// @note Lua can use |vim.keycode()| instead.
 /// @see replace_termcodes
 /// @see cpoptions
 ///
@@ -493,7 +487,7 @@ error:
 /// @param do_lt      Also translate [<lt>]. Ignored if `special` is false.
 /// @param special    Replace |keycodes|, e.g. [<CR>] becomes a "\r" char.
 String nvim_replace_termcodes(String str, Boolean from_part, Boolean do_lt, Boolean special)
-  FUNC_API_SINCE(1) FUNC_API_RET_ALLOC
+  FUNC_API_SINCE(1) FUNC_API_FAST FUNC_API_RET_ALLOC
 {
   if (str.size == 0) {
     // Empty string
@@ -695,12 +689,8 @@ void nvim_set_current_dir(String dir, Error *err)
     return;
   });
 
-  char string[MAXPATHL];
-  memcpy(string, dir.data, dir.size);
-  string[dir.size] = NUL;
-
   TRY_WRAP(err, {
-    changedir_func(string, kCdScopeGlobal);
+    changedir_func(dir.data, kCdScopeGlobal);
   });
 }
 
@@ -720,7 +710,7 @@ String nvim_get_current_line(Arena *arena, Error *err)
 /// @param[out] err Error details, if any
 void nvim_set_current_line(String line, Arena *arena, Error *err)
   FUNC_API_SINCE(1)
-  FUNC_API_TEXTLOCK_ALLOW_CMDWIN
+  FUNC_API_TEXTLOCK
 {
   buffer_set_line(curbuf->handle, curwin->w_cursor.lnum - 1, line, arena, err);
 }
@@ -730,7 +720,7 @@ void nvim_set_current_line(String line, Arena *arena, Error *err)
 /// @param[out] err Error details, if any
 void nvim_del_current_line(Arena *arena, Error *err)
   FUNC_API_SINCE(1)
-  FUNC_API_TEXTLOCK_ALLOW_CMDWIN
+  FUNC_API_TEXTLOCK
 {
   buffer_del_line(curbuf->handle, curwin->w_cursor.lnum - 1, arena, err);
 }
@@ -810,7 +800,7 @@ void nvim_set_vvar(String name, Object value, Error *err)
 ///
 /// Example:
 /// ```lua
-/// vim.api.nvim_echo({ { 'chunk1-line1\nchunk1-line2\n' }, { 'chunk2-line1' } }, true, {})
+/// vim.api.nvim_echo({ { 'chunk1-line1\nchunk1-line2\n' }, { 'chunk2-line1' } }, true)
 /// ```
 ///
 /// @param chunks List of `[text, hl_group]` pairs, where each is a `text` string highlighted by
@@ -1042,8 +1032,6 @@ void nvim_set_current_win(Window win, Error *err)
 ///                (always 'nomodified'). Also sets 'nomodeline' on the buffer.
 /// @param[out] err Error details, if any
 /// @return Buffer id, or 0 on error
-///
-/// @see buf_open_scratch
 Buffer nvim_create_buf(Boolean listed, Boolean scratch, Error *err)
   FUNC_API_SINCE(6)
 {
@@ -1076,13 +1064,13 @@ Buffer nvim_create_buf(Boolean listed, Boolean scratch, Error *err)
 
     // Only strictly needed for scratch, but could just as well be consistent
     // and do this now. Buffer is created NOW, not when it later first happens
-    // to reach a window or aucmd_prepbuf() ..
+    // to reach a window or ctx_switch() ..
     buf_copy_options(buf, BCO_ENTER | BCO_NOHELP);
 
     if (scratch) {
-      set_option_direct_for(kOptBufhidden, STATIC_CSTR_AS_OPTVAL("hide"), OPT_LOCAL, 0,
+      set_option_direct_for(kOptBufhidden, STATIC_CSTR_AS_OBJ("hide"), OPT_LOCAL, 0,
                             kOptScopeBuf, buf);
-      set_option_direct_for(kOptBuftype, STATIC_CSTR_AS_OPTVAL("nofile"), OPT_LOCAL, 0,
+      set_option_direct_for(kOptBuftype, STATIC_CSTR_AS_OBJ("nofile"), OPT_LOCAL, 0,
                             kOptScopeBuf, buf);
       assert(buf->b_ml.ml_mfp->mf_fd < 0);  // ml_open() should not have opened swapfile already
       buf->b_p_swf = false;
@@ -1135,33 +1123,31 @@ Buffer nvim_create_buf(Boolean listed, Boolean scratch, Error *err)
 ///
 /// ```lua
 /// vim.api.nvim_create_user_command('TermHl', function()
-///   vim.api.nvim_open_term(0, {})
+///   vim.api.nvim_open_term(0)
 /// end, { desc = 'Highlights ANSI termcodes in curbuf' })
 /// ```
 ///
 /// @param buf Buffer which displays the PTY output. The initial buffer contents (if any) will be
 ///            written to the PTY.
 /// @param opts   Optional parameters.
-///          - force_crlf: (boolean, default true) Convert "\n" to "\r\n".
-///          - on_input: Lua callback for input sent, i e keypresses in terminal
-///            mode. Note: keypresses are sent raw as they would be to the pty
-///            master end. For instance, a carriage return is sent
-///            as a "\r", not as a "\n". |textlock| applies. It is possible
-///            to call |nvim_chan_send()| directly in the callback however.
-///                 `["input", term, bufnr, data]`
+///          - force_crlf: (boolean, default: true) Convert "\n" to "\r\n".
+///          - on_input: (`fun("input", chan: integer, buf: integer, data: string)`) Function invoked
+///            when the terminal emits bytes, see above. |textlock| applies. May call
+///            |nvim_chan_send()| directly.
 /// @param[out] err Error details, if any
 /// @return Channel id, or 0 on error
 Integer nvim_open_term(Buffer buf, Dict(open_term) *opts, Error *err)
   FUNC_API_SINCE(7)
-  FUNC_API_TEXTLOCK_ALLOW_CMDWIN
+  FUNC_API_TEXTLOCK
 {
   buf_T *b = api_buf_ensure_loaded(buf, err);
   if (!b) {
     return 0;
   }
 
-  if (b == cmdwin_buf) {
-    api_set_error(err, kErrorTypeException, "%s", e_cmdwin);
+  // Refuse to repurpose the cmdwin buffer.
+  if (bt_cmdwin(b)) {
+    api_set_error(err, kErrorTypeException, "%s", _(e_cmdwin));
     return 0;
   }
 
@@ -1376,7 +1362,7 @@ void nvim_set_current_tabpage(Tabpage tabpage, Error *err)
 Boolean nvim_paste(uint64_t channel_id, String data, Boolean crlf, Integer phase, Arena *arena,
                    Error *err)
   FUNC_API_SINCE(6)
-  FUNC_API_TEXTLOCK_ALLOW_CMDWIN
+  FUNC_API_TEXTLOCK
 {
   static bool cancelled = false;
 
@@ -1438,7 +1424,7 @@ theend:
 void nvim_put(ArrayOf(String) lines, String type, Boolean after, Boolean follow, Arena *arena,
               Error *err)
   FUNC_API_SINCE(6)
-  FUNC_API_TEXTLOCK_ALLOW_CMDWIN
+  FUNC_API_TEXTLOCK
 {
   yankreg_T reg[1] = { 0 };
   VALIDATE_S((prepare_yankreg_from_object(reg, type, lines.size)), "type", type.data, {
@@ -1462,11 +1448,11 @@ void nvim_put(ArrayOf(String) lines, String type, Boolean after, Boolean follow,
   finish_yankreg_from_object(reg, false);
 
   TRY_WRAP(err, {
-    bool VIsual_was_active = VIsual_active;
+    bool VIsual_was_active = Visual.active;
     msg_silent++;  // Avoid "N more lines" message.
     do_put('_', reg, after ? FORWARD : BACKWARD, 1, follow ? PUT_CURSEND : 0);
     msg_silent--;
-    VIsual_active = VIsual_was_active;
+    Visual.active = VIsual_was_active;
   });
 }
 
@@ -1568,7 +1554,7 @@ Object nvim_load_context(Dict dict, Error *err)
 
   ctx_from_dict(dict, &ctx, err);
   if (!ERROR_SET(err)) {
-    ctx_restore(&ctx, kCtxAll);
+    ctx_load(&ctx, kCtxAll);
   }
 
   ctx_free(&ctx);
@@ -1644,18 +1630,24 @@ void nvim_set_keymap(uint64_t channel_id, String mode, String lhs, String rhs, D
                      Error *err)
   FUNC_API_SINCE(6)
 {
-  modify_keymap(channel_id, -1, false, mode, lhs, rhs, opts, err);
+  modify_keymap(channel_id, -1, MAPTYPE_MAP, mode, lhs, rhs, opts, err);
 }
 
 /// Unmaps a global |mapping| for the given mode.
 ///
 /// To unmap a buffer-local mapping, use |nvim_buf_del_keymap()|.
 ///
+/// @param  mode  Mode short-name ("n", "i", "v", ...)
+/// @param  lhs   Left-hand-side |{lhs}| of the mapping.
+/// @param  opts  Optional parameters.
+///               - lhs: When true, only match {lhs}, not {rhs}.
+///
 /// @see |nvim_set_keymap()|
-void nvim_del_keymap(uint64_t channel_id, String mode, String lhs, Error *err)
+void nvim_del_keymap(uint64_t channel_id, String mode, String lhs, Dict(keymap_del) *opts,
+                     Error *err)
   FUNC_API_SINCE(6)
 {
-  nvim_buf_del_keymap(channel_id, -1, mode, lhs, err);
+  nvim_buf_del_keymap(channel_id, -1, mode, lhs, opts, err);
 }
 
 /// Returns a 2-tuple (Array), where item 0 is the current channel id and item
@@ -1773,6 +1765,27 @@ void nvim__chan_set_detach(uint64_t channel_id, Boolean detach, Error *err)
   });
 
   chan->detach = (bool)detach;
+}
+
+/// Records the cmdwin scratchbuf and type, or clears both when type="" / buf=0. Internal use only.
+///
+/// @param type  ':', '/', '?' (first char only); empty to clear.
+/// @param buf   cmdwin buffer id, or 0 to clear.
+/// @param[out] err Error details, if any.
+void nvim__cmdwin_set(String type, Buffer buf, Error *err)
+  FUNC_API_SINCE(14)
+{
+  if (type.size == 0 || buf == 0) {
+    cmdwin_type = 0;
+    cmdwin_buf = NULL;
+    return;
+  }
+  buf_T *b = find_buffer_by_handle(buf, err);
+  if (ERROR_SET(err)) {
+    return;
+  }
+  cmdwin_type = (uint8_t)type.data[0];
+  cmdwin_buf = b;
 }
 
 /// Gets information about a channel.

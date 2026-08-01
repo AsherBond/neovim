@@ -63,7 +63,11 @@
 --- ```vim
 --- autocmd FileType checkhealth :set modifiable | silent! %s/\v( ?[^\x00-\x7F])//g
 --- ```
----
+--- Sometimes you might need to suppress filetype warnings if you have specified them dynamically.
+--- For example with the yaml.ansible filetype:
+--- ```vim
+--- autocmd FileType checkhealth :set modifiable | silent! g/Unknown filetype 'yaml\.ansible'/d
+--- ```
 ---<pre>help
 --- --------------------------------------------------------------------------------
 --- Create a healthcheck                                    *health-dev*
@@ -414,7 +418,6 @@ function M._check(eap)
       close_events = {},
     })
     vim.api.nvim_set_current_win(float_winid)
-    vim.bo[bufnr].modifiable = true
     vim.wo[float_winid].list = false
   else
     bufnr = vim.api.nvim_create_buf(true, true)
@@ -430,6 +433,7 @@ function M._check(eap)
       vim.cmd.sbuffer { bufnr, mods = { tab = vim.api.nvim_tabpage_get_number(0) } }
     end
   end
+  vim.bo[bufnr].modifiable = true
 
   if vim.fn.bufexists('health://') == 1 then
     vim.cmd.bwipe('health://')
@@ -459,7 +463,6 @@ function M._check(eap)
   for _, name in ipairs(names) do
     local value = healthchecks[name]
     progress_msg('running', check_idx, 'checking %s', name)
-    check_idx = check_idx + 1
     local func = value[1]
     local type = value[2]
     s_output = {}
@@ -508,7 +511,9 @@ function M._check(eap)
     end
     s_output[#s_output + 1] = ''
     s_output = vim.list_extend(header, s_output)
-    vim.fn.append(vim.fn.line('$'), s_output)
+    vim.api.nvim_buf_set_lines(0, check_idx == 1 and 0 or -1, -1, true, s_output)
+
+    check_idx = check_idx + 1
   end
 
   progress_msg('success', nil, 'checks done')

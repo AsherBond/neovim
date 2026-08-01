@@ -166,7 +166,8 @@ end
 --- Creates a new |vim.Pos| from cursor position (see |api-indexing|).
 ---
 --- If {pos} is omitted, the first argument is treated as {win} instead of {buf},
---- and the current cursor position of {win} is used.
+--- and the current cursor position of {win} is used. If {win} is also omitted,
+--- it defaults to the current window.
 ---
 --- Example:
 --- ```lua
@@ -179,7 +180,7 @@ end
 ---@param buf integer
 ---@param pos [integer, integer] (lnum, col) tuple
 ---@return vim.Pos
----@overload fun(win: integer): vim.Pos
+---@overload fun(win?: integer): vim.Pos
 function M.cursor(buf, pos)
   validate('pos', pos, 'table', true)
 
@@ -190,8 +191,8 @@ function M.cursor(buf, pos)
     end
   else
     local win = buf
-    validate('win', win, 'number')
-    if win == 0 then
+    validate('win', win, 'number', true)
+    if win == 0 or win == nil then
       win = api.nvim_get_current_win()
     end
 
@@ -210,7 +211,7 @@ end
 ---
 --- -- Convert to mark position, you can call it in a method style.
 --- local lnum, col = pos:to_mark()
---- vim.api.nvim_buf_set_mark(0, 'M', lnum, col, {})
+--- vim.api.nvim_buf_set_mark(0, 'M', lnum, col)
 --- ```
 ---@param pos vim.Pos
 ---@return integer lnum, integer col
@@ -223,7 +224,7 @@ end
 ---
 --- Example:
 --- ```lua
---- local mark_info = vim.api.nvim_get_mark('M', {})
+--- local mark_info = vim.api.nvim_get_mark('M')
 --- local lnum, col, buf, name = unpack(mark_info)
 ---
 --- if lnum == 0 and col == 0 and buf == 0 then

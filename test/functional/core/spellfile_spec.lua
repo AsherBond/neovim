@@ -1,6 +1,7 @@
 local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 
+local describe, it, before_each, after_each = t.describe, t.it, t.before_each, t.after_each
 local eq = t.eq
 local pcall_err = t.pcall_err
 local clear = n.clear
@@ -127,8 +128,8 @@ describe('spellfile', function()
       n.insert('abc')
       n.feed('zg')
       eq(
-        t.fix_slashes(fn.stdpath('data') .. '/site/spell/en.utf-8.add'),
-        t.fix_slashes(api.nvim_get_option_value('spellfile', {}))
+        ('%s/site/spell/en.utf-8.add'):format(fn.stdpath('data')),
+        api.nvim_get_option_value('spellfile', {})
       )
     end)
 

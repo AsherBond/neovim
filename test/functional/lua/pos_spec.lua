@@ -1,6 +1,7 @@
 -- Test suite for vim.pos
 local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
+local describe, it, before_each = t.describe, t.it, t.before_each
 local eq = t.eq
 local dedent = t.dedent
 
@@ -31,12 +32,13 @@ describe('vim.pos', function()
   end)
 
   it('creates a position from the window cursor', function()
-    local pos, buf = exec_lua(function()
+    local pos, pos_default, buf = exec_lua(function()
       vim.api.nvim_buf_set_lines(0, 0, -1, true, { 'first', 'second' })
       vim.api.nvim_win_set_cursor(0, { 2, 3 })
-      return vim.pos.cursor(0), vim.api.nvim_get_current_buf()
+      return vim.pos.cursor(0), vim.pos.cursor(), vim.api.nvim_get_current_buf()
     end)
     eq({ 1, 3, buf }, pos)
+    eq({ 1, 3, buf }, pos_default)
   end)
 
   it('comparisons by overloaded operators', function()

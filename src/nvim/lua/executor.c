@@ -38,9 +38,9 @@
 #include "nvim/ex_getln.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
-#include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
+#include "nvim/input.h"
 #include "nvim/keycodes.h"
 #include "nvim/lua/converter.h"
 #include "nvim/lua/executor.h"
@@ -98,6 +98,11 @@ typedef struct {
   const uint8_t *data;
   size_t size;
 } ModuleDef;
+
+typedef struct {
+  LuaRef getline;  ///< Lua function returning the next input line, or nil at EOF.
+  bool got_line;   ///< True if at least one line was read.
+} ExDocmdCookie;
 
 #include "lua/executor.c.generated.h"
 #include "lua/vim_module.generated.h"
@@ -598,8 +603,50 @@ static int nlua_check_interrupt(lua_State *lstate)
   return 1;
 }
 
+/// LineGetter for nlua_ex_docmd(): calls the Lua `getline` function.
+static char *nlua_ex_getline(int c, void *cookie, int indent, bool do_concat)
+{
+  ExDocmdCookie *ecd = cookie;
+  lua_State *lstate = global_lstate;
+  nlua_pushref(lstate, ecd->getline);
+  if (nlua_pcall(lstate, 0, 1)) {
+    nlua_error(lstate, _("Error executing Ex-mode line getter: %.*s"));
+    return NULL;
+  }
+  if (lua_type(lstate, -1) != LUA_TSTRING) {  // nil: EOF.
+    lua_pop(lstate, 1);
+    return NULL;
+  }
+  char *line = xstrdup(lua_tostring(lstate, -1));
+  lua_pop(lstate, 1);
+  ecd->got_line = true;
+  return line;
+}
+
+/// For exmode.lua: Executes one cmdline obtained from `getline`, which is also called for any
+/// continuation lines (`:append` text, `:function` body, heredoc, …). Unlike `nvim_exec2()`, errors
+/// are emitted (not thrown), so the caller can continue with the next command. #40966
+static int nlua_ex_docmd(lua_State *lstate)
+  FUNC_ATTR_NONNULL_ALL
+{
+  luaL_checktype(lstate, 1, LUA_TFUNCTION);
+  ExDocmdCookie cookie = { .getline = nlua_ref_global(lstate, 1) };
+  msg_scroll = true;
+  need_wait_return = false;
+  no_wait_return++;  // Don't wait for return, e.g. after "-V1" messages.
+  do_cmdline(NULL, nlua_ex_getline, &cookie, 0);
+  no_wait_return--;
+  nlua_unref_global(lstate, cookie.getline);
+  lua_pushboolean(lstate, cookie.got_line);
+  return 1;
+}
+
 static int nlua_os_exit(lua_State *lstate)
 {
+  if (in_fast_callback > 0) {
+    return luaL_error(lstate, e_fast_api_disabled, "os.exit");
+  }
+
   int status = 0;
   if (lua_gettop(lstate) >= 1 && !lua_isnil(lstate, 1)) {
     status = lua_isboolean(lstate, 1) ? (lua_toboolean(lstate, 1) ? 0 : 1)
@@ -672,6 +719,10 @@ static void nlua_common_vim_init(lua_State *lstate, bool is_thread)
   lua_createtable(lstate, 0, 0);
   lua_pushcfunction(lstate, &nlua_nil_tostring);
   lua_setfield(lstate, -2, "__tostring");
+  lua_pushcfunction(lstate, &nlua_nil_index);
+  lua_setfield(lstate, -2, "__index");
+  lua_pushcfunction(lstate, &nlua_nil_index);
+  lua_setfield(lstate, -2, "__newindex");
   lua_setmetatable(lstate, -2);
   ref_state->nil_ref = nlua_ref(lstate,  ref_state, -1);
   lua_pushvalue(lstate, -1);
@@ -892,7 +943,7 @@ static bool nlua_state_init(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL
 
   nlua_common_vim_init(lstate, false);
 
-  // vim._core wait helpers
+  // Bindings for `vim.wait()`.
   lua_getfield(lstate, -1, "_core");
   lua_pushcfunction(lstate, &nlua_loop_poll);
   lua_setfield(lstate, -2, "loop_poll");
@@ -900,6 +951,10 @@ static bool nlua_state_init(lua_State *const lstate) FUNC_ATTR_NONNULL_ALL
   lua_setfield(lstate, -2, "ui_flush");
   lua_pushcfunction(lstate, &nlua_check_interrupt);
   lua_setfield(lstate, -2, "check_interrupt");
+
+  // Misc vim._core bindings.
+  lua_pushcfunction(lstate, &nlua_ex_docmd);
+  lua_setfield(lstate, -2, "ex_docmd");
   lua_pop(lstate, 1);
 
   // patch require() (only for --startuptime)
@@ -1391,6 +1446,11 @@ static int nlua_nil_tostring(lua_State *lstate)
   return 1;
 }
 
+static int nlua_nil_index(lua_State *lstate)
+{
+  return luaL_error(lstate, "attempt to index vim.NIL");
+}
+
 static int nlua_empty_dict_tostring(lua_State *lstate)
 {
   lua_pushstring(lstate, "vim.empty_dict()");
@@ -1484,72 +1544,44 @@ LuaRef api_new_luaref(LuaRef original_ref)
   return new_ref;
 }
 
-/// Evaluate lua string
-///
-/// Used for luaeval().
-///
-/// @param[in]  str  String to execute.
-/// @param[in]  arg  Second argument to `luaeval()`.
-/// @param[out]  ret_tv  Location where result will be saved.
-///
-/// @return Result of the execution.
-void nlua_typval_eval(const String str, typval_T *const arg, typval_T *const ret_tv)
-  FUNC_ATTR_NONNULL_ALL
+/// Formats `fmt` (must contain a single "%.*s" for `bodylen`-byte `body`) into a Lua chunk and runs
+/// it via nlua_exec_typval().
+static void nlua_exec_typval_fmt(const char *fmt, const char *body, size_t bodylen,
+                                 const char *name, typval_T *args, int argcount, bool special,
+                                 typval_T *ret_tv)
+  FUNC_ATTR_PRINTF(1, 0)
 {
-#define EVALHEADER "local _A=select(1,...) return ("
-  const size_t lcmd_len = sizeof(EVALHEADER) - 1 + str.size + 1;
-  char *lcmd;
-  if (lcmd_len < IOSIZE) {
-    lcmd = IObuff;
-  } else {
-    lcmd = xmalloc(lcmd_len);
+  // Don't use shared IObuff; may reenter Lua (e.g. 'statusline' eval during a redraw). #40616
+  // This local buf is safe across (re)entrant calls since luaL_loadbuffer() copies before exec.
+  static char lcmd_buf[IOSIZE];
+  char *lcmd = lcmd_buf;
+  int lcmd_len = vim_snprintf(lcmd_buf, sizeof(lcmd_buf), fmt, (int)bodylen, body);
+  if (lcmd_len >= IOSIZE) {
+    lcmd = xmalloc((size_t)lcmd_len + 1);
+    vim_snprintf(lcmd, (size_t)lcmd_len + 1, fmt, (int)bodylen, body);
   }
-  memcpy(lcmd, EVALHEADER, sizeof(EVALHEADER) - 1);
-  memcpy(lcmd + sizeof(EVALHEADER) - 1, str.data, str.size);
-  lcmd[lcmd_len - 1] = ')';
-#undef EVALHEADER
-  nlua_typval_exec(lcmd, lcmd_len, "luaeval()", arg, 1, true, ret_tv);
 
-  if (lcmd != IObuff) {
+  nlua_exec_typval(lcmd, (size_t)lcmd_len, name, args, argcount, special, ret_tv);
+
+  if (lcmd != lcmd_buf) {
     xfree(lcmd);
   }
 }
 
-/// Calls a Lua function by name with typval args. Used by v:lua.func().
-///
-/// Builds "return func(...)" and executes it via luaL_loadbuffer.
-/// Converts args via nlua_push_typval, result via nlua_pop_typval.
-///
-/// @param str       Lua expression (function name), e.g. "my_func" or "mod.func".
-/// @param len       Length of str.
-/// @param args      typval_T arguments.
-/// @param argcount  Number of arguments.
-/// @param ret_tv    Return value (always set).
-void nlua_call_typval(const char *str, size_t len, typval_T *const args, int argcount,
-                      typval_T *ret_tv)
+/// Implements vimfn: luaeval().
+void nlua_call_luaeval(const String str, typval_T *const arg, typval_T *const ret_tv)
   FUNC_ATTR_NONNULL_ALL
 {
-#define CALLHEADER "return "
-#define CALLSUFFIX "(...)"
-  const size_t lcmd_len = sizeof(CALLHEADER) - 1 + len + sizeof(CALLSUFFIX) - 1;
-  char *lcmd;
-  if (lcmd_len < IOSIZE) {
-    lcmd = IObuff;
-  } else {
-    lcmd = xmalloc(lcmd_len);
-  }
-  memcpy(lcmd, CALLHEADER, sizeof(CALLHEADER) - 1);
-  memcpy(lcmd + sizeof(CALLHEADER) - 1, str, len);
-  memcpy(lcmd + sizeof(CALLHEADER) - 1 + len, CALLSUFFIX,
-         sizeof(CALLSUFFIX) - 1);
-#undef CALLHEADER
-#undef CALLSUFFIX
+  nlua_exec_typval_fmt("local _A=select(1,...) return (%.*s)", str.data, str.size, "luaeval()", arg,
+                       1, true, ret_tv);
+}
 
-  nlua_typval_exec(lcmd, lcmd_len, "v:lua", args, argcount, false, ret_tv);
-
-  if (lcmd != IObuff) {
-    xfree(lcmd);
-  }
+/// Calls v:lua.func() with typval args.
+void nlua_call_vlua(const char *str, size_t len, typval_T *const args, int argcount,
+                    typval_T *ret_tv)
+  FUNC_ATTR_NONNULL_ALL
+{
+  nlua_exec_typval_fmt("return %.*s(...)", str, len, "v:lua", args, argcount, false, ret_tv);
 }
 
 /// Calls a Lua completion function (stored as LuaRef) for cmdline expansion.
@@ -1572,7 +1604,7 @@ void nlua_call_user_expand_func(expand_T *xp, typval_T *ret_tv)
 }
 
 /// Executes a Lua chunk with typval arguments and optional typval return.
-static void nlua_typval_exec(const char *lcmd, size_t lcmd_len, const char *name,
+static void nlua_exec_typval(const char *lcmd, size_t lcmd_len, const char *name,
                              typval_T *const args, int argcount, bool special, typval_T *ret_tv)
 {
   if (check_secure()) {
@@ -1613,20 +1645,18 @@ void nlua_exec_ga(garray_T *ga, char *name)
 {
   char *code = ga_concat_strings(ga, "\n");
   size_t len = strlen(code);
-  nlua_typval_exec(code, len, name, NULL, 0, false, NULL);
+  nlua_exec_typval(code, len, name, NULL, 0, false, NULL);
   xfree(code);
 }
 
-/// Call a LuaCallable given some typvals
-///
-/// Used to call any Lua callable passed from Lua into Vimscript.
+/// Calls a Lua callable from Vimscript.
 ///
 /// @param[in]  lstate Lua State
 /// @param[in]  lua_cb Lua Callable
 /// @param[in]  argcount Count of typval arguments
 /// @param[in]  argvars Typval Arguments
 /// @param[out] rettv The return value from the called function.
-int typval_exec_lua_callable(LuaRef lua_cb, int argcount, typval_T *argvars, typval_T *rettv)
+int nlua_exec_typval_callable(LuaRef lua_cb, int argcount, typval_T *argvars, typval_T *rettv)
 {
   lua_State *lstate = global_lstate;
 
@@ -1684,7 +1714,7 @@ Object nlua_exec(const String str, const char *chunkname, const Array args, LuaR
   return nlua_call_pop_retval(lstate, mode, arena, top, err);
 }
 
-/// Calls Lua to implement a "vimfn" ("f_xx"/"eval"/"builtin") function.
+/// Calls a Lua function with typval args.
 ///
 /// Converts argvars directly to Lua values (no Object intermediate), calls the Lua function, and
 /// converts the result back to typval_T.
@@ -1693,7 +1723,7 @@ Object nlua_exec(const String str, const char *chunkname, const Array args, LuaR
 /// @param func     Function name in the module, e.g. "serverlist".
 /// @param argvars  typval args (VAR_UNKNOWN-terminated).
 /// @param rettv    Return value (caller must tv_clear), or NULL to discard.
-void nlua_call_vimfn(const char *module, const char *func, typval_T *argvars, typval_T *rettv)
+void nlua_call_typval(const char *module, const char *func, typval_T *argvars, typval_T *rettv)
 {
   int argcount = 0;
   for (typval_T *tv = argvars; tv->v_type != VAR_UNKNOWN; tv++) {
@@ -1703,7 +1733,7 @@ void nlua_call_vimfn(const char *module, const char *func, typval_T *argvars, ty
   char buf[256];
   snprintf(buf, sizeof(buf), "return require('%s').%s(...)", module, func);
 
-  nlua_typval_exec(buf, strlen(buf), module, argvars, argcount, false, rettv);
+  nlua_exec_typval(buf, strlen(buf), module, argvars, argcount, false, rettv);
 }
 
 /// Calls Lua to implement an excmd. Passes `eap` + `cmdmod` to Lua as a dict arg, which is arranged
@@ -1872,8 +1902,6 @@ bool nlua_is_deferred_safe(void)
   return in_fast_callback == 0;
 }
 
-/// Executes Lua code.
-///
 /// Implements `:lua` and `:lua ={expr}`.
 ///
 /// @param  eap  Vimscript `:lua {code}`, `:{range}lua`, or `:lua ={expr}` command.
@@ -1903,21 +1931,19 @@ void ex_lua(exarg_T *const eap)
   if (eap->cmdidx == CMD_equal || code[0] == '=') {
     size_t off = (eap->cmdidx == CMD_equal) ? 0 : 1;
     len += sizeof("vim._print(true, )") - 1 - off;
-    // `nlua_typval_exec` doesn't expect NUL-terminated string so `len` must end before NUL byte.
+    // `nlua_exec_typval` doesn't expect NUL-terminated string so `len` must end before NUL byte.
     char *code_buf = xmallocz(len);
     vim_snprintf(code_buf, len + 1, "vim._print(true, %s)", code + off);
     xfree(code);
     code = code_buf;
   }
 
-  nlua_typval_exec(code, len, ":lua", NULL, 0, false, NULL);
+  nlua_exec_typval(code, len, ":lua", NULL, 0, false, NULL);
 
   xfree(code);
 }
 
-/// Executes Lua code for-each line in a buffer range.
-///
-/// Implements `:luado`.
+/// Implements `:luado`: executes Lua code for-each line in a buffer range.
 ///
 /// @param  eap  Vimscript `:luado {code}` command.
 void ex_luado(exarg_T *const eap)
@@ -1937,9 +1963,12 @@ void ex_luado(exarg_T *const eap)
   const size_t lcmd_len = (cmd_len
                            + (sizeof(DOSTART) - 1)
                            + (sizeof(DOEND) - 1));
+  // Don't use shared IObuff; may reenter Lua (e.g. 'statusline' eval during a redraw). #40616
+  // This local buf is safe across (re)entrant calls since luaL_loadbuffer() copies before exec.
+  static char lcmd_buf[IOSIZE];
   char *lcmd;
   if (lcmd_len < IOSIZE) {
-    lcmd = IObuff;
+    lcmd = lcmd_buf;
   } else {
     lcmd = xmalloc(lcmd_len + 1);
   }
@@ -1951,12 +1980,12 @@ void ex_luado(exarg_T *const eap)
 
   if (luaL_loadbuffer(lstate, lcmd, lcmd_len, ":luado")) {
     nlua_error(lstate, _("E5109: Lua: %.*s"));
-    if (lcmd_len >= IOSIZE) {
+    if (lcmd != lcmd_buf) {
       xfree(lcmd);
     }
     return;
   }
-  if (lcmd_len >= IOSIZE) {
+  if (lcmd != lcmd_buf) {
     xfree(lcmd);
   }
   if (nlua_pcall(lstate, 0, 1)) {
@@ -2009,9 +2038,7 @@ void ex_luado(exarg_T *const eap)
   redraw_curbuf_later(UPD_NOT_VALID);
 }
 
-/// Executes Lua code from a file location.
-///
-/// Implements `:luafile`.
+/// Implements `:luafile`: executes Lua code from a file.
 ///
 /// @param  eap  Vimscript `:luafile {file}` command.
 void ex_luafile(exarg_T *const eap)
@@ -2237,7 +2264,7 @@ char *nlua_register_table_as_callable(const typval_T *const arg)
 }
 
 /// @return true to discard the key
-bool nlua_execute_on_key(int c, char *typed_buf)
+bool nlua_exec_on_key(int c, char *typed_buf)
 {
   static bool recursive = false;
 
@@ -2426,7 +2453,7 @@ int nlua_do_ucmd(ucmd_T *cmd, exarg_T *eap, bool preview)
 /// String representation of a Lua function reference
 ///
 /// @return Allocated string
-char *nlua_funcref_str(LuaRef ref, Arena *arena)
+char *nlua_funcref_str(LuaRef ref, Arena *arena, bool show_ref)
 {
   lua_State *const lstate = global_lstate;
 
@@ -2442,13 +2469,14 @@ char *nlua_funcref_str(LuaRef ref, Arena *arena)
   lua_Debug ar;
   if (lua_getinfo(lstate, ">S", &ar) && *ar.source == '@' && ar.linedefined >= 0) {
     char *src = home_replace_save(NULL, ar.source + 1);
-    String str = arena_printf(arena, "<Lua %d: %s:%d>", ref, src, ar.linedefined);
+    String str = show_ref ? arena_printf(arena, "<Lua %d: %s:%d>", ref, src, ar.linedefined)
+                          : arena_printf(arena, "<Lua %s:%d>", src, ar.linedefined);
     xfree(src);
     return str.data;
   }
 
 plain: {}
-  return arena_printf(arena, "<Lua %d>", ref).data;
+  return show_ref ? arena_printf(arena, "<Lua %d>", ref).data : arena_printf(arena, "<Lua>").data;
 }
 
 /// Execute the vim._core.defaults module to set up default mappings and autocommands

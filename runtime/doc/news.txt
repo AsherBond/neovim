@@ -37,6 +37,13 @@ LUA
   Use range.mark() and range.to_mark() instead.
 • pos.to_cursor() returns a (`row,` `col)` tuple
   instead of returning them as separate values.
+• Renamed current_level param of vim.log.new().
+• `vim.opt.{option}:get()` has improved structure for dict-like options.
+  Some shapes changed:
+  - "key:value" list options (e.g. 'diffopt', 'mousescroll') return a map
+    `{ key = value }` instead of an array of `"key:value"` strings.
+  - The `,,` literal-comma convention (e.g. 'isfname') is not reconstructed in
+    the structured view; the raw string value is unchanged.
 
 DIAGNOSTICS
 
@@ -44,7 +51,11 @@ DIAGNOSTICS
 
 OPTIONS
 
-• todo
+• When |ui2| is enabled, since the ruler is no longer a left-aligned box of
+  fixed width, there is no longer an inconsistent special handling of item
+  groups in 'rulerformat' to configure that fixed width. An old-style left-
+  aligned fixed-width ruler can now be achieved by using item groups exactly
+  as they are documented, e.g. `%-20.20(...%)`.
 
 TREESITTER
 
@@ -52,7 +63,7 @@ TREESITTER
 
 UI
 
-• todo
+• Healthchecks for |vim.ui.img| were moved to `:checkhealth vim.health`.
 
 VIMSCRIPT
 
@@ -66,9 +77,15 @@ These changes may require adaptations in your config or plugins.
 
 API
 
+• API results containing a Lua function reference (e.g. a "callback" reported
+  by |nvim_get_keymap()| or |nvim_get_autocmds()|, or a "callback" option
+  value) are serialized over RPC as a human-readable `"<Lua …>"` hint string,
+  instead of nil.
 • |nvim_create_autocmd()|, |nvim_exec_autocmds()| and |nvim_clear_autocmds()|
   no longer treat an empty non-nil pattern as nil.
 • |nvim_clear_autocmds()| no longer treats an empty array event as nil.
+• |vim.o|, |vim.opt|, and |nvim_set_option_value()| expand `~` and environment
+  variables (|expand-env|).
 
 DIAGNOSTICS
 
@@ -80,9 +97,31 @@ DIAGNOSTICS
 
 EDITOR
 
+• Interactive |Ex-mode| (|:exmode|, `nvim -e`) is a persistent |cmdwin|. This is much
+  more flexible and makes "Ex mode" more useful as a kind of "cmdline REPL",
+  with the tradeoff of dropping some POSIX Ex-mode quirks.
+  • |mode()| returns "n" or "i"; "cv" indicates |-es| (script mode) only.
+  • Ex mode is entered with "1q:" or |:exmode|, not "gQ".
+  • ":global/pat/visual" no longer switches to Normal mode per matching line.
+• Non-interactive Ex-mode (|-es|, "script mode") executes stdin as Ex commands
+  directly. It is a "script host", not "POSIX Ex mode".
+  • Output ends with a final newline.
+  • |:visual| is |:edit|: it does not switch to reading stdin as Normal-mode
+    commands, and ":global/pat/visual" does not enter Normal mode per
+    matching line.
+  • Commands that wait for typed input (|input()|, |getchar()|, …) stop Nvim
+    at end-of-input instead of consuming the next stdin line.
+  • An empty line is a no-op instead of advancing the cursor (or failing
+    with |E501| at end-of-file).
 • On Windows, the |trust| db now stores paths with "/" slashes. This means the
-  trust store will be reset.
+  trust store will be reset (one time).
 • `stdpath("log")` moved to `stdpath("state")/logs`.
+• |cmdwin| (|q:|, |q/|, |q?|, |c_CTRL-F|):
+  • Only supports one "cmdline level", not "infinite recursion".
+  • Expr-register (|i_CTRL-R_=|, |c_CTRL-R_=|) no longer supports opening
+    cmdwin via |c_CTRL-F|.
+• Behavior of |:restart| changed. Use "!" (|:restart!|) to get the old behavior.
+  • |ZR| now performs |:restart|. Add a count to change the behavior.
 
 EVENTS
 
@@ -93,16 +132,28 @@ EVENTS
 
 LSP
 
+• `vim.lsp.ClientConfig.cmd` given as a string array now uses
+  `vim.lsp.ClientConfig.root_dir` as its default process working directory.
 • `client.attached_buffers[buf]` now stores `languageId` string (was boolean).
 
 LUA
 
 • "standalone" Lua interpreter mode `nvim -ll` was removed. Use |-l| script
   mode instead.
+• |vim.opt| no longer supports chaining multiple infix operators (e.g.
+  `vim.opt.wildignore + '*.o' + '*.obj'`). Instead, use tables:
+  `vim.opt.wildignore + {'*.o', '*.obj'}`
 
 OPTIONS
 
-• todo
+• The 'statusline' `%=` item is no longer ignored in item groups. It applies
+  to the containing item group and its `minwid`.
+  An `%<` item inside an item group now only applies to the containing group
+  and its `maxwid`. Therefore, multiple `%<` can now be effective.
+  The default truncation of item groups is now at the first contained item.
+  To restore the previous truncation from the left, add a `%<` to the start.
+  The same applies to 'rulerformat', 'statuscolumn', 'tabline', 'winbar',
+  'titlestring', and 'iconstring'.
 
 PLUGINS
 
@@ -112,6 +163,11 @@ TREESITTER
 
 • todo
 
+VIMSCRIPT
+
+• Removed: ctxget(), ctxpop(), ctxpush(), ctxset(), ctxsize(). Use
+  |nvim_get_context()| and |nvim_load_context()| instead.
+
 ==============================================================================
 NEW FEATURES                                                    *news-features*
 
@@ -119,6 +175,17 @@ The following new features were added.
 
 API
 
+• |nvim_win_resize()| resizes a window with a specified anchor edge.
+  |nvim_win_set_height()| and |nvim_win_set_width()| are now deprecated.
+• |api-contract| treats `opts` and any parameters thereafter, as optional
+  (equivalent to passing an empty dict). Clients may omit such optional
+  parameters.
+  • The Lua |vim.api| bridge is also a "client" and thus may omit `opts` and
+    any following parameters: >lua
+    -- Before:
+    vim.print(vim.api.nvim_get_mark('A', {}))
+    -- After:
+    vim.print(vim.api.nvim_get_mark('A'))
 • |nvim_buf_call()| and |nvim_win_call()| now preserve multiple return values.
 • |nvim_set_hl()| supports "font" key.
 • |nvim_open_win()| `zindex` controls whether the UI will use a dimmed cursor
@@ -135,6 +202,11 @@ API
 • |nvim_buf_set_extmark()| `virt_lines_overflow` accepts "wrap" to enable
   wrapping onto extra rows and "auto" which enables horizontal scrolling when
   'nowrap' is set and wrapping when 'wrap' is set.
+• |nvim_set_option_value()| accepts a new `operation` field to modify the
+  existing option value.
+• |nvim_set_option_value()| returns the new option value.
+• |nvim_create_autocmd()| is now |api-fast|, so it can be called from a fast
+  event context (e.g. |vim.uv| callbacks).
 
 BUILD
 
@@ -164,9 +236,22 @@ EDITOR
 
 • |:command-completion-customlist| can return a list of dictionaries with
   kind/menu/info/abbr for the popup menu.
+• |cmdwin| (|q:|, |q/|, |q?|, |c_CTRL-F|) is implemented as a "normal"
+  buffer+window instead of a nested-state modal loop:
+  • You can create/navigate windows/tabpages while cmdwin is active. Chaos!
+  • 'inccommand' works in cmdwin!
+  • API calls (e.g. |nvim_buf_delete()|) that previously failed with
+    "E11: Invalid in command-line window" while cmdwin was open, now work
+    normally. Async plugins no longer need special |CmdwinLeave| workarounds.
+  • The |cmdwin-char| is shown via 'statuscolumn'.
 • |gf| and |<cfile>| support `file://…` URIs.
 • |:log| opens log files.
+• |:marks| can list |extmarks| for a given |namespace|.
+• |:marks| gained tab-completion.
+• |:restart| saves/restores the current session (window layout, buffers, …).
+  • |:restart!| (with a bang "!") does not save/restore the session.
 • |ZR| restarts Nvim (|:restart|).
+• |:detach| with range "%" detaches all UIs except the current one.
 • |:uptime| displays uptime.
 • |:packupdate| and |:packdel| for managing |vim.pack|.
 • 'scrollback' is now also valid in |prompt-buffer| buffers to limit the
@@ -174,19 +259,22 @@ EDITOR
 • |v_al| and |v_il| text objects select the whole buffer and the current line
   without leading or trailing white space.
 • 'autoread' uses file system watchers to detect external changes in
-  real-time, instead of only on |FocusGained|/|:checktime|.
+  real-time, instead of only on |FocusGained| or |:checktime|.
 • During |complete()|-triggered completion, CTRL-N and CTRL-P are now subject
   to insert-mode mappings.
-• Multi-byte characters, translated by 'langmap', now invoke correct
+• Multibyte characters, translated by 'langmap', now invoke correct
   mappings.
   Example: >vim
     set langmap=õ]
 <    Typing õõ in |Normal-mode| now invokes a mapping bound to ]].
+• New |complete-items| field "commit_chars": characters that accept the
+  selected completion item when typed.
 
 EVENTS
 
 • |:delmarks| now triggers the |MarkSet| autocommand with line==col==0, same
   as |nvim_buf_del_mark()|
+• |ChanClose| is triggered after a channel is closed, before it is removed.
 • |SessionWritePre| event emits just before |:mksession|.
 • |TextPutPre| and |TextPutPost| are triggered before/after putting text.
 • |TabMoved| is triggered when tabs are reordered.
@@ -204,6 +292,10 @@ LSP
     "preselect". https://microsoft.github.io/language-server-protocol/specification/#completionClientCapabilities
   • `textDocument/foldingRange` |vim.lsp.foldtext()| highlights collapsed text.
     https://microsoft.github.io/language-server-protocol/specification/#textDocument_foldingRange
+  • Completon supports `CompletionList.applyKind`: a server can ask for
+    `commitCharacters` and `data` from `itemDefaults` to be merged with the
+    item's own values instead of replacing them.
+    https://microsoft.github.io/language-server-protocol/specification/#completionItemApplyKinds
 • `:checkhealth vim.lsp` highlights the "current buffer".
 • |vim.lsp.buf.declaration()|, |vim.lsp.buf.definition()|,
   |vim.lsp.buf.type_definition()|, and |vim.lsp.buf.implementation()|
@@ -212,15 +304,26 @@ LSP
   |vim.lsp.buf.type_definition()|, and |vim.lsp.buf.implementation()|
   now supports passing arbitrary positions.
 • Support for nested snippets.
+• |lsp-completion| supports `commitCharacters`: typing a commit character
+  while a completion item is selected accepts the item as with
+  |complete_CTRL-Y|, then inserts the character. Previously
+  `commitCharacters` had no effect.
 
 LUA
 
-• |vim.ui.img| can display images. Use `:checkhealth img` to confirm your
-  terminal supports it.
+• |vim.ui.img| can display images. Use `:checkhealth vim.health` to confirm
+  your terminal supports it.
 • |vim.net.request()| can specify custom headers by passing `opts.headers`.
 • |vim.net.request()| can now accept  `method` param overload for multiple HTTP methods.
-• |writefile()| treats Lua strings as "blob", so it can be used to write
-  binary data.
+• |writefile()| treats Lua and RPC strings as |Blob|, so it can be used to
+  write binary data.
+• |vim.fs.abspath()| gained `cwd` and `plain` parameters.
+• |vim.fs.dir()| with `opts.err=true`, reports errors. An inaccessible root
+  dir yields a single (name, nil, err) item.
+• |vim.fs.dir()| gained a `plain` parameter.
+• |vim.fs.find()| returns a list of errors as its second return value.
+• |vim.fs.mkdir()| creates directories, including parent directories with
+  `opts.parents=true`.
 • |vim.filetype.inspect()| returns a copy of the internal tables used for
   filetype detection.
 • Added `__eq` metamethod to |vim.VersionRange|. 2 distinct but representing
@@ -235,18 +338,35 @@ LUA
   but returns `nil` on error.
 • |vim.pos| can now convert between positions and buffer offsets.
 • |vim.pos| and |vim.range| can now convert between mark positions.
+• |vim.pos.cursor()| without arguments returns the cursor position of the
+  current window.
 • |vim.ui.input()| now allows setting input scope.
 • |vim.log| provides a logging interface.
 • |vim.pack.get()| output includes revision of a pending update.
 • |vim.pack.get()| can fetch new updates before computing the output.
+• |vim.o| now accepts table style values for assignment.
+• |vim.keycode()| returns structured info as return value 2.
+• |Iter:count()| counts items in the iterator.
 
 OPTIONS
 
+• Lua functions/closures can be assigned to "func" and "expr" options:
+  |option-value-function| (e.g. `vim.o.operatorfunc`), |expr-option-function|
+  (e.g. `vim.wo.foldexpr`, `vim.bo.indentexpr`). Reading such an option:
+  • ...from Lua, gets the function itself.
+  • ...from Vimscript/RPC, gets a human-readable `"<Lua …>"` hint string.
 • 'ttyfast' can be disabled during startup by setting |$NVIM_NOTTYFAST|.
 • 'scrolloffpad' allows vertically centering cursor at the end of file.
 • 'shortmess' flag |shm-u| silences undo/redo messages.
 • 'statusline' supports |stl-%0{| to insert the expression result verbatim.
+  The `%=` item is supported within item groups to separate alignment sections
+  within the containing group until its `minwid` is reached. The truncation
+  of an item group to its `maxwid` can be controlled with the `%<` item.
+  The same applies to 'rulerformat', 'statuscolumn', 'tabline', 'winbar',
+  'titlestring', and 'iconstring'.
 • 'winpinned' prevents window from closing unless specifically targeted.
+• 'packlockfile' sets the path used for |vim.pack-lockfile|.
+• 'previewpopup' decides how the preview window is displayed.
 
 PERFORMANCE
 
@@ -259,9 +379,14 @@ PERFORMANCE
 • Internal LSP data is cleared using `table.clear`, which reduces GC and
   memory reallocation during each data reset.
 • RPC client avoids string allocations when parsing Content-Length messages.
+• LSP: "overscan" semantic_token range requests to avoid flicker.
 
 PLUGINS
 
+• The zip plugin is now |zip|, a read-only archive browser built on |dir|.
+  To use the legacy plugin instead: >
+  :packadd old-zip
+<
 • provider: add bun support for Node.js plugins
 
 STARTUP
@@ -279,6 +404,7 @@ TREESITTER
   capture.
 • |vim.treesitter.select()| starts or adjusts a visual selection at cursor,
   based on tree nodes.
+• The `diff` treesitter parser is bundled.
 
 TUI
 
@@ -290,6 +416,9 @@ TUI
 UI
 
 • |:checkhealth| shows filewatcher info in the Performance section.
+• Floating window border highlights (|hl-FloatBorder|, |hl-FloatTitle|,
+  |hl-FloatFooter|) combine with the window-local |hl-Normal| background
+  instead of falling back to the global background.
 • These builtin "picker" menus delegate to |vim.ui.select()|:
   • :browse oldfiles
   • |:recover|
@@ -298,11 +427,17 @@ UI
 
 VIMSCRIPT
 
+• `fnamemodify(':h')` preserves logical roots for more path formats.
 • |v:exitreason| is set before |QuitPre|.
-• |v:startreason| differentiates between restart and normal start.
+• |v:startreason| indicates whether Nvim started normally or by |:restart|.
 • |v:starttime| is the process start time (nanoseconds since UNIX epoch).
 • |v:useractive| indicates user activity.
 • |serverlist()| with `info=true` returns details for each server (own + peers).
+• These Vimscript functions may be called from |api-fast| context (e.g.
+  |vim.uv| timer/handle callbacks): |keytrans()|, |char2nr()|, |nr2char()|,
+  |str2list()|, |strpart()|, |strcharpart()|, |strgetchar()|, |strchars()|,
+  |strcharlen()|, |strlen()|, |strdisplaywidth()|, |byteidx()|, |charidx()|,
+  |utf16idx()|, |tr()|, |trim()|.
 
 ==============================================================================
 CHANGED FEATURES                                                 *news-changed*
@@ -312,6 +447,8 @@ These existing features changed their behavior.
 • `nvim_exec_autocmds({buf=…})` runs in the context of the target buffer.
 • |OptionSet| is no longer triggered during startup by automatic
   |'background'| detection.
+• Editing a local directory now shows its contents in a `filetype=directory`
+  buffer. See |dir|.
 • |:Open| with no arguments uses the current file.
 • The "buffer" key was renamed to "buf" in these functions (but the old name
   "buffer" is still accepted, for backwards compatibility):
@@ -322,12 +459,23 @@ These existing features changed their behavior.
 • |vim.keymap.set()| and |vim.keymap.del()| accept a list of strings for `lhs`.
 • 'statuscolumn' click function labels can be different across rows.
   |v:virtnum| and |v:lnum| are available during the click function callback.
+• Markdown inline highlighting now conceals the backslash in backslash escapes.
+• Markdown inline backslash escapes and hard line breaks no longer use the
+  `@string.escape` capture.
+• |vim.lsp.util.open_floating_preview()| windows (e.g. |vim.lsp.buf.hover()|)
+  converted to normal windows (e.g. with |CTRL-W_H|) are no longer closed
+  automatically.
+• |nvim_del_keymap()|, |nvim_buf_del_keymap()| and |vim.keymap.del()| can
+  match only {lhs}, not {rhs}, with `opts.lhs=true`.
 
 ==============================================================================
 REMOVED FEATURES                                                 *news-removed*
 
 These deprecated features were removed.
 
+• Vimscript functions ctxget(), ctxpop(), ctxpush(), ctxset(), ctxsize()
+  and the "context stack". Use |nvim_get_context()| and |nvim_load_context()|
+  with a script-owned list instead.
 • |vim.lsp.buf.declaration()|, |vim.lsp.buf.definition()|,
   |vim.lsp.buf.type_definition()|, and |vim.lsp.buf.implementation()|
   no longer accept the `reuse_win` option.

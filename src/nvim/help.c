@@ -108,7 +108,7 @@ void ex_help(exarg_T *eap)
   if (helpbang) {
     typval_T no_args[] = { { .v_type = VAR_UNKNOWN } };
     typval_T rettv;
-    nlua_call_vimfn("vim._core.help", "resolve_tag", no_args, &rettv);
+    nlua_call_typval("vim._core.help", "resolve_tag", no_args, &rettv);
     if (rettv.v_type == VAR_STRING && rettv.vval.v_string != NULL && *rettv.vval.v_string != NUL) {
       allocated_arg = rettv.vval.v_string;  // takes ownership
       arg = allocated_arg;
@@ -339,7 +339,7 @@ int find_help_tags(const char *arg, int *num_matches, char ***matches, bool keep
     { .v_type = VAR_UNKNOWN },
   };
   typval_T rettv;
-  nlua_call_vimfn("vim._core.help", "escape_subject", tv_args, &rettv);
+  nlua_call_typval("vim._core.help", "escape_subject", tv_args, &rettv);
   if (rettv.v_type != VAR_STRING || rettv.vval.v_string == NULL) {
     tv_clear(&rettv);
     return FAIL;
@@ -423,7 +423,7 @@ void cleanup_help_tags(int num_file, char **file)
 void prepare_help_buffer(void)
 {
   curbuf->b_help = true;
-  set_option_direct(kOptBuftype, STATIC_CSTR_AS_OPTVAL("help"), OPT_LOCAL, 0);
+  set_option_direct(kOptBuftype, STATIC_CSTR_AS_OBJ("help"), OPT_LOCAL, 0);
 
   // Always set these options after jumping to a help tag, because the
   // user may have an autocommand that gets in the way.
@@ -432,13 +432,13 @@ void prepare_help_buffer(void)
   // Only set it when needed, buf_init_chartab() is some work.
   char *p = "!-~,^*,^|,^\",192-255";
   if (strcmp(curbuf->b_p_isk, p) != 0) {
-    set_option_direct(kOptIskeyword, CSTR_AS_OPTVAL(p), OPT_LOCAL, 0);
+    set_option_direct(kOptIskeyword, CSTR_AS_OBJ(p), OPT_LOCAL, 0);
     check_buf_options(curbuf);
     buf_init_chartab(curbuf, false);
   }
 
   // Don't use the global foldmethod.
-  set_option_direct(kOptFoldmethod, STATIC_CSTR_AS_OPTVAL("manual"), OPT_LOCAL, 0);
+  set_option_direct(kOptFoldmethod, STATIC_CSTR_AS_OBJ("manual"), OPT_LOCAL, 0);
 
   curbuf->b_p_ts = 8;         // 'tabstop' is 8.
   curwin->w_p_list = false;   // No list mode.
@@ -461,7 +461,7 @@ void prepare_help_buffer(void)
 void get_local_additions(void)
 {
   typval_T no_args[] = { { .v_type = VAR_UNKNOWN } };
-  nlua_call_vimfn("vim._core.help", "local_additions", no_args, NULL);
+  nlua_call_typval("vim._core.help", "local_additions", no_args, NULL);
 }
 
 /// ":exusage"

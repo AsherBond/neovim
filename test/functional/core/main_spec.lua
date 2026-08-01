@@ -1,6 +1,8 @@
 local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
+local describe, it, before_each, after_each, finally =
+  t.describe, t.it, t.before_each, t.after_each, t.finally
 local uv = vim.uv
 
 local eq = t.eq
@@ -178,28 +180,6 @@ describe('command-line option', function()
     matches('Run "nvim %-V1 %-v"', n.spawn_wait('-v').stdout)
     matches('fall%-back for %$VIM: .*Run :checkhealth', n.spawn_wait('-V1', '-v').stdout)
   end)
-
-  if is_os('win') then
-    for _, prefix in ipairs({ '~/', '~\\' }) do
-      it('expands ' .. prefix .. ' on Windows', function()
-        local fname = os.getenv('USERPROFILE') .. '\\nvim_test.txt'
-        finally(function()
-          os.remove(fname)
-        end)
-        write_file(fname, 'some text')
-        eq(
-          'some text',
-          fn.system({
-            n.nvim_prog,
-            '-es',
-            '+%print',
-            '+q',
-            prefix .. 'nvim_test.txt',
-          }):gsub('\n', '')
-        )
-      end)
-    end
-  end
 end)
 
 describe('vim._core', function()
@@ -215,18 +195,22 @@ describe('vim._core', function()
 
     -- All `vim._core.*` modules are builtin.
     t.eq(
-      { 'rebind_after_restart', 'serverlist' },
+      { 'ex_session_restart', 'rebind_after_restart', 'serverlist' },
       n.exec_lua([[local k = vim.tbl_keys(require('vim._core.server')); table.sort(k); return k]])
     )
     local expected = {
       'vim.F',
+      'vim._core.cmdwin',
       'vim._core.defaults',
       'vim._core.editor',
       'vim._core.ex_cmd',
+      'vim._core.exmode',
       'vim._core.exrc',
       'vim._core.help',
       'vim._core.log',
+      'vim._core.marks',
       'vim._core.options',
+      'vim._core.proc',
       'vim._core.server',
       'vim._core.shared',
       'vim._core.spell',

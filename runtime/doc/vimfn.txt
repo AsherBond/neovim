@@ -99,6 +99,9 @@ api_info()                                                          *api_info()*
 		       lua vim.print(vim.fn.api_info())
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Return: ~
                   (`table`)
 
@@ -593,7 +596,7 @@ browsedir({title}, {initdir})                                      *browsedir()*
                   (`0|1`)
 
 bufadd({name})                                                        *bufadd()*
-		Adds buffer {name} to the buffer list literally: no special
+		Adds buffer {name} to the |buffer-list| literally: no special
 		chars or expansion are applied (including "~"). Returns the
 		new (or existing matching) buffer number, or 0 on error.
 
@@ -601,9 +604,9 @@ bufadd({name})                                                        *bufadd()*
 		{name} is an empty string, a new buffer is always created.
 
 		Example (Lua): >lua
-			local b = vim.fn.bufadd(vim.fs.normalize('someName'))
-			vim.bo[b].buflisted = true
-			vim.fn.bufload(b)
+			local buf = vim.fn.bufadd(vim.fs.normalize('someName'))
+			-- Set 'buflisted'; trigger BufReadPre/BufReadPost/FileType.
+			vim.api.nvim_buf_call(buf, vim.cmd.edit)
 <
 
                 Parameters: ~
@@ -692,7 +695,9 @@ bufname([{buf}])                                                     *bufname()*
 
 		The result is the name of a buffer.  Mostly as it is displayed
 		by the `:ls` command, but not using special names such as
-		"[No Name]".
+		"[No Name]".  If the buffer represents a directory, the name
+		ends with a path separator, unless it was changed by |:file| or
+		|nvim_buf_set_name()|.
 		If {buf} is omitted the current buffer is used.
 		If {buf} is a Number, that buffer number's name is given.
 		Number zero is the alternate buffer for the current window.
@@ -854,6 +859,9 @@ byteidx({expr}, {nr} [, {utf16}])                                    *byteidx()*
 			echo byteidx('a😊😊', 3, 1)	" returns 5
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {expr} (`any`)
                   • {nr} (`integer`)
@@ -875,6 +883,9 @@ byteidxcomp({expr}, {nr} [, {utf16}])                            *byteidxcomp()*
 <		The first and third echo result in 3 ('e' plus composing
 		character is 3 bytes), the second echo results in 1 ('e' is
 		one byte).
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {expr} (`any`)
@@ -997,6 +1008,9 @@ char2nr({string} [, {utf8}])                                         *char2nr()*
 
 		Returns 0 if {string} is not a |String|.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {string} (`string`)
                   • {utf8} (`any?`)
@@ -1080,6 +1094,9 @@ charidx({string}, {idx} [, {countcc} [, {utf16}]])                   *charidx()*
 			echo charidx('áb́ć', 16)		" returns -1
 			echo charidx('a😊😊', 4, 0, 1)	" returns 2
 <
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {string} (`string`)
@@ -1308,7 +1325,9 @@ complete_info([{what}])                                        *complete_info()*
 		   items	List of all completion candidates.  Each item
 				is a dictionary containing the entries "word",
 				"abbr", "menu", "kind", "info" and
-				"user_data".
+				"user_data".  "equal", "preselect" and
+				"commit_chars" are included only for items that
+				set them.
 				See |complete-items|.
 		   matches	Same as "items", but only returns items that
 				are matching current query.  If both "matches"
@@ -1514,56 +1533,6 @@ count({comp}, {expr} [, {ic} [, {start}]])                        *count()* *E70
 
                 Return: ~
                   (`integer`)
-
-ctxget([{index}])                                                     *ctxget()*
-		Returns a |Dictionary| representing the |context| at {index}
-		from the top of the |context-stack| (see |context-dict|).
-		If {index} is not given, it is assumed to be 0 (i.e.: top).
-
-                Parameters: ~
-                  • {index} (`integer?`)
-
-                Return: ~
-                  (`table`)
-
-ctxpop()                                                              *ctxpop()*
-		Pops and restores the |context| at the top of the
-		|context-stack|.
-
-                Return: ~
-                  (`any`)
-
-ctxpush([{types}])                                                   *ctxpush()*
-		Pushes the current editor state (|context|) on the
-		|context-stack|.
-		If {types} is given and is a |List| of |String|s, it specifies
-		which |context-types| to include in the pushed context.
-		Otherwise, all context types are included.
-
-                Parameters: ~
-                  • {types} (`string[]?`)
-
-                Return: ~
-                  (`any`)
-
-ctxset({context} [, {index}])                                         *ctxset()*
-		Sets the |context| at {index} from the top of the
-		|context-stack| to that represented by {context}.
-		{context} is a Dictionary with context data (|context-dict|).
-		If {index} is not given, it is assumed to be 0 (i.e.: top).
-
-                Parameters: ~
-                  • {context} (`table`)
-                  • {index} (`integer?`)
-
-                Return: ~
-                  (`integer`)
-
-ctxsize()                                                            *ctxsize()*
-		Returns the size of the |context-stack|.
-
-                Return: ~
-                  (`any`)
 
 cursor({lnum}, {col} [, {off}])                                       *cursor()*
 cursor({list})
@@ -1779,6 +1748,9 @@ did_filetype()                                                  *did_filetype()*
 		editing another buffer to set 'filetype' and load a syntax
 		file.
 
+                Attributes: ~
+                  |api-fast|
+
                 Return: ~
                   (`integer`)
 
@@ -1935,6 +1907,9 @@ environ()                                                            *environ()*
 			echo index(keys(environ()), 'HOME', 0, 1) != -1
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Return: ~
                   (`any`)
 
@@ -1945,6 +1920,9 @@ escape({string}, {chars})                                             *escape()*
 <		results in: >
 			c:\\program\ files\\vim
 <		Also see |shellescape()| and |fnameescape()|.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {string} (`string`)
@@ -2009,6 +1987,9 @@ executable({expr})                                                *executable()*
 			0	does not exist
 		|exepath()| can be used to get the full path of an executable.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {expr} (`string`)
 
@@ -2057,6 +2038,9 @@ exepath({expr})                                                      *exepath()*
 		given as a (partial or full) path or is found in $PATH.
 		Returns empty string otherwise.
 		If {expr} starts with "./" the |current-directory| is used.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {expr} (`string`)
@@ -2287,6 +2271,10 @@ expandcmd({string} [, {options}])                                  *expandcmd()*
 		like with |expand()|, and environment variables, anywhere in
 		{string}.  "~user" and "~/path" are only expanded at the
 		start.
+		The expansion is done in two steps: the special keywords are
+		evaluated first, then "~" and environment variables are
+		expanded in the result.  Thus `expand('%:~')` keeps the "~",
+		while `expandcmd('%:~')` returns the full path.
 
 		The following items are supported in the {options} Dict
 		argument:
@@ -2472,6 +2460,9 @@ filereadable({file})                                            *filereadable()*
 			1
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {file} (`string`)
 
@@ -2486,6 +2477,9 @@ filewritable({file})                                            *filewritable()*
 		be written.  Returns 1 if so.  If {file} doesn't exist, or
 		is not writable, the result is 0.  If {file} is a
 		directory, and we can write to it, the result is 2.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {file} (`string`)
@@ -2744,6 +2738,9 @@ fnameescape({filepath})                                          *fnameescape()*
 			edit \+some\ str\%nge\|name
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {filepath} (`string`)
 
@@ -2770,6 +2767,9 @@ fnamemodify({fname}, {mods})                                     *fnamemodify()*
 		string.
 		Note: Environment variables don't work in {fname}, use
 		|expand()| first then.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {fname} (`string`)
@@ -3827,6 +3827,9 @@ getfperm({fname})                                                   *getfperm()*
 
 		For setting permissions use |setfperm()|.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {fname} (`string`)
 
@@ -3842,6 +3845,9 @@ getfsize({fname})                                                   *getfsize()*
 		If the size of {fname} is too big to fit in a Number then -2
 		is returned.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {fname} (`string`)
 
@@ -3856,6 +3862,9 @@ getftime({fname})                                                   *getftime()*
 		be passed to |strftime()|.  See also
 		|localtime()| and |strftime()|.
 		If the file {fname} can't be found -1 is returned.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {fname} (`string`)
@@ -3884,6 +3893,9 @@ getftype({fname})                                                   *getftype()*
 <		Note that a type such as "link" will only be returned on
 		systems that support it.  On some systems only "dir" and
 		"file" are returned.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {fname} (`string`)
@@ -4002,7 +4014,8 @@ getmarklist([{buf}])                                             *getmarklist()*
 		If the optional {buf} argument is specified, returns the
 		local marks defined in buffer {buf}.  For the use of {buf},
 		see |bufname()|.  If {buf} is invalid, an empty list is
-		returned.
+		returned.  For a |prompt-buffer| the result includes the
+		|':| mark.
 
 		Each item in the returned List is a |Dict| with the following:
 		    mark   name of the mark prefixed by "'"
@@ -4098,6 +4111,9 @@ getpid()                                                              *getpid()*
 		Return a Number which is the process ID of the Vim process.
 		This is a unique number, until Vim exits.
 
+                Attributes: ~
+                  |api-fast|
+
                 Return: ~
                   (`integer`)
 
@@ -4112,7 +4128,7 @@ getpos({expr})                                                        *getpos()*
 		    'x	    Position of mark x (if the mark is not set, 0 is
 			    returned for all values).
 		    w0	    First line visible in current window (one if the
-			    display isn't updated, e.g. in silent Ex mode).
+			    display isn't updated, e.g. in |silent-mode|).
 		    w$	    Last line visible in current window (this is one
 			    less than "w0" if no lines are visible).
 		    v	    End of the current Visual selection (unlike |'<|
@@ -4955,6 +4971,9 @@ has({feature})                                                           *has()*
 			endif
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {feature} (`string`)
 
@@ -5182,6 +5201,9 @@ hostname()                                                          *hostname()*
 		Returns the hostname of the machine on which the Nvim server
 		(not the UI client) is currently running.
 
+                Attributes: ~
+                  |api-fast|
+
                 Return: ~
                   (`string`)
 
@@ -5198,6 +5220,9 @@ iconv({string}, {from}, {to})                                          *iconv()*
 		Note that Vim uses UTF-8 for all Unicode encodings, conversion
 		from/to UCS-2 is automatically changed to use UTF-8.  You
 		cannot use UCS-2 in a string anyway, because of the NUL bytes.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {string} (`string`)
@@ -5609,6 +5634,9 @@ isabsolutepath({path})                                        *isabsolutepath()*
 			echo isabsolutepath('\\remote\file')	" 1
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {path} (`string`)
 
@@ -5621,6 +5649,9 @@ isdirectory({directory})                                         *isdirectory()*
 		Returns |TRUE| if {directory} exists, or |FALSE| if it doesn't
 		exist or isn't a directory.  {directory} is any expression,
 		which is used as a String.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {directory} (`string`)
@@ -5800,7 +5831,11 @@ jobstart({cmd} [, {opts}])                                          *jobstart()*
 		  pty:	      (boolean) Connect the job to a new pseudo
 			      terminal, and its streams to the master file
 			      descriptor. `on_stdout` receives all output,
-			      `on_stderr` is ignored. |terminal-start|
+			      `on_stderr` is ignored. Note: if the child writes
+			      a query (DA1, OSC, …), it may hang or timeout waiting
+			      for a response! To avoid that, `on_stdout` should
+			      reply via |nvim_chan_send()| on the child's stdin.
+			      See |terminal-start| |terminal-concepts|
 		  rpc:	      (boolean) Use |msgpack-rpc| to communicate with
 			      the job over stdio. Then `on_stdout` is ignored,
 			      but `on_stderr` can still be used.
@@ -5811,11 +5846,12 @@ jobstart({cmd} [, {opts}])                                          *jobstart()*
 		  stdin:      (string) Either "pipe" (default) to connect the
 			      job's stdin to a channel or "null" to disconnect
 			      stdin.
-		  term:	    (boolean) Spawns {cmd} in a new pseudo-terminal session
-		          connected to the current (unmodified) buffer. Implies "pty".
-		          Default "height" and "width" are set to the current window
-		          dimensions. |jobstart()|. Defaults $TERM to "xterm-256color".
-		  width:      (number) Width of the `pty` terminal.
+		  term:       (boolean) Spawns {cmd} in a new pseudo-terminal
+			      session connected to the current (unmodified) buffer.
+			      Implies "pty". Defaults "height" and "width" to the
+			      current window dimensions. Defaults $TERM to
+			      "xterm-256color".
+		  width:      (number) Width of the `pty` pseudo-terminal.
 
 		{opts} is passed as |self| dictionary to the callback; the
 		caller may set other keys to pass application-specific data.
@@ -5965,6 +6001,9 @@ keytrans({string})                                                  *keytrans()*
 			let xx = "\<C-Home>"
 			echo keytrans(xx)
 <			<C-Home>
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {string} (`string`)
@@ -6258,7 +6297,7 @@ map({expr1}, {expr2})                                                    *map()*
 		Note that {expr2} is the result of an expression and is then
 		used as an expression again.  Often it is good to use a
 		|literal-string| to avoid having to double backslashes.  You
-		still have to double ' quotes
+		still have to double single (') quotes, though.
 
 		If {expr2} is a |Funcref| it is called with two arguments:
 			1. The key or the index of the current item.
@@ -7200,8 +7239,8 @@ min({expr})                                                              *min()*
                   (`number`)
 
 mkdir({name} [, {flags} [, {prot}]])                              *mkdir()* *E739*
-		Lua: Prefer |uv.fs_mkdir()| for simple directory creation;
-		`"p"`, `"D"`, `"R"`, and return semantics differ.
+		Lua: Prefer |vim.fs.mkdir()|; `"D"`, `"R"`, and return
+		semantics differ.
 
 		Create directory {name}.
 
@@ -7292,8 +7331,7 @@ mode([{expr}])                                                          *mode()*
 		   Rvx	    Virtual Replace mode |i_CTRL-X| completion
 		   c	    Command-line editing
 		   cr	    Command-line editing overstrike mode |c_<Insert>|
-		   cv	    Vim Ex mode |gQ|
-		   cvr	    Vim Ex mode while in overstrike mode |c_<Insert>|
+		   cv	    Non-interactive Ex mode |-es|
 		   r	    Hit-enter prompt
 		   rm	    The -- more -- prompt
 		   r?	    A |:confirm| query of some sort
@@ -7449,6 +7487,9 @@ nr2char({expr} [, {utf8}])                                           *nr2char()*
 		nr2char(10), because NULs are represented with newline
 		characters.  nr2char(0) is a real NUL and terminates the
 		string, thus results in an empty string.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {expr} (`integer`)
@@ -8352,6 +8393,9 @@ reltime({start}, {end})
 
 		Note: |localtime()| returns the current (non-relative) time.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {start} (`any?`)
                   • {end} (`any?`)
@@ -8373,6 +8417,9 @@ reltimefloat({time})                                            *reltimefloat()*
 		Also see |profiling|.
 		If there is an error an empty string is returned
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {time} (`any`)
 
@@ -8392,6 +8439,9 @@ reltimestr({time})                                                *reltimestr()*
 			echo split(reltimestr(reltime(start)))[0]
 <		Also see |profiling|.
 		If there is an error an empty string is returned
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {time} (`any`)
@@ -8494,6 +8544,9 @@ repeat({expr}, {count})                                               *repeat()*
 			let longlist = repeat(['a', 'b'], 3)
 <		Results in ['a', 'b', 'a', 'b', 'a', 'b'].
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {expr} (`any`)
                   • {count} (`integer`)
@@ -8513,6 +8566,9 @@ resolve({filename})                                             *resolve()* *E65
 		resolve() keeps a leading path component specifying the
 		current directory (provided the result is still a relative
 		path name) and also keeps a trailing path separator.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {filename} (`string`)
@@ -9208,7 +9264,7 @@ serverstart([{address}])                                         *serverstart()*
 
 <		Example named pipe: >vim
 			if has('win32')
-			  echo serverstart('\\.\pipe\nvim-pipe-1234')
+			  echo serverstart('//./pipe/nvim-pipe-1234')
 			else
 			  echo serverstart('nvim.sock')
 			endif
@@ -9274,14 +9330,13 @@ setbufvar({buf}, {varname}, {val})                                 *setbufvar()*
 		Lua: Prefer |nvim_buf_set_var()| or |vim.b| after resolving
 		{buf} to a bufnr; option names use |nvim_set_option_value()|.
 
-		Set option or local variable {varname} in buffer {buf} to
-		{val}.
-		This also works for a global or local window option, but it
-		doesn't work for a global or local window variable.
-		For a local window option the global value is unchanged.
+		Set option or local variable {varname} (string, without "b:")
+		in buffer {buf} to {val}. Also works for a global or
+		window-local option (not variable). When targeting
+		a window-local option, the global option is unchanged.
+
 		For the use of {buf}, see |bufname()| above.
-		The {varname} argument is a string.
-		Note that the variable name without "b:" must be used.
+
 		Examples: >vim
 			call setbufvar(1, "&mod", 1)
 			call setbufvar("todo", "myvar", "foobar")
@@ -10823,6 +10878,9 @@ state([{what}])                                                        *state()*
 			recursiveness up to "ccc")
 		    s	screen has scrolled for messages
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {what} (`string?`)
 
@@ -10880,6 +10938,9 @@ stdpath({what})                                                *stdpath()* *E610
 			echo stdpath("config")
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {what}
                     (`'cache'|'config'|'config_dirs'|'data'|'data_dirs'|'log'|'run'|'state'`)
@@ -10929,6 +10990,9 @@ str2list({string} [, {utf8}])                                       *str2list()*
 			echo str2list("á")		" returns [97, 769]
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {string} (`string`)
                   • {utf8} (`boolean?`)
@@ -10974,6 +11038,9 @@ strcharlen({string})                                              *strcharlen()*
 
 		Also see |strlen()|, |strdisplaywidth()| and |strwidth()|.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {string} (`string`)
 
@@ -10994,6 +11061,9 @@ strcharpart({src}, {start} [, {len} [, {skipcc}]])               *strcharpart()*
 <		results in 'a'.
 
 		Returns an empty string on error.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {src} (`string`)
@@ -11035,6 +11105,9 @@ strchars({string} [, {skipcc}])                                     *strchars()*
 		    endif
 <
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {string} (`string`)
                   • {skipcc} (`0|1|boolean?`)
@@ -11061,6 +11134,9 @@ strdisplaywidth({string} [, {col}])                          *strdisplaywidth()*
 		'ambiwidth'.
 
 		Also see |strlen()|, |strwidth()| and |strchars()|.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {string} (`string`)
@@ -11104,6 +11180,9 @@ strgetchar({str}, {index})                                        *strgetchar()*
 		Returns -1 if {index} is invalid.
 		Also see |strcharpart()| and |strchars()|.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {str} (`string`)
                   • {index} (`integer`)
@@ -11133,6 +11212,9 @@ stridx({haystack}, {needle} [, {start}])                              *stridx()*
 <							*strstr()* *strchr()*
 		stridx() works similar to the C function strstr().  When used
 		with a single character it works similar to strchr().
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {haystack} (`string`)
@@ -11188,6 +11270,9 @@ strlen({string})                                                      *strlen()*
 		|strchars()|.
 		Also see |len()|, |strdisplaywidth()| and |strwidth()|.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {string} (`string`)
 
@@ -11222,6 +11307,9 @@ strpart({src}, {start} [, {len} [, {chars}]])                        *strpart()*
 		example, to get the character under the cursor: >vim
 			strpart(getline("."), col(".") - 1, 1, v:true)
 <
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {src} (`string`)
@@ -11301,6 +11389,9 @@ strtrans({string})                                                  *strtrans()*
 
 		Returns an empty string on error.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {string} (`string`)
 
@@ -11348,6 +11439,9 @@ strwidth({string})                                                  *strwidth()*
 		'ambiwidth'.
 		Returns zero on error.
 		Also see |strlen()|, |strdisplaywidth()| and |strchars()|.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {string} (`string`)
@@ -12047,6 +12141,9 @@ tolower({expr})                                                      *tolower()*
 		Converts a String to lowercase (like applying |gu|).
 		Returns empty string on error.
 
+                Attributes: ~
+                  |api-fast|
+
                 Parameters: ~
                   • {expr} (`string`)
 
@@ -12058,6 +12155,9 @@ toupper({expr})                                                      *toupper()*
 
 		Converts a String to uppercase (like applying |gU|).
 		Returns empty string on error.
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {expr} (`string`)
@@ -12078,6 +12178,9 @@ tr({src}, {fromstr}, {tostr})                                             *tr()*
 <		returns "Hello THere" >vim
 			echo tr("<blob>", "<>", "{}")
 <		returns "{blob}"
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {src} (`string`)
@@ -12116,6 +12219,9 @@ trim({text} [, {mask} [, {dir}]])                                       *trim()*
 <		returns "Xrm<>X" (characters in the middle are not removed) >vim
 			echo trim("  vim  ", " ", 2)
 <		returns "  vim"
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {text} (`string`)
@@ -12176,6 +12282,9 @@ type({expr})                                                            *type()*
 <		To check if the v:t_ variables exist use this: >vim
 			if exists('v:t_number') | endif
 <
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {expr} (`any`)
@@ -12303,6 +12412,9 @@ utf16idx({string}, {idx} [, {countcc} [, {charidx}]])               *utf16idx()*
 			echo utf16idx('aą́c', 6, 1)	" returns 4
 			echo utf16idx('a😊😊', 9)	" returns -1
 <
+
+                Attributes: ~
+                  |api-fast|
 
                 Parameters: ~
                   • {string} (`string`)
@@ -12739,6 +12851,9 @@ windowsversion()                                              *windowsversion()*
 		non-MS-Windows systems the result is an empty string.
 
 		Lua: see |uv.os_uname()|.
+
+                Attributes: ~
+                  |api-fast|
 
                 Return: ~
                   (`string`)

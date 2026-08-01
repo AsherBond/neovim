@@ -2,6 +2,7 @@ local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each, pending = t.describe, t.it, t.before_each, t.pending
 local fn = n.fn
 local api = n.api
 local command = n.command
@@ -342,6 +343,43 @@ describe('vim._with', function()
         return with_recursive_nested_bufs()
       ]])
       eq(true, out)
+    end)
+  end)
+
+  describe('`cwd` context', function()
+    it('works', function()
+      local out = exec_lua [[
+        local cwd = vim.uv.cwd()
+        local temp_cwd = vim.fs.joinpath(cwd, 'test')
+        local test_cwd
+        vim._with({ cwd = temp_cwd }, function() test_cwd = vim.uv.cwd() end)
+        -- Use `fs_realpath` to resolve symlinks from how tests are set up
+        return { vim.uv.cwd() == cwd, vim.uv.fs_realpath(test_cwd) == vim.uv.fs_realpath(temp_cwd) }
+      ]]
+      eq({ true, true }, out)
+    end)
+
+    it('can be nested', function()
+      local out = exec_lua [[
+        local cwd = vim.uv.cwd()
+        local temp_cwd = vim.fs.joinpath(cwd, 'test')
+        local temp_cwd2 = vim.fs.joinpath(cwd, 'src')
+        local test_cwd_before, test_cwd, test_cwd_after
+        vim._with({ cwd = temp_cwd }, function()
+          test_cwd_before = vim.uv.cwd()
+          vim._with({ cwd = temp_cwd2 }, function()
+            test_cwd = vim.uv.cwd()
+          end)
+          test_cwd_after = vim.uv.cwd()
+        end)
+        return {
+          vim.uv.cwd() == cwd,
+          vim.uv.fs_realpath(test_cwd_before) == vim.uv.fs_realpath(temp_cwd),
+          vim.uv.fs_realpath(test_cwd) == vim.uv.fs_realpath(temp_cwd2),
+          vim.uv.fs_realpath(test_cwd_after) == vim.uv.fs_realpath(temp_cwd),
+        }
+      ]]
+      eq({ true, true, true, true }, out)
     end)
   end)
 
@@ -932,7 +970,7 @@ describe('vim._with', function()
         wo = { ve_cur = 'insert', ve_other = 'block', winbl_cur = 25, winbl_other = 10 },
         -- Global `winbl` inside context ideally should be untouched and equal
         -- to 50. It seems to be equal to 0 because `context.buf` uses
-        -- `aucmd_prepbuf` C approach which has no guarantees about window or
+        -- `ctx_switch` C approach which has no guarantees about window or
         -- window option values inside context.
         go = { cms = '-- %s', ul = 0, ve = 'none', winbl = 0, lmap = 'xy,yx', cf = false },
       }, out.inner)

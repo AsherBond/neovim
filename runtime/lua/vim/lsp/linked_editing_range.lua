@@ -60,7 +60,7 @@ local function update_ranges(bufnr, client_state)
   end
 
   local r = assert(ranges[client_state.range_index])
-  local replacement = api.nvim_buf_get_text(bufnr, r[2], r[3], r[4].end_row, r[4].end_col, {})
+  local replacement = api.nvim_buf_get_text(bufnr, r[2], r[3], r[4].end_row, r[4].end_col)
 
   if not string.match(table.concat(replacement, '\n'), client_state.word_pattern) then
     clear_ranges(bufnr, client_state)
@@ -165,6 +165,25 @@ function LinkedEditor:refresh()
 end
 
 ---@package
+function LinkedEditor:new(bufnr)
+  self = Capability.new(self, bufnr)
+
+  nvim_on({ 'TextChanged', 'TextChangedI' }, self.augroup, { buf = self.bufnr }, function()
+    for _, state in pairs(self.client_state) do
+      update_ranges(self.bufnr, state)
+    end
+
+    self:refresh()
+  end)
+
+  nvim_on('CursorMoved', self.augroup, { buf = self.bufnr }, function()
+    self:refresh()
+  end)
+
+  return self
+end
+
+---@package
 ---@param client_id integer
 function LinkedEditor:on_attach(client_id)
   local state = self.client_state[client_id]
@@ -176,16 +195,9 @@ function LinkedEditor:on_attach(client_id)
     self.client_state[client_id] = state
   end
 
-  nvim_on({ 'TextChanged', 'TextChangedI' }, self.augroup, { buf = self.bufnr }, function()
-    update_ranges(self.bufnr, state)
+  if self.bufnr == api.nvim_get_current_buf() then
     self:refresh()
-  end)
-
-  nvim_on('CursorMoved', self.augroup, { buf = self.bufnr }, function()
-    self:refresh()
-  end)
-
-  self:refresh()
+  end
 end
 
 ---@package
@@ -195,7 +207,6 @@ function LinkedEditor:on_detach(client_id)
   if client_state then
     --TODO: delete namespace if/when that becomes possible
     clear_ranges(self.bufnr, client_state)
-    api.nvim_clear_autocmds({ group = self.augroup })
     self.client_state[client_id] = nil
   end
 end

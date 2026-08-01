@@ -1,18 +1,18 @@
 local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 
+local describe, it, before_each, setup, teardown =
+  t.describe, t.it, t.before_each, t.setup, t.teardown
 local clear = n.clear
 local eq = t.eq
+local exec_lua = n.exec_lua
 local fnamemodify = n.fn.fnamemodify
 local getcwd = n.fn.getcwd
 local command = n.command
+local poke_eventloop = n.poke_eventloop
 local write_file = t.write_file
 local is_os = t.is_os
 local chdir = n.fn.chdir
-
-local function eq_slashconvert(expected, got)
-  eq(t.fix_slashes(expected), t.fix_slashes(got))
-end
 
 describe('fnamemodify()', function()
   setup(function()
@@ -28,7 +28,7 @@ describe('fnamemodify()', function()
     n.rmdir('foo')
   end)
 
-  it('handles the root path', function()
+  it('root path', function()
     local root = assert(t.fix_slashes(n.pathroot()))
     eq(root, fnamemodify([[/]], ':p:h'))
     eq(root, fnamemodify([[/]], ':p'))
@@ -42,7 +42,7 @@ describe('fnamemodify()', function()
       eq(root, fnamemodify([[/]], ':p'))
 
       local letter_colon = root:sub(1, 2)
-      local old_dir = t.fix_slashes(getcwd()) .. '/'
+      local old_dir = ('%s/'):format(getcwd())
       local foo_dir = old_dir .. 'foo/'
       eq(old_dir, fnamemodify(letter_colon, ':p'))
       eq(old_dir, fnamemodify(letter_colon .. '.', ':p'))
@@ -56,40 +56,58 @@ describe('fnamemodify()', function()
     end
   end)
 
-  it(':8 works', function()
+  it('~user in a fast event #40707', function()
+    exec_lua([[
+      local timer = assert(vim.uv.new_timer())
+      timer:start(0, 0, function()
+        timer:close()
+        assert(vim.in_fast_event())
+        _G.result = vim.fn.fnamemodify('~neovim_user_not_found_test/', ':p')
+      end)
+    ]])
+    poke_eventloop()
+    local expected = '~neovim_user_not_found_test/'
+    if is_os('win') then
+      -- Windows never expands ~user, ':p' just prefixes the cwd.
+      expected = fnamemodify('.', ':p') .. expected
+    end
+    eq(expected, exec_lua('return _G.result'))
+  end)
+
+  it(':8 (DOS 8.3 short format)', function()
     eq('Xtest-fnamemodify.txt', fnamemodify([[Xtest-fnamemodify.txt]], ':8'))
   end)
 
-  it('handles examples from ":help filename-modifiers"', function()
+  it('examples from ":help filename-modifiers"', function()
     -- src/ cannot be a symlink in this test.
     n.api.nvim_set_current_dir(t.paths.test_source_path)
 
     local filename = 'src/version.c'
-    local cwd = getcwd()
+    local cwd = vim.fs.normalize(getcwd())
 
-    eq_slashconvert(cwd .. '/src/version.c', fnamemodify(filename, ':p'))
+    eq(('%s/src/version.c'):format(cwd), fnamemodify(filename, ':p'))
 
-    eq_slashconvert('src/version.c', fnamemodify(filename, ':p:.'))
-    eq_slashconvert(cwd .. '/src', fnamemodify(filename, ':p:h'))
-    eq_slashconvert(cwd .. '', fnamemodify(filename, ':p:h:h'))
+    eq('src/version.c', fnamemodify(filename, ':p:.'))
+    eq(('%s/src'):format(cwd), fnamemodify(filename, ':p:h'))
+    eq(cwd, fnamemodify(filename, ':p:h:h'))
     eq('version.c', fnamemodify(filename, ':p:t'))
-    eq_slashconvert(cwd .. '/src/version', fnamemodify(filename, ':p:r'))
+    eq(('%s/src/version'):format(cwd), fnamemodify(filename, ':p:r'))
 
-    eq_slashconvert(cwd .. '/src/main.c', fnamemodify(filename, ':s?version?main?:p'))
+    eq(('%s/src/main.c'):format(cwd), fnamemodify(filename, ':s?version?main?:p'))
 
     local converted_cwd = cwd:gsub('/', '\\')
     eq(converted_cwd .. '\\src\\version.c', fnamemodify(filename, ':p:gs?/?\\\\?'))
 
     eq('src', fnamemodify(filename, ':h'))
     eq('version.c', fnamemodify(filename, ':t'))
-    eq_slashconvert('src/version', fnamemodify(filename, ':r'))
+    eq('src/version', fnamemodify(filename, ':r'))
     eq('version', fnamemodify(filename, ':t:r'))
     eq('c', fnamemodify(filename, ':e'))
 
-    eq_slashconvert('src/main.c', fnamemodify(filename, ':s?version?main?'))
+    eq('src/main.c', fnamemodify(filename, ':s?version?main?'))
   end)
 
-  it('handles advanced examples from ":help filename-modifiers"', function()
+  it('advanced examples from ":help filename-modifiers"', function()
     local filename = 'src/version.c.gz'
 
     eq('gz', fnamemodify(filename, ':e'))
@@ -98,76 +116,101 @@ describe('fnamemodify()', function()
 
     eq('c', fnamemodify(filename, ':e:e:r'))
 
-    eq_slashconvert('src/version.c', fnamemodify(filename, ':r'))
+    eq('src/version.c', fnamemodify(filename, ':r'))
     eq('c', fnamemodify(filename, ':r:e'))
 
-    eq_slashconvert('src/version', fnamemodify(filename, ':r:r'))
-    eq_slashconvert('src/version', fnamemodify(filename, ':r:r:r'))
+    eq('src/version', fnamemodify(filename, ':r:r'))
+    eq('src/version', fnamemodify(filename, ':r:r:r'))
   end)
 
-  it('handles :h', function()
+  it(':h', function()
+    -- generic path
     eq('.', fnamemodify('hello.txt', ':h'))
+    -- Repeated ":h" on a bare name: the first ":h" replaces the buffer with ".", the
+    -- next must re-anchor into it and not read the freed buffer (Coverity CID 649200).
+    eq('.', fnamemodify('hello.txt', ':h:h'))
+    eq('.', fnamemodify('hello.txt', ':h:h:h'))
+    eq('path/to', fnamemodify('path/to/hello.txt', ':h'))
+    eq('/', fnamemodify('/', ':h'))
+    eq('/', fnamemodify('/foo', ':h'))
 
-    eq_slashconvert('path/to', fnamemodify('path/to/hello.txt', ':h'))
+    -- collapses more than two leading slashes into a single slash
+    eq('/', fnamemodify('///', ':h'))
+    eq('/', fnamemodify('////', ':h'))
+    eq('/', fnamemodify('///foo', ':h'))
+    eq('/foo', fnamemodify('///foo/bar', ':h'))
+    eq('/foo', fnamemodify('///foo////bar', ':h'))
+    eq('/foo', fnamemodify('////foo/bar', ':h'))
 
-    if is_os('win') then
-      -- Current Windows behavior for slash-style UNC paths, such as "//foo/C$/".
-      eq('/', fnamemodify('/', ':h'))
-      eq('/', fnamemodify('/foo', ':h'))
-      eq('//', fnamemodify('//', ':h'))
-      eq('//', fnamemodify('//foo', ':h'))
-      eq('//foo', fnamemodify('//foo/bar', ':h'))
-      eq('//foo', fnamemodify('//foo///bar', ':h'))
-      eq('//foo', fnamemodify('//foo/C$', ':h'))
-      eq('//foo/C$', fnamemodify('//foo/C$/', ':h'))
-      eq('//foo/C$', fnamemodify('//foo/C$/bar', ':h'))
-      eq('///', fnamemodify('///', ':h'))
-      eq('////', fnamemodify('////', ':h'))
-      eq('///', fnamemodify('///foo', ':h'))
-      eq('///foo', fnamemodify('///foo/bar', ':h'))
-      eq('///foo', fnamemodify('///foo////bar', ':h'))
-    else
-      -- POSIX roots.
-      eq('/', fnamemodify('/', ':h'))
-      eq('/', fnamemodify('/foo', ':h'))
+    -- preserves exactly two leading slashes
+    eq('//', fnamemodify('//', ':h'))
 
+    if not is_os('win') then
       -- POSIX permits special handling for exactly two leading slashes.
       eq('//', fnamemodify('//', ':h'))
       eq('//', fnamemodify('//foo', ':h'))
       eq('//foo', fnamemodify('//foo/bar', ':h'))
       eq('//foo', fnamemodify('//foo///bar', ':h'))
+    else
+      eq('//server', fnamemodify('//server', ':h'))
+      eq('//server/share', fnamemodify('//server/share', ':h'))
+      eq('//server/share/', fnamemodify('//server/share/', ':h'))
+      eq('//server///share', fnamemodify('//server///share', ':h'))
+      eq('//server/share/', fnamemodify('//server/share/foo', ':h'))
 
-      -- More than two leading slashes are ordinary absolute paths.
-      eq('/', fnamemodify('///', ':h'))
-      eq('/', fnamemodify('////', ':h'))
-      eq('/', fnamemodify('///foo', ':h'))
-      eq('/foo', fnamemodify('///foo/bar', ':h'))
-      eq('/foo', fnamemodify('///foo////bar', ':h'))
-      eq('/foo', fnamemodify('////foo/bar', ':h'))
+      eq([[//foo/C$]], fnamemodify([[\\foo\C$]], ':h'))
+      eq([[//foo/C$/]], fnamemodify([[\\foo\C$\]], ':h'))
+      eq([[//foo/C$/]], fnamemodify([[\\foo\C$\bar]], ':h'))
+      eq([[//foo/C$/]], fnamemodify([[\\foo\C$\bar]], ':h:h'))
+      eq([[//foo/C$/]], fnamemodify([[//foo\C$/bar]], ':h'))
+      -- `C$` is a share name, not a file name
+      eq('', fnamemodify('//foo/C$/bar', ':h:t'))
+
+      eq('C:', fnamemodify('C:foo', ':h'))
+      eq('C:/', fnamemodify('C:/foo', ':h'))
+
+      eq('//?/C:/', fnamemodify('//?/C:/', ':h'))
+      eq('//?/C:/', fnamemodify('//?/C:/foo', ':h'))
+      eq(
+        '//?/Volume{b75e2c83-0000-0000-0000-602f00000000}/',
+        fnamemodify('//?/Volume{b75e2c83-0000-0000-0000-602f00000000}/foo', ':h')
+      )
+      eq(
+        '//?/Volume{b75e2c83-0000-0000-0000-602f00000000}/',
+        fnamemodify('///?/Volume{b75e2c83-0000-0000-0000-602f00000000}/foo', ':h')
+      )
+      eq('//?/UNC/server', fnamemodify('//?/UNC/server', ':h'))
+      eq('//?/UNC/server/share', fnamemodify('//?/UNC/server/share', ':h'))
+      eq('//?/UNC/server/share/', fnamemodify('//?/UNC/server/share/foo', ':h'))
+
+      -- relative "./" and ".\" prefixes
+      eq('./path/to', fnamemodify('./path/to/hello.txt', ':h'))
+      eq('./path', fnamemodify('./path/to/hello.txt', ':h:h'))
+      eq('./path/to', fnamemodify([[.\path\to\hello.txt]], ':h'))
     end
   end)
 
-  it('handles :t', function()
+  it(':t', function()
     eq('hello.txt', fnamemodify('hello.txt', ':t'))
-    eq_slashconvert('hello.txt', fnamemodify('path/to/hello.txt', ':t'))
+    eq('hello.txt', fnamemodify('path/to/hello.txt', ':t'))
   end)
 
-  it('handles :r', function()
+  it(':r', function()
     eq('hello', fnamemodify('hello.txt', ':r'))
-    eq_slashconvert('path/to/hello', fnamemodify('path/to/hello.txt', ':r'))
+    eq('path/to/hello', fnamemodify('path/to/hello.txt', ':r'))
   end)
 
-  it('handles :e', function()
+  it(':e', function()
     eq('txt', fnamemodify('hello.txt', ':e'))
-    eq_slashconvert('txt', fnamemodify('path/to/hello.txt', ':e'))
+    eq('txt', fnamemodify('path/to/hello.txt', ':e'))
   end)
 
-  it('handles regex replacements', function()
+  it('regex replacements', function()
     eq('content-there-here.txt', fnamemodify('content-here-here.txt', ':s/here/there/'))
     eq('content-there-there.txt', fnamemodify('content-here-here.txt', ':gs/here/there/'))
   end)
 
-  it('handles shell escape', function()
+  it('shell escape', function()
     local expected
 
     if is_os('win') then

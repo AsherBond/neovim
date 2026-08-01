@@ -2,6 +2,7 @@ local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each, finally = t.describe, t.it, t.before_each, t.finally
 local clear = n.clear
 local command = n.command
 local eq = t.eq
@@ -11,7 +12,6 @@ local exec_lua = n.exec_lua
 local feed = n.feed
 local api = n.api
 local request = n.request
-local poke_eventloop = n.poke_eventloop
 local pcall_err = t.pcall_err
 local uv = vim.uv
 
@@ -123,15 +123,15 @@ describe('nvim_ui_send', function()
       close_pipe(read_pipe)
     end)
 
-    api.nvim_ui_send('Hello world')
-
-    poke_eventloop()
-
     screen:expect([[
       ^                                                  |
       {1:~                                                 }|*8
                                                         |
     ]])
+
+    api.nvim_ui_send('Hello world')
+
+    screen:expect_unchanged()
 
     -- The TUI client queries OSC 11 on connect, so that precedes the payload.
     local bg_request = '\027]11;?\007'
@@ -159,15 +159,15 @@ describe('nvim_ui_send', function()
       close_pipe(read_pipe)
     end)
 
-    api.nvim_ui_send('Hello world')
-
-    poke_eventloop()
-
     screen:expect([[
       ^                                                  |
       {1:~                                                 }|*8
                                                         |
     ]])
+
+    api.nvim_ui_send('Hello world')
+
+    screen:expect_unchanged()
 
     eq('', table.concat(read_data))
   end)

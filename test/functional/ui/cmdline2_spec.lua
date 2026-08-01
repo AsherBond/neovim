@@ -4,6 +4,7 @@ local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each = t.describe, t.it, t.before_each
 local clear, exec, exec_lua, feed = n.clear, n.exec, n.exec_lua, n.feed
 
 describe('cmdline2', function()
@@ -283,6 +284,22 @@ describe('cmdline2', function()
       {3:                                                     }|
       Switching to backtracking RE engine for pattern: .\{ |*2
       {16::}%{15:s}{16:/.\{//}^ }                                          |
+    ]])
+  end)
+
+  it('is empty after backspace', function()
+    feed(':')
+    screen:expect([[
+                                                           |
+      {1:~                                                    }|*12
+      {16::}^                                                    |
+    ]])
+
+    feed('<BS>')
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*12
+                                                           |
     ]])
   end)
 

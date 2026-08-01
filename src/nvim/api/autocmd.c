@@ -309,6 +309,7 @@ ArrayOf(DictAs(get_autocmds__ret)) nvim_get_autocmds(Dict(get_autocmds) *opts, A
         case kCallbackPartial:
           PUT_C(autocmd_info, "callback", CSTR_AS_OBJ(callback_to_string(cb, arena)));
           break;
+        case kCallbackExpr:
         case kCallbackNone:
           abort();
         }
@@ -391,6 +392,7 @@ cleanup:
 Integer nvim_create_autocmd(uint64_t channel_id, Object event, Dict(create_autocmd) *opts,
                             Arena *arena, Error *err)
   FUNC_API_SINCE(9)
+  FUNC_API_FAST
 {
   int64_t autocmd_id = -1;
   char *desc = NULL;

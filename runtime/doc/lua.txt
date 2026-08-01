@@ -961,6 +961,12 @@ Vim options can be accessed through |vim.o|, which behaves like Vimscript
     To set a string value:
         Vimscript: `set wildignore=*.o,*.a,__pycache__`
         Lua:       `vim.o.wildignore = '*.o,*.a,__pycache__'`
+        Lua (alt): `vim.o.wildignore = { '*.o', '*.a', '__pycache__' }`
+
+    To set a key:value type option:
+        Vimscript: `set listchars=eol:~,space:-`
+        Lua:       `vim.o.listchars = 'eol:~,space:-'`
+        Lua (alt): `vim.o.listchars = { eol = '~', space = '-' }`
 
 Similarly, there is |vim.bo| and |vim.wo| for setting buffer-scoped and
 window-scoped options. Note that this must NOT be confused with
@@ -1265,28 +1271,51 @@ vim.inspect()                                                  *vim.inspect()*
       • https://github.com/kikito/inspect.lua
       • https://github.com/mpeterv/vinspect
 
-vim.keycode({str})                                             *vim.keycode()*
-    Translates keycodes.
+vim.keycode({keys}, {info})                                    *vim.keycode()*
+    Converts keys from |key-notation| to the internal encoding. Optionally
+    returns structured *key-chord* info as retval 2.
 
-    Example: >lua
+    Inverse of |keytrans()|, which converts the internal encoding back to
+    |key-notation|.
+
+    Examples: >lua
         local k = vim.keycode
         vim.g.mapleader = k'<bs>'
+
+        -- Split a key sequence into chords, e.g. to inspect modifiers.
+        local _, chords = vim.keycode('<C-w>v', true)
+        assert(chords[1].key == 'w' and chords[1].mod[1] == 'C')
+
+        -- keytrans() is the inverse: internal encoding => key-notation.
+        assert(vim.fn.keytrans(vim.keycode('<C-a>')) == '<C-A>')
 <
 
     Parameters: ~
-      • {str}  (`string`) String to be converted.
+      • {keys}  (`string`) Keys in |key-notation|.
+      • {info}  (`boolean?`) Also return key-chord info.
 
-    Return: ~
-        (`string`)
+    Return (multiple): ~
+        (`string`) Internal representation of the given `keys`.
+        (`table?`) List of parsed key-chords, each with fields:
+        • {key} (`string`) Key without modifiers. Example: `<C-A>` has
+          `key="a"`.
+        • {key_alt} (`string?`) Alternative spelling of `key`, or nil if There
+          Is No Alternative (TINA). Example: `"<"` has `key_alt="lt"`.
+        • {keys} (`string`) Full key-chord in canonical key-notation (as
+          produced by |keytrans()|), including modifiers. Example: `<A-f>` has
+          `keys="<M-f>"`.
+        • {mod} (`('M'|'T'|'C'|'S'|'2'|'3'|'4'|'D')[]`) List of key-chord
+          modifiers. Example: `<C-S-f>` has `mod={ 'C', 'S' }`.
 
     See also: ~
       • |nvim_replace_termcodes()|
+      • |keytrans()|
 
 vim.lua_omnifunc({find_start})                            *vim.lua_omnifunc()*
     Omnifunc for completing Lua values from the runtime Lua interpreter,
     similar to the builtin completion for the `:lua` command.
 
-    Activate using `set omnifunc=v:lua.vim.lua_omnifunc` in a Lua buffer.
+    Activate using `vim.bo.omnifunc = vim.lua_omnifunc` in a Lua buffer.
 
     Parameters: ~
       • {find_start}  (`1|0`)
@@ -1318,33 +1347,36 @@ vim.notify_once({msg}, {level}, {opts})                    *vim.notify_once()*
         (`boolean`) true if message was displayed, else false
 
 vim.on_key({fn}, {ns_id}, {opts})                               *vim.on_key()*
-    Adds Lua function {fn} with namespace id {ns_id} as a listener to every,
-    yes every, input key.
+    Registers function {fn} with |namespace| {ns_id} as a listener to every,
+    yes EVERY, input key.
 
-    The Nvim command-line option |-w| is related but does not support
-    callbacks and cannot be toggled dynamically.
+    To parse |key-chord|s, see |vim.keycode()|. Example: >lua
+        local keychords = vim.keycode(vim.fn.keytrans(key), true)
+<
+
+    The |-w| command-line option is related but does not support callbacks and
+    cannot be toggled dynamically.
 
     Note: ~
+      • If {fn} returns an empty string, {key} is discarded/ignored; if {key}
+        is <Cmd> then the "<Cmd>…<CR>" sequence is discarded as a whole.
+      • Non-recursive: if {fn} itself consumes input, it won't be invoked for
+        those keys.
+      • To UNregister a given {ns_id}, pass `nil` {fn}.
       • {fn} will be removed on error.
-      • {fn} won't be invoked recursively, i.e. if {fn} itself consumes input,
-        it won't be invoked for those keys.
       • {fn} will not be cleared by |nvim_buf_clear_namespace()|
 
     Parameters: ~
       • {fn}     (`fun(key: string, typed: string): string??`) Function
                  invoked for every input key, after mappings have been applied
                  but before further processing. Arguments {key} and {typed}
-                 are raw keycodes, where {key} is the key after mappings are
-                 applied, and {typed} is the key(s) before mappings are
-                 applied. {typed} may be empty if {key} is produced by
-                 non-typed key(s) or by the same typed key(s) that produced a
-                 previous {key}. If {fn} returns an empty string, {key} is
-                 discarded/ignored, and if {key} is <Cmd> then the
-                 "<Cmd>…<CR>" sequence is discarded as a whole. When {fn} is
-                 `nil`, the callback associated with namespace {ns_id} is
-                 removed.
-      • {ns_id}  (`integer?`) Namespace ID. If nil or 0, generates and returns
-                 a new |nvim_create_namespace()| id.
+                 are raw input (use |keytrans()| to get |keycodes|).
+                 • {key} is the key after mappings are applied.
+                 • {typed} is the input before mappings are applied; may be
+                   empty if {key} was produced by non-typed key(s) or by the
+                   same typed key(s) that produced a previous {key}.
+      • {ns_id}  (`integer?`) Namespace ID. If nil or 0, returns a new
+                 |namespace| id.
       • {opts}   (`table?`) Optional parameters
 
     Return: ~
@@ -1353,6 +1385,7 @@ vim.on_key({fn}, {ns_id}, {opts})                               *vim.on_key()*
 
     See also: ~
       • |keytrans()|
+      • |vim.keycode()|
 
 vim.paste({lines}, {phase})                                      *vim.paste()*
     Paste handler, invoked by |nvim_paste()|.
@@ -1568,6 +1601,8 @@ vim.show_pos({buf}, {row}, {col}, {filter})                   *vim.show_pos()*
     Show all the items at a given buffer position.
 
     Can also be shown with `:Inspect`.                              *:Inspect*
+
+    See also |:marks| to list all extmarks.
 
     Example: To bind this function to the vim-scriptease inspired `zS` in
     Normal mode: >lua
@@ -2343,7 +2378,8 @@ vim.filetype.add({filetypes})                             *vim.filetype.add()*
     followed by the file name. If a match is not found using the filename,
     then the filename is matched against the list of |lua-pattern|s (sorted by
     priority) until a match is found. Lastly, if pattern matching does not
-    find a filetype, then the file extension is used.
+    find a filetype, then the file extension is used. Extension mappings match
+    only the text after the final dot in the filename.
 
     The filetype can be either a string (in which case it is used as the
     filetype directly) or a function. If a function, it takes the full path
@@ -2558,18 +2594,22 @@ Example: >lua
 <
 
 
-vim.fs.abspath({path})                                      *vim.fs.abspath()*
+vim.fs.abspath({path}, {opts})                              *vim.fs.abspath()*
     Converts `path` to an absolute path. Expands tilde (~) at the beginning of
-    the path to the user's home directory. Does not check if the path exists,
-    normalize the path, resolve symlinks or hardlinks (including `.` and
-    `..`), or expand environment variables. If the path is already absolute,
-    it is returned unchanged. Also converts `\` path separators to `/`.
+    the path (unless plain=true). Does not check if the path exists, normalize
+    the path, resolve symlinks or hardlinks (including "." and ".."), or
+    expand environment variables. If the path is already absolute, it is
+    returned unchanged. Converts `\` path separators to `/`.
 
     Attributes: ~
         Since: 0.11.0
 
     Parameters: ~
       • {path}  (`string`) Path
+      • {opts}  (`table?`) A table with the following fields:
+                • {cwd}? (`string`) Resolve the path relative to this
+                  directory.
+                • {plain}? (`boolean`) Do not expand tilde (~).
 
     Return: ~
         (`string`) Absolute path
@@ -2590,26 +2630,43 @@ vim.fs.dir({path}, {opts})                                      *vim.fs.dir()*
     Gets an iterator over items found in `path` (normalized via
     |vim.fs.normalize()|).
 
+    Example: >lua
+        for name, type, err in vim.fs.dir(path, { err = true }) do
+          if err then
+            -- Failed to scan directory {name} (may be the root {path} itself).
+          end
+        end
+<
+
     Attributes: ~
         Since: 0.8.0
 
     Parameters: ~
       • {path}  (`string`) Directory to iterate over, normalized via
-                |vim.fs.normalize()|.
-      • {opts}  (`table?`) Optional keyword arguments:
+                |vim.fs.normalize()| unless `opts.normalize=false`.
+      • {opts}  (`table?`) A table with the following fields:
                 • {depth}? (`integer`, default: `1`) How deep to traverse.
+                • {err}? (`boolean`, default: `false`) Report errors via the
+                  iterator's third value ("err"), instead of silently
+                  skipping.
                 • {follow}? (`boolean`, default: `false`) Follow symbolic
                   links.
+                • {plain}? (`boolean`, default: `false`) Do not expand special
+                  forms like "~" and "$" in {path}.
                 • {skip}? (`fun(dir_name: string): boolean`) Predicate to
                   control traversal. Return false to stop searching the
                   current directory. Only useful when depth > 1 Return an
                   iterator over the items located in {path}
 
     Return: ~
-        (`Iterator`) over items in {path}. Each iteration yields two values:
-        "name" and "type". "name" is the basename of the item relative to
-        {path}. "type" is one of the following: "file", "directory", "link",
-        "fifo", "socket", "char", "block", "unknown".
+        (`fun(): string?, string?, string?`) Iterator over items in {path},
+        yielding (name, type, err):
+        • name: Basename of the item relative to {path}.
+        • type: One of: "file", "directory", "link", "fifo", "socket", "char",
+          "block", "unknown".
+        • err: Error string, or nil. Only if `opts.err=true`. If the root
+          {path} itself could not be scanned, yields a single (name, nil, err)
+          item.
 
 vim.fs.dirname({file})                                      *vim.fs.dirname()*
     Gets the parent directory of the given path (not expanded/resolved, the
@@ -2702,9 +2759,10 @@ vim.fs.find({names}, {opts})                                   *vim.fs.find()*
                    through parent directories. Otherwise, search child
                    directories (recursively).
 
-    Return: ~
+    Return (multiple): ~
         (`string[]`) Normalized paths |vim.fs.normalize()| of all matching
-        items
+        items.
+        (`string[]`) Errors collected while searching.
 
 vim.fs.joinpath({...})                                     *vim.fs.joinpath()*
     Concatenates partial paths (one absolute or relative path followed by zero
@@ -2726,12 +2784,25 @@ vim.fs.joinpath({...})                                     *vim.fs.joinpath()*
     Return: ~
         (`string`)
 
+vim.fs.mkdir({path}, {opts})                                  *vim.fs.mkdir()*
+    Creates a directory.
+
+    Attributes: ~
+        Since: 0.13.0
+
+    Parameters: ~
+      • {path}  (`string`) Path to create (not expanded/resolved).
+      • {opts}  (`table?`) Optional keyword arguments.
+                • {mode}? (`integer`, default: `493`) Permission bits for
+                  newly-created directories.
+                • {parents}? (`boolean`, default: `false`) Create intermediate
+                  directories as necessary.
+
 vim.fs.normalize({path}, {opts})                          *vim.fs.normalize()*
-    Normalize a path to a standard format. A tilde (~) character at the
-    beginning of the path is expanded to the user's home directory and
-    environment variables are also expanded. "." and ".." components are also
-    resolved, except when the path is relative and trying to resolve it would
-    result in an absolute path.
+    Normalize a path to a standard format. Expands environment variables, and
+    tilde "~" at the beginning of the path. Resolves "." and ".." components,
+    except when the path is relative and resolving it would produce an
+    absolute path.
     • "." as the only part in a relative path:
       • "." => "."
       • "././" => "."
@@ -2741,19 +2812,19 @@ vim.fs.normalize({path}, {opts})                          *vim.fs.normalize()*
     • ".." in the root directory returns the root directory.
       • "/../../" => "/"
 
-    On Windows, backslash (\) characters are converted to forward slashes (/).
+    On Windows, backslashes (`\`) are converted to forward slashes (`/`).
 
     Examples: >lua
-        [[C:\Users\jdoe]]                         => "C:/Users/jdoe"
-        "~/src/neovim"                            => "/home/jdoe/src/neovim"
-        "$XDG_CONFIG_HOME/nvim/init.vim"          => "/Users/jdoe/.config/nvim/init.vim"
-        "~/src/nvim/api/../tui/./tui.c"           => "/home/jdoe/src/nvim/tui/tui.c"
-        "./foo/bar"                               => "foo/bar"
-        "foo/../../../bar"                        => "../../bar"
-        "/home/jdoe/../../../bar"                 => "/bar"
-        "C:foo/../../baz"                         => "C:../baz"
-        "C:/foo/../../baz"                        => "C:/baz"
-        [[\\?\UNC\server\share\foo\..\..\..\bar]] => "//?/UNC/server/share/bar"
+        [[C:\Users\jdoe]]                         --> "C:/Users/jdoe"
+        "~/src/neovim"                            --> "/home/jdoe/src/neovim"
+        "$XDG_CONFIG_HOME/nvim/init.vim"          --> "/Users/jdoe/.config/nvim/init.vim"
+        "~/src/nvim/api/../tui/./tui.c"           --> "/home/jdoe/src/nvim/tui/tui.c"
+        "./foo/bar"                               --> "foo/bar"
+        "foo/../../../bar"                        --> "../../bar"
+        "/home/jdoe/../../../bar"                 --> "/bar"
+        "C:foo/../../baz"                         --> "C:../baz"
+        "C:/foo/../../baz"                        --> "C:/baz"
+        [[\\?\UNC\server\share\foo\..\..\..\bar]] --> "//?/UNC/server/share/bar"
 <
 
     Attributes: ~
@@ -3085,6 +3156,15 @@ Iter:any({pred})                                                  *Iter:any()*
       • {pred}  (`fun(v: V1, ...: V...): boolean`) Predicate function. Takes
                 all values returned from the previous stage in the pipeline as
                 arguments and returns true if the predicate matches.
+
+Iter:count()                                                    *Iter:count()*
+    Drains the iterator, counting the number of iterations and returning it.
+
+    Attributes: ~
+        Since: 0.13.0
+
+    Return: ~
+        (`integer`)
 
 Iter:each({f})                                                   *Iter:each()*
     Calls a function once for each item in the pipeline, draining the
@@ -3723,6 +3803,7 @@ Lua module: vim.keymap                                            *vim.keymap*
 
 vim.keymap.del({modes}, {lhs}, {opts})                      *vim.keymap.del()*
     Removes a mapping, or removes each (mode, lhs) pair if `lhs` is a list.
+
     Examples: >lua
         vim.keymap.del('n', 'lhs')
         vim.keymap.del({'n', 'i', 'v'}, '<leader>w', { buf = 5 })
@@ -3734,6 +3815,7 @@ vim.keymap.del({modes}, {lhs}, {opts})                      *vim.keymap.del()*
       • {opts}   (`table?`) A table with the following fields:
                  • {buf}? (`integer`) Remove a mapping from the given buffer.
                    `0` for current.
+                 • {lhs}? (`boolean`) When true, only match {lhs}, not {rhs}.
 
     See also: ~
       • |vim.keymap.set()|
@@ -3918,14 +4000,14 @@ new({opts})                                                    *vim.log.new()*
 
     Parameters: ~
       • {opts}  (`table`) A table with the following fields:
-                • {current_level}? (`vim.log.levels`, default:
-                  `vim.log.levels.WARN`) Minimum level that will be written.
                 • {format_func}?
-                  (`fun(current_level: vim.log.levels, level: vim.log.levels, ...): string?`)
+                  (`fun(min_level: vim.log.levels, level: vim.log.levels, ...): string?`)
                   Formatter used for each log entry. Receives the logger's
-                  current level, the message level, and the values passed to
+                  minimum level, the message level, and the values passed to
                   the writer. Return a string to write an entry, or `nil` to
                   skip it.
+                • {level}? (`vim.log.levels`, default: `vim.log.levels.WARN`)
+                  Minimum level that will be written.
                 • {name} (`string`) Display name used in notifications emitted
                   by the logger.
 
@@ -3935,13 +4017,13 @@ new({opts})                                                    *vim.log.new()*
 set_format_func({log}, {func})                     *vim.log.set_format_func()*
     Sets the formatter used to produce log entries.
 
-    The formatter receives the logger's current level, the message level, and
+    The formatter receives the logger's minimum level, the message level, and
     the values passed to the writer method. Return a string to write an entry,
     or `nil` to skip it.
 
     Parameters: ~
       • {log}   (`vim.Log`) See |vim.Log|.
-      • {func}  (`fun(current_level: vim.log.levels, level: vim.log.levels, ...): string?`)
+      • {func}  (`fun(min_level: vim.log.levels, level: vim.log.levels, ...): string?`)
 
 set_level({log}, {level})                                *vim.log.set_level()*
     Sets the current log level.
@@ -4501,7 +4583,8 @@ cursor({buf}, {pos})                                        *vim.pos.cursor()*
     Creates a new |vim.Pos| from cursor position (see |api-indexing|).
 
     If {pos} is omitted, the first argument is treated as {win} instead of
-    {buf}, and the current cursor position of {win} is used.
+    {buf}, and the current cursor position of {win} is used. If {win} is also
+    omitted, it defaults to the current window.
 
     Example: >lua
         local buf = vim.api.nvim_win_get_buf(0)
@@ -4516,7 +4599,7 @@ cursor({buf}, {pos})                                        *vim.pos.cursor()*
       • {pos}  (`[integer, integer]`) (lnum, col) tuple
 
     Overloads: ~
-      • `fun(win: integer): vim.Pos`
+      • `fun(win?: integer): vim.Pos`
 
     Return: ~
         (`vim.Pos`) See |vim.Pos|.
@@ -4560,7 +4643,7 @@ mark({buf}, {lnum}, {col})                                    *vim.pos.mark()*
     Creates a new |vim.Pos| from mark position (see |api-indexing|).
 
     Example: >lua
-        local mark_info = vim.api.nvim_get_mark('M', {})
+        local mark_info = vim.api.nvim_get_mark('M')
         local lnum, col, buf, name = unpack(mark_info)
 
         if lnum == 0 and col == 0 and buf == 0 then
@@ -4652,7 +4735,7 @@ to_mark({pos})                                             *vim.pos.to_mark()*
 
         -- Convert to mark position, you can call it in a method style.
         local lnum, col = pos:to_mark()
-        vim.api.nvim_buf_set_mark(0, 'M', lnum, col, {})
+        vim.api.nvim_buf_set_mark(0, 'M', lnum, col)
 <
 
     Parameters: ~
@@ -4952,8 +5035,10 @@ vim.re.updatelocale()                                  *vim.re.updatelocale()*
 ==============================================================================
 Lua module: vim.regex                                              *vim.regex*
 
-Vim regexes can be used directly from Lua. Currently they only allow matching
-within a single line.
+The `vim.regex` interface allows Lua code to use Vim regexes.
+• Matches within a single line.
+• Does not check for interrupts (CTRL-C), so can be used from an |api-fast|
+  context.
 
 
                                                           *regex:match_line()*

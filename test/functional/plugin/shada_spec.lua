@@ -3,6 +3,8 @@ local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 local t_shada = require('test.functional.shada.testutil')
 
+local describe, it, before_each, setup, teardown, finally =
+  t.describe, t.it, t.before_each, t.setup, t.teardown, t.finally
 local clear = n.clear
 local eq, api, nvim_eval, nvim_command, fn, nvim_feed = t.eq, n.api, n.eval, n.command, n.fn, n.feed
 local neq = t.neq
@@ -2754,9 +2756,23 @@ describe('plugin/shada.vim', function()
       '  + l            line number  2',
       '  + c            column       -200',
     })
-    nvim_command('w ' .. fname .. '.tst')
+
+    nvim_command('set cpoptions-=+')
     nvim_command('w ' .. fname)
+    eq(false, api.nvim_get_option_value('modified', {}))
+
+    api.nvim_set_option_value('modified', true, {})
+    nvim_command('w ' .. fname .. '.tst')
+    eq(true, api.nvim_get_option_value('modified', {}))
+
+    nvim_command('set cpoptions+=+')
     nvim_command('w ' .. fname_tmp)
+    eq(false, api.nvim_get_option_value('modified', {}))
+
+    api.nvim_set_option_value('modified', true, {})
+    nvim_command('w ' .. fname)
+    eq(false, api.nvim_get_option_value('modified', {}))
+
     t.matches(
       '++opt not supported',
       t.pcall_err(function()

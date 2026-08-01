@@ -23,10 +23,11 @@
 #include "nvim/buffer_defs.h"
 #include "nvim/buffer_updates.h"
 #include "nvim/change.h"
+#include "nvim/context.h"
 #include "nvim/cursor.h"
+#include "nvim/dialog.h"
 #include "nvim/diff.h"
 #include "nvim/drawscreen.h"
-#include "nvim/edit.h"
 #include "nvim/errors.h"
 #include "nvim/eval.h"
 #include "nvim/eval/vars.h"
@@ -36,11 +37,12 @@
 #include "nvim/fold.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
-#include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/iconv_defs.h"
+#include "nvim/input.h"
+#include "nvim/insert.h"
 #include "nvim/log.h"
 #include "nvim/macros_defs.h"
 #include "nvim/mbyte.h"
@@ -84,6 +86,10 @@
 # include <sys/file.h>
 #endif
 
+#ifdef MSWIN
+# include "nvim/os/os_win_console.h"
+#endif
+
 #ifdef OPEN_CHR_FILES
 # include "nvim/charset.h"
 #endif
@@ -118,7 +124,7 @@ void filemess(buf_T *buf, char *name, char *s)
   // For further ones overwrite the previous one, reset msg_scroll before
   // calling filemess().
   int msg_scroll_save = msg_scroll;
-  if (shortmess(SHM_OVERALL) && !msg_listdo_overwrite && !exiting && p_verbose == 0) {
+  if (shortmess(kShmOverall) && !msg_listdo_overwrite && !exiting && p_verbose == 0) {
     msg_scroll = false;
   }
   if (!msg_scroll) {    // wait a bit when overwriting an error msg
@@ -254,7 +260,7 @@ int readfile(char *fname, char *sfname, linenr_T from, linenr_T lines_to_skip,
   if (curbuf->b_ffname == NULL
       && !filtering
       && fname != NULL
-      && vim_strchr(p_cpo, CPO_FNAMER) != NULL
+      && vim_strchr(p_cpo, kCpoFnamer) != NULL
       && !(flags & READ_DUMMY)) {
     if (set_rw_fname(fname, sfname) == FAIL) {
       goto theend;
@@ -270,10 +276,6 @@ int readfile(char *fname, char *sfname, linenr_T from, linenr_T lines_to_skip,
   old_b_fname = curbuf->b_fname;
   using_b_ffname = (fname == curbuf->b_ffname) || (sfname == curbuf->b_ffname);
   using_b_fname = (fname == curbuf->b_fname) || (sfname == curbuf->b_fname);
-
-  // After reading a file the cursor line changes but we don't want to
-  // display the line.
-  ex_no_reprint = true;
 
   // don't display the file info for another buffer now
   need_fileinfo = false;
@@ -311,6 +313,12 @@ int readfile(char *fname, char *sfname, linenr_T from, linenr_T lines_to_skip,
         // consider this to work like ":edit", thus reset the
         // BF_NOTEDITED flag.  Then ":write" will work to overwrite the
         // same file.
+        if (retval == OK && !curbuf->b_au_did_filetype && *curbuf->b_p_ft != NUL) {
+          apply_autocmds(EVENT_FILETYPE, curbuf->b_p_ft, curbuf->b_fname, true, curbuf);
+          if (aborting()) {
+            retval = FAIL;
+          }
+        }
         if (retval == OK) {
           curbuf->b_flags &= ~BF_NOTEDITED;
         }
@@ -332,7 +340,7 @@ int readfile(char *fname, char *sfname, linenr_T from, linenr_T lines_to_skip,
     }
   }
 
-  if (((shortmess(SHM_OVER) && !msg_listdo_overwrite) || curbuf->b_help) && p_verbose == 0) {
+  if (((shortmess(kShmOver) && !msg_listdo_overwrite) || curbuf->b_help) && p_verbose == 0) {
     msg_scroll = false;         // overwrite previous file message
   } else {
     msg_scroll = true;          // don't overwrite previous file message
@@ -836,7 +844,7 @@ retry:
 
     // Use the 'charconvert' expression when conversion is required
     // and we can't do it internally or with iconv().
-    if (fio_flags == 0 && !read_stdin && !read_buffer && *p_ccv != NUL
+    if (fio_flags == 0 && !read_stdin && !read_buffer && p_ccv.type != kCallbackNone
         && !read_fifo && iconv_fd == (iconv_t)-1) {
       did_iconv = false;
       // Skip conversion when it's already done (retry for wrong
@@ -1425,7 +1433,7 @@ retry:
           // Detected a UTF-8 error.
 rewind_retry:
           // Retry reading with another conversion.
-          if (*p_ccv != NUL && iconv_fd != (iconv_t)-1) {
+          if (p_ccv.type != kCallbackNone && iconv_fd != (iconv_t)-1) {
             // iconv() failed, try 'charconvert'
             did_iconv = true;
           } else {
@@ -1673,7 +1681,7 @@ failed:
     save_file_ff(curbuf);
     // If editing a new file: set 'fenc' for the current buffer.
     // Also for ":read ++edit file".
-    set_option_direct(kOptFileencoding, CSTR_AS_OPTVAL(fenc), OPT_LOCAL, 0);
+    set_option_direct(kOptFileencoding, CSTR_AS_OBJ(fenc), OPT_LOCAL, 0);
   }
   if (fenc_alloced) {
     xfree(fenc);
@@ -1696,11 +1704,8 @@ failed:
       // On Unix, use stderr for stdin, makes shell commands work.
       vim_ignored = dup(2);
 #else
-      // On Windows, use the console input handle for stdin.
-      HANDLE conin = CreateFile("CONIN$", GENERIC_READ | GENERIC_WRITE,
-                                FILE_SHARE_READ, (LPSECURITY_ATTRIBUTES)NULL,
-                                OPEN_EXISTING, 0, (HANDLE)NULL);
-      vim_ignored = _open_osfhandle((intptr_t)conin, _O_RDONLY);
+      // On Windows, use the console input handle (CONIN$) for stdin.
+      vim_ignored = os_open_conin_fd();
 #endif
     }
   }
@@ -1774,7 +1779,7 @@ failed:
 #endif
       if (curbuf->b_p_ro) {
         buflen += snprintf(IObuff + buflen, (size_t)(IOSIZE - buflen), "%s",
-                           shortmess(SHM_RO) ? _("[RO]") : _("[readonly]"));
+                           shortmess(kShmRo) ? _("[RO]") : _("[readonly]"));
         c = true;
       }
       if (read_no_eol_lnum) {
@@ -1846,13 +1851,8 @@ failed:
 
     u_clearline(curbuf);   // cannot use "U" command after adding lines
 
-    // In Ex mode: cursor at last new line.
-    // Otherwise: cursor at first new line.
-    if (exmode_active) {
-      curwin->w_cursor.lnum = from + linecnt;
-    } else {
-      curwin->w_cursor.lnum = from + 1;
-    }
+    // Cursor at first new line.
+    curwin->w_cursor.lnum = from + 1;
     check_cursor_lnum(curwin);
     beginline(BL_WHITE | BL_FIX);           // on first non-blank
 
@@ -2023,7 +2023,7 @@ void set_forced_fenc(exarg_T *eap)
   }
 
   char *fenc = enc_canonize(eap->cmd + eap->force_enc);
-  set_option_direct(kOptFileencoding, CSTR_AS_OPTVAL(fenc), OPT_LOCAL, 0);
+  set_option_direct(kOptFileencoding, CSTR_AS_OBJ(fenc), OPT_LOCAL, 0);
   xfree(fenc);
 }
 
@@ -2201,7 +2201,7 @@ void msg_add_lines(int insert_space, linenr_T lnum, off_T nchars)
 {
   size_t len = strlen(IObuff);
 
-  if (shortmess(SHM_LINES)) {
+  if (shortmess(kShmLines)) {
     snprintf(IObuff + len, IOSIZE - len,
              _("%s%" PRId64 "L, %" PRId64 "B"),  // l10n: L as in line, B as in byte
              insert_space ? " " : "", (int64_t)lnum, (int64_t)nchars);
@@ -2369,11 +2369,10 @@ void shorten_buf_fname(buf_T *buf, char *dirname, int force)
       XFREE_CLEAR(buf->b_sfname);
     }
     char *p = path_shorten_fname(buf->b_ffname, dirname);
-    if (p != NULL) {
+    if (p != NULL && *p != NUL) {
       buf->b_sfname = xstrdup(p);
       buf->b_fname = buf->b_sfname;
-    }
-    if (p == NULL) {
+    } else {
       buf->b_fname = buf->b_ffname;
     }
   }
@@ -3139,11 +3138,11 @@ void buf_reload(buf_T *buf, int orig_mode, bool reload_options)
   buf_T *savebuf;
   bufref_T bufref;
   int saved = OK;
-  aco_save_T aco = { 0 };
+  CtxSwitch aco = { 0 };
   int flags = READ_NEW;
 
   // Set curwin/curbuf for "buf" and save some things.
-  aucmd_prepbuf(&aco, buf);
+  ctx_switch(&aco, NULL, NULL, buf, 0);
 
   // Unless reload_options is set, we only want to read the text from the
   // file, not reset the syntax highlighting, clear marks, diff status, etc.
@@ -3196,7 +3195,7 @@ void buf_reload(buf_T *buf, int orig_mode, bool reload_options)
     curbuf->b_flags |= BF_CHECK_RO;           // check for RO again
     curbuf->b_keep_filetype = true;           // don't detect 'filetype'
     if (readfile(buf->b_ffname, buf->b_fname, 0, 0,
-                 (linenr_T)MAXLNUM, &ea, flags, shortmess(SHM_FILEINFO)) != OK) {
+                 (linenr_T)MAXLNUM, &ea, flags, shortmess(kShmFileinfo)) != OK) {
       if (!aborting()) {
         semsg(_("E321: Could not reload \"%s\""), buf->b_fname);
       }
@@ -3259,7 +3258,7 @@ void buf_reload(buf_T *buf, int orig_mode, bool reload_options)
   do_modelines(0);
 
   // restore curwin/curbuf and a few other things
-  aucmd_restbuf(&aco);
+  ctx_restore(&aco);
   // Careful: autocommands may have made "buf" invalid!
 }
 
@@ -3280,22 +3279,6 @@ void write_lnum_adjust(linenr_T offset)
     curbuf->b_no_eol_lnum += offset;
   }
 }
-
-#ifdef BACKSLASH_IN_FILENAME
-/// Convert all backslashes in fname to forward slashes in-place,
-/// unless when it looks like a URL.
-void forward_slash(char *fname)
-{
-  if (path_with_url(fname)) {
-    return;
-  }
-  for (char *p = fname; *p != NUL; p++) {
-    if (*p == '\\') {
-      *p = '/';
-    }
-  }
-}
-#endif
 
 /// Path to Nvim's own temp dir. Ends in a slash.
 static char *vim_tempdir = NULL;

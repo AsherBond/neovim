@@ -33,6 +33,7 @@
 #include "nvim/buffer_defs.h"
 #include "nvim/channel.h"
 #include "nvim/channel_defs.h"
+#include "nvim/context.h"
 #include "nvim/decoration.h"
 #include "nvim/decoration_provider.h"
 #include "nvim/diff.h"
@@ -56,13 +57,13 @@
 #include "nvim/fileio.h"
 #include "nvim/fold.h"
 #include "nvim/garray.h"
-#include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/grid.h"
 #include "nvim/hashtab.h"
 #include "nvim/highlight.h"
 #include "nvim/highlight_group.h"
+#include "nvim/input.h"
 #include "nvim/keycodes.h"
 #include "nvim/log.h"
 #include "nvim/lua/executor.h"
@@ -171,13 +172,11 @@ void event_init(void)
 static bool event_teardown(void)
 {
   if (!main_loop.events) {
-    input_stop();
     return true;
   }
 
   multiqueue_process_events(main_loop.events);
   loop_poll_events(&main_loop, 0);  // Drain thread_events, fast_events.
-  input_stop();
   server_teardown();
   channel_teardown();
   proc_teardown(&main_loop);
@@ -303,10 +302,7 @@ int main(int argc, char **argv)
 #ifdef MSWIN
   int startup_stderr_fd = -1;
   if (embedded_mode) {
-    startup_stderr_fd = os_dup(STDERR_FILENO);
-    if (startup_stderr_fd >= 0) {
-      os_set_cloexec(startup_stderr_fd);
-    }
+    startup_stderr_fd = os_dup_cloexec(STDERR_FILENO);
   }
 #endif
 
@@ -419,11 +415,6 @@ int main(int argc, char **argv)
   // Set the break level after the terminal is initialized.
   debug_break_level = params.use_debug_break_level;
 
-  // Read ex-commands if invoked with "-es".
-  if (!stdin_isatty && !params.input_istext && silent_mode && exmode_active) {
-    input_start();
-  }
-
   // Wait for UIs to set up Nvim or show early messages
   // and prompts (--cmd, swapfile dialog, …).
   bool use_remote_ui = (embedded_mode && !headless_mode);
@@ -506,7 +497,7 @@ int main(int argc, char **argv)
     tv_list_alloc_ret(&items_tv, 0);
     recover_names(NULL, false, items_tv.vval.v_list);
     typval_T lua_args[] = { items_tv, { .v_type = VAR_UNKNOWN } };
-    nlua_call_vimfn("vim._core.swapfile", "list_swaps", lua_args, NULL);
+    nlua_call_typval("vim._core.swapfile", "list_swaps", lua_args, NULL);
     tv_clear(&items_tv);
     os_exit(0);
   }
@@ -548,9 +539,7 @@ int main(int argc, char **argv)
   //
   starting = NO_BUFFERS;
   no_wait_return = false;
-  if (!exmode_active) {
-    msg_scroll = false;
-  }
+  msg_scroll = false;
 
   // Read file (text, not commands) from stdin if:
   //    - stdin is not a tty
@@ -579,7 +568,7 @@ int main(int argc, char **argv)
   set_vim_var_string(VV_SWAPCOMMAND, NULL, -1);
 
   // Ex starts at last line of the file.
-  if (exmode_active) {
+  if (params.exmode) {
     curwin->w_cursor.lnum = curbuf->b_ml.ml_line_count;
   }
 
@@ -678,13 +667,34 @@ int main(int argc, char **argv)
       msg_didout = false;
     }
     getout(lua_ok ? 0 : 1);
+  } else if (silent_mode) {
+    // Non-interactive Ex mode (-es): vim._core.exmode.run() executes Ex commands from stdin.
+    msg_scroll = true;
+    no_wait_return++;  // No hit-enter prompts in batch mode, e.g. after "-V1" messages.
+    // Read stdin as commands iff a pipe/file: "nvim -es +cmd" in a tty executes and exits, it
+    // doesn't wait for input. ("-Es" reads stdin as text; already consumed by read_stdin().)
+    if (!params.input_istext && !stdin_isatty) {
+      DLOG("executing stdin as Ex commands");
+      typval_T args[] = { { .v_type = VAR_UNKNOWN } };
+      nlua_call_typval("vim._core.exmode", "run", args, NULL);
+    }
+    if (msg_didout) {
+      msg_putchar('\n');  // Terminate the last output line.
+      msg_didout = false;
+    }
+    getout(0);  // getout() adds `ex_exitval` for "-es".
+  }
+
+  if (params.exmode) {
+    // Interactive Ex mode (-e/-E): cmdwin REPL. #40962
+    do_cmdline_cmd("exmode");
   }
 
   TIME_MSG("before starting main loop");
   ILOG("starting main loop");
 
   // Main loop: never returns.
-  normal_enter(false, false);
+  normal_enter();
 
 #if defined(MSWIN) && !defined(MAKE_LIB)
   xfree(argv);
@@ -725,9 +735,6 @@ void os_exit(int r)
   } else {
     ml_close_all(true);  // remove all memfiles
   }
-  if (used_stdin) {
-    stream_set_blocking(STDIN_FILENO, true);  // normalize stream (#2598)
-  }
 
   ILOG("Nvim exit: %d", r);
 
@@ -748,7 +755,7 @@ void getout(int exitval)
   // make sure startuptimes have been flushed
   time_finish();
 
-  // On error during Ex mode, exit with a non-zero code.
+  // On error in "-es" (or explicit ":quit"), exit with a non-zero code.
   // POSIX requires this, although it's not 100% clear from the standard.
   if (exmode_active) {
     exitval += ex_exitval;
@@ -884,10 +891,6 @@ void preserve_exit(const char *errmsg)
 
   // Prevent repeated calls into this method.
   if (really_exiting) {
-    if (used_stdin) {
-      // normalize stream (#2598)
-      stream_set_blocking(STDIN_FILENO, true);
-    }
     exit(2);
   }
 
@@ -1082,7 +1085,7 @@ static bool edit_stdin(mparm_T *parmp)
 {
   bool implicit = !headless_mode
                   && !(embedded_mode && stdin_fd <= 0)
-                  && (!exmode_active || parmp->input_istext)
+                  && (!parmp->exmode || parmp->input_istext)
                   && !stdin_isatty
                   && parmp->edit_type <= EDIT_STDIN
                   && parmp->scriptin == NULL;  // `-s -` was not given.
@@ -1121,9 +1124,10 @@ static void command_line_scan(mparm_T *parmp)
       char c = argv[0][argv_idx++];
       switch (c) {
       case NUL:    // "nvim -"  read from stdin
-        if (exmode_active) {
+        if (parmp->exmode) {
           // "nvim -e -" silent mode
           silent_mode = true;
+          exmode_active = true;
           parmp->no_swap_file = true;
         } else {
           if (parmp->edit_type > EDIT_STDIN) {
@@ -1185,7 +1189,7 @@ static void command_line_scan(mparm_T *parmp)
         } else if (STRNICMP(argv[0] + argv_idx, "clean", 5) == 0) {
           parmp->use_vimrc = "NONE";
           parmp->clean = true;
-          set_option_value_give_err(kOptShadafile, STATIC_CSTR_AS_OPTVAL("NONE"), 0);
+          set_option_value_give_err(kOptShadafile, STATIC_CSTR_AS_OBJ("NONE"), 0);
         } else if (STRNICMP(argv[0] + argv_idx, "luamod-dev", 9) == 0) {
           nlua_disable_preload = true;
         } else {
@@ -1199,7 +1203,7 @@ static void command_line_scan(mparm_T *parmp)
         }
         break;
       case 'A':    // "-A" start in Arabic mode.
-        set_option_value_give_err(kOptArabic, BOOLEAN_OPTVAL(true), 0);
+        set_option_value_give_err(kOptArabic, BOOLEAN_OBJ(true), 0);
         break;
       case 'b':    // "-b" binary mode.
         // Needs to be effective before expanding file names, because
@@ -1216,10 +1220,10 @@ static void command_line_scan(mparm_T *parmp)
         parmp->diff_mode = true;
         break;
       case 'e':    // "-e" Ex mode
-        exmode_active = true;
+        parmp->exmode = true;
         break;
       case 'E':    // "-E" Ex mode
-        exmode_active = true;
+        parmp->exmode = true;
         parmp->input_istext = true;
         break;
       case 'f':    // "-f"  GUI: run in foreground.
@@ -1229,8 +1233,8 @@ static void command_line_scan(mparm_T *parmp)
         usage();
         os_exit(0);
       case 'H':    // "-H" start in Hebrew mode: rl + keymap=hebrew set.
-        set_option_value_give_err(kOptKeymap, STATIC_CSTR_AS_OPTVAL("hebrew"), 0);
-        set_option_value_give_err(kOptRightleft, BOOLEAN_OPTVAL(true), 0);
+        set_option_value_give_err(kOptKeymap, STATIC_CSTR_AS_OBJ("hebrew"), 0);
+        set_option_value_give_err(kOptRightleft, BOOLEAN_OBJ(true), 0);
         break;
       case 'M':    // "-M"  no changes or writing of files
         reset_modifiable();
@@ -1284,11 +1288,12 @@ static void command_line_scan(mparm_T *parmp)
         recoverymode = 1;
         break;
       case 's':
-        if (exmode_active) {    // "-es" silent (batch) Ex-mode
+        if (parmp->exmode) {    // "-es" silent (batch) mode
           silent_mode = true;
+          exmode_active = true;
           parmp->no_swap_file = true;
           if (p_shadafile == NULL || *p_shadafile == NUL) {
-            set_option_value_give_err(kOptShadafile, STATIC_CSTR_AS_OPTVAL("NONE"), 0);
+            set_option_value_give_err(kOptShadafile, STATIC_CSTR_AS_OBJ("NONE"), 0);
           }
         } else {                // "-s {scriptin}" read from script file
           want_argument = true;
@@ -1313,7 +1318,7 @@ static void command_line_scan(mparm_T *parmp)
         // default is 10: a little bit verbose
         p_verbose = get_number_arg(argv[0], &argv_idx, 10);
         if (argv[0][argv_idx] != NUL) {
-          set_option_value_give_err(kOptVerbosefile, CSTR_AS_OPTVAL(argv[0] + argv_idx), 0);
+          set_option_value_give_err(kOptVerbosefile, CSTR_AS_OBJ(argv[0] + argv_idx), 0);
           argv_idx = (int)strlen(argv[0]);
         }
         break;
@@ -1321,7 +1326,7 @@ static void command_line_scan(mparm_T *parmp)
         // "-w {scriptout}" write to script
         if (ascii_isdigit((argv[0])[argv_idx])) {
           n = get_number_arg(argv[0], &argv_idx, 10);
-          set_option_value_give_err(kOptWindow, NUMBER_OPTVAL((OptInt)n), 0);
+          set_option_value_give_err(kOptWindow, INTEGER_OBJ((OptInt)n), 0);
           break;
         }
         want_argument = true;
@@ -1404,9 +1409,11 @@ static void command_line_scan(mparm_T *parmp)
             parmp->pre_commands[parmp->n_pre_commands++] = argv[0];
           } else if (strequal(argv[-1], "--listen")) {
             // "--listen {address}"
+            TO_SLASH(argv[0]);
             parmp->listen_addr = argv[0];
           } else if (strequal(argv[-1], "--server")) {
             // "--server {address}"
+            TO_SLASH(argv[0]);
             parmp->server_addr = argv[0];
           }
           // "--startuptime <file>" already handled
@@ -1417,7 +1424,7 @@ static void command_line_scan(mparm_T *parmp)
           break;
 
         case 'i':    // "-i {shada}" use for shada
-          set_option_value_give_err(kOptShadafile, CSTR_AS_OPTVAL(argv[0]), 0);
+          set_option_value_give_err(kOptShadafile, CSTR_AS_OBJ(argv[0]), 0);
           break;
 
         case 'l':    // "-l" Lua script: args after "-l".
@@ -1427,7 +1434,7 @@ static void command_line_scan(mparm_T *parmp)
           parmp->no_swap_file = true;
           parmp->use_vimrc = parmp->use_vimrc ? parmp->use_vimrc : "NONE";
           if (p_shadafile == NULL || *p_shadafile == NUL) {
-            set_option_value_give_err(kOptShadafile, STATIC_CSTR_AS_OPTVAL("NONE"), 0);
+            set_option_value_give_err(kOptShadafile, STATIC_CSTR_AS_OBJ("NONE"), 0);
           }
           parmp->luaf = argv[0];
           argc--;
@@ -1464,7 +1471,7 @@ scripterror:
           if (ascii_isdigit(*(argv[0]))) {
             argv_idx = 0;
             n = get_number_arg(argv[0], &argv_idx, 10);
-            set_option_value_give_err(kOptWindow, NUMBER_OPTVAL((OptInt)n), 0);
+            set_option_value_give_err(kOptWindow, INTEGER_OBJ((OptInt)n), 0);
             argv_idx = -1;
             break;
           }
@@ -1492,14 +1499,14 @@ scripterror:
 
       // On Windows expand "~\" or "~/" prefix in file names to profile directory.
 #ifdef MSWIN
-      if (*p == '~' && (p[1] == '\\' || p[1] == '/')) {
+      TO_SLASH(p);
+      if (*p == '~' && p[1] == '/') {
         size_t size = strlen(os_homedir()) + strlen(p);
         char *tilde_expanded = xmalloc(size);
         snprintf(tilde_expanded, size, "%s%s", os_homedir(), p + 1);
         xfree(p);
         p = tilde_expanded;
       }
-      TO_SLASH(p);
 #endif
 
       if (parmp->diff_mode && os_isdir(p) && GARGCOUNT > 0
@@ -1651,7 +1658,7 @@ static void handle_quickfix(mparm_T *paramp)
 {
   if (paramp->edit_type == EDIT_QF) {
     if (paramp->use_ef != NULL) {
-      set_option_direct(kOptErrorfile, CSTR_AS_OPTVAL(paramp->use_ef), 0, SID_CARG);
+      set_option_direct(kOptErrorfile, CSTR_AS_OBJ(paramp->use_ef), 0, SID_CARG);
     }
     vim_snprintf(IObuff, IOSIZE, "cfile %s", p_ef);
     if (qf_init(NULL, p_ef, p_efm, true, IObuff, p_menc) < 0) {
@@ -1783,6 +1790,8 @@ static void create_windows(mparm_T *parmp)
     // Don't execute Win/Buf Enter/Leave autocommands here
     autocmd_no_enter++;
     autocmd_no_leave++;
+    // Save the window selection made by startup scripts.
+    win_T *startup_curwin = curwin;
     bool dorewind = true;
     while (done++ < 1000) {
       if (dorewind) {
@@ -1842,8 +1851,11 @@ static void create_windows(mparm_T *parmp)
     }
     if (parmp->window_layout == WIN_TABS) {
       goto_tabpage(1);
-    } else {
+    } else if (parmp->window_count > 1 || !win_valid(startup_curwin)) {
+      // Multiple windows mode (-o/-O), or startup_curwin was closed: use firstwin.
       curwin = firstwin;
+    } else {
+      curwin = startup_curwin;
     }
     curbuf = curwin->w_buffer;
     autocmd_no_enter--;
@@ -1894,7 +1906,7 @@ static void edit_buffers(mparm_T *parmp)
 
           p_shm_save = xstrdup(p_shm);
           snprintf(buf, sizeof(buf), "F%s", p_shm);
-          set_option_value_give_err(kOptShortmess, CSTR_AS_OPTVAL(buf), 0);
+          set_option_value_give_err(kOptShortmess, CSTR_AS_OBJ(buf), 0);
         }
       } else {
         if (curwin->w_next == NULL) {           // just checking
@@ -1939,7 +1951,7 @@ static void edit_buffers(mparm_T *parmp)
   }
 
   if (p_shm_save != NULL) {
-    set_option_value_give_err(kOptShortmess, CSTR_AS_OPTVAL(p_shm_save), 0);
+    set_option_value_give_err(kOptShortmess, CSTR_AS_OBJ(p_shm_save), 0);
     xfree(p_shm_save);
   }
 
@@ -1949,7 +1961,7 @@ static void edit_buffers(mparm_T *parmp)
   autocmd_no_enter--;
 
   // make the first window the current window
-  win = firstwin;
+  win = (parmp->window_count > 1) ? firstwin : curwin;
   // Avoid making a preview window the current window.
   while (win->w_p_pvw) {
     win = win->w_next;
@@ -2020,9 +2032,7 @@ static void exe_commands(mparm_T *parmp)
     curwin->w_cursor.lnum = 1;
   }
 
-  if (!exmode_active) {
-    msg_scroll = false;
-  }
+  msg_scroll = false;
 
   // When started with "-q errorfile" jump to first error again.
   if (parmp->edit_type == EDIT_QF) {

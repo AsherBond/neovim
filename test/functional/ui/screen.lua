@@ -28,7 +28,7 @@
 --    * If the timeout expires, the last match error will be reported and the
 --      test will fail.
 --
--- The 30 most common highlight groups are predefined, see init_colors() below.
+-- The 31 most common highlight groups are predefined, see init_colors() below.
 -- In this case "5" is a predefined highlight associated with the set composed of one
 -- attribute: bold. Note that since the {5:} markup is not a real part of the
 -- screen, the delimiter "|" moved to the right. Also, the highlighting of the
@@ -155,6 +155,7 @@ local function _init_colors()
     [28] = { foreground = Screen.colors.SlateBlue, underline = true },
     [29] = { foreground = Screen.colors.SlateBlue, bold = true },
     [30] = { background = Screen.colors.Red },
+    [31] = { background = Screen.colors.Plum1, reverse = true },
   }
 
   Screen._global_hl_names = {}
@@ -551,7 +552,7 @@ function Screen:expect(expected, attr_ids, ...)
     end
 
     local actual_rows
-    if expected.any or grid then
+    if expected.any or expected.none or grid then
       actual_rows = self:render(not (expected.any or expected.none), attr_state)
     end
 
@@ -1648,7 +1649,7 @@ function Screen:_chunks_repr(chunks, attr_state)
     local hl, text, id = unpack(chunk)
     local attrs
     if self._options.ext_linegrid then
-      attrs = self._attr_table[hl][1]
+      attrs = (self._attr_table[hl] or {})[1] -- Tolerate undefined hl_id in a snapshot render.
     else
       attrs = hl
     end
@@ -1845,7 +1846,7 @@ function Screen:_print_snapshot()
         dict = '{ ' .. self:_pprint_attrs(a) .. ' }'
       end
       local keyval = (type(i) == 'number') and '[' .. tostring(i) .. ']' or i
-      if not (type(i) == 'number' and modify_attrs and i <= 30) then
+      if not (type(i) == 'number' and modify_attrs and i <= 31) then
         table.insert(attrstrs, '  ' .. keyval .. ' = ' .. dict .. ',')
       end
       if modify_attrs then
@@ -2045,6 +2046,11 @@ function Screen:_get_attr_id(attr_state, attrs, hl_id)
       return nil
     elseif id ~= nil then
       return id
+    end
+    if self._attr_table[hl_id] == nil then
+      -- Grid references a hl_id that was never defined via "hl_attr_define".
+      -- TODO(justinmk): maybe an Nvim core bug. https://github.com/neovim/neovim/issues/36250
+      return ('UNKNOWN_HL_ID(%d)'):format(hl_id)
     end
     if attr_state.mutable then
       id = self:_insert_hl_id(attr_state, hl_id)

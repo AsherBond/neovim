@@ -1,4 +1,5 @@
 local t = require('test.testutil')
+local describe, it, before_each, finally = t.describe, t.it, t.before_each, t.finally
 local pcall_err = t.pcall_err
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
@@ -269,30 +270,25 @@ describe('completion', function()
     end)
 
     describe('"preselect"', function()
-      it('selects first item.preselect item', function()
+      it('respects "preselect" of complete items', function()
         source([[
           function! TestComplete() abort
-            call complete(1, [
-              \ {'word': 'aaa'},
-              \ {'word': 'bbb'},
-              \ {'word': 'ccc', 'preselect': v:true},
-              \ {'word': 'ddd'},
-              \ ])
-            return ''
-          endfunction
-          function! TestCompleteMany() abort
-            let items = []
-            for i in range(20)
-              call add(items, {'word': 'item' .. i})
-            endfor
-            let items[15].preselect = v:true
-            call complete(1, items)
+            call complete(1, g:comp_items)
             return ''
           endfunction
         ]])
-
+        local function complete(items)
+          api.nvim_set_var('comp_items', items)
+          feed('<Esc>S<C-r>=TestComplete()<CR>')
+        end
+        local items = {
+          { word = 'aaa' },
+          { word = 'bbb' },
+          { word = 'ccc', preselect = true },
+          { word = 'ddd' },
+        }
         command('set completeopt=menuone,preselect')
-        feed('i<C-r>=TestComplete()<CR>')
+        complete(items)
         screen:expect([[
           ccc^                                                         |
           {4:aaa            }{1:                                             }|
@@ -303,10 +299,14 @@ describe('completion', function()
           {5:-- INSERT --}                                                |
         ]])
 
-        -- scrolls pum when preselect item is far down
-        feed('<Esc>S')
+        -- scrolls pum when preselected item is far down
         command('set pumheight=5')
-        feed('<C-r>=TestCompleteMany()<CR>')
+        local many = {} ---@type table[]
+        for i = 0, 19 do
+          many[i + 1] = { word = 'item' .. i }
+        end
+        many[16].preselect = true ---@type boolean
+        complete(many)
         screen:expect([[
           item15^                                                      |
           {4:item13         }{12: }{1:                                            }|
@@ -318,9 +318,9 @@ describe('completion', function()
           {5:-- INSERT --}                                                |
         ]])
 
-        feed('<Esc>S')
+        -- preselected item is selected but not inserted with "noselect"
         command('set completeopt=menuone,noselect,preselect pumheight=0')
-        feed('<C-r>=TestComplete()<CR>')
+        complete(items)
         screen:expect([[
           ^                                                            |
           {4:aaa            }{1:                                             }|
@@ -331,11 +331,32 @@ describe('completion', function()
           {5:-- INSERT --}                                                |
         ]])
 
-        -- without "preselect" in completeopt, preselect attribute is ignored
-        feed('<Esc>S')
+        -- selects the first preselected item that still matches
+        complete({
+          { word = 'aaa', preselect = true },
+          { word = 'abb' },
+          { word = 'abc', preselect = true },
+        })
+        feed('ab<C-Y>')
+        eq('abc', api.nvim_get_current_line())
+
+        -- without "preselect" in 'completeopt' the attribute is ignored
         command('set completeopt-=preselect')
-        feed('<C-r>=TestComplete()<CR><C-N><C-Y>')
+        complete(items)
+        feed('<C-N><C-Y>')
         eq('aaa', api.nvim_get_current_line())
+      end)
+
+      it('does not insert text if noinsert', function()
+        source([[
+          function! TestComplete() abort
+            call complete(1, [{'word': 'aaa', 'preselect': v:true}, {'word': 'bbb'}])
+            return ''
+          endfunction
+        ]])
+        command('set completeopt=menuone,noinsert,preselect')
+        feed('i<C-r>=TestComplete()<CR>')
+        eq('', api.nvim_get_current_line())
       end)
     end)
   end)
@@ -1063,12 +1084,11 @@ describe('completion', function()
         {5:-- Keyword Local completion (^N^P) }{6:match 1 of 3}             |
       ]])
       feed('<c-c>')
+      -- Non-blocking cmdwin (#40312): <C-C> closes the cmdwin and drops back
+      -- into ":" cmdline mode pre-filled with the line under the cursor.
       screen:expect([[
                                                                     |
-        {2:[No Name]                                                   }|
-        {1::}foo faa fee foo                                            |
-        {1:~                                                           }|*3
-        {3:[Command Line]                                              }|
+        {1:~                                                           }|*6
         :foo faa fee foo^                                            |
       ]])
     end)
@@ -1558,21 +1578,14 @@ describe('completion', function()
       foobar                                                      |
       foobarbaz                                                   |
       f^                                                           |
-      {1:~                                                           }|*5
-      {5:-- INSERT --}                                                |
-    ]])
-    vim.uv.sleep(500)
-    screen:expect([[
-      foo                                                         |
-      foobar                                                      |
-      foobarbaz                                                   |
-      f^                                                           |
       {4:foobarbaz      }{1:                                             }|
       {4:foobar         }{1:                                             }|
       {4:foo            }{1:                                             }|
       {1:~                                                           }|*2
       {5:-- INSERT --}                                                |
     ]])
+    vim.uv.sleep(500)
+    screen:expect_unchanged()
 
     -- During delay wait, user can open menu using CTRL_N completion
     feed('<Esc>')
@@ -1590,7 +1603,9 @@ describe('completion', function()
       {5:-- Keyword completion (^N^P) }{6:match 1 of 3}                   |
     ]])
 
-    -- After the menu is open, ^N/^P and Up/Down should not delay
+    -- After the menu is open, ^N/^P and Up/Down should not delay.
+    -- Wait a bit longer than 'autocompletedelay' so the popup is surely shown
+    -- before sending CTRL-N, otherwise the keys race with the deferred popup.
     feed('<Esc>')
     command('set completeopt=menu')
     feed('Sf')
@@ -1602,7 +1617,7 @@ describe('completion', function()
       {1:~                                                           }|*5
       {5:-- INSERT --}                                                |
     ]])
-    vim.uv.sleep(500)
+    vim.uv.sleep(600)
     screen:expect([[
       foo                                                         |
       foobar                                                      |
@@ -1671,6 +1686,35 @@ describe('completion', function()
     feed('<esc>')
   end)
 
+  local function run_test_autocompletedelay_ctrl_k(delay1, delay2)
+    source([[
+      new
+      call setline(1, 'foo bar baz')
+      set autocomplete autocompletedelay=200
+    ]])
+
+    feed('ob')
+    vim.uv.sleep(delay1)
+    feed('<C-K>')
+    vim.uv.sleep(delay2)
+    feed('.,<Esc>')
+    poke_eventloop()
+    expect('foo bar baz\nb…')
+
+    source([[
+      set autocomplete& autocompletedelay&
+      bwipe!
+    ]])
+  end
+
+  -- oldtest: Test_autocompletedelay_ctrl_k()
+  it("'autocompletedelay' doesn't interfere with i_CTRL-K", function()
+    -- Ctrl-K typed after 'autocompletedelay' expires
+    run_test_autocompletedelay_ctrl_k(250, 500)
+    -- Ctrl-K typed before 'autocompletedelay' expires
+    run_test_autocompletedelay_ctrl_k(150, 500)
+  end)
+
   -- oldtest: Test_fuzzy_select_item_when_acl()
   it([[first item isn't selected with "fuzzy" and 'acl']], function()
     screen:try_resize(60, 10)
@@ -1735,7 +1779,7 @@ describe('completion', function()
     screen:expect([[
       autocomplete                                                |
       autocomxxx                                                  |
-      au{102:^tocom}                                                     |
+      au^                                                          |
       {1:~                                                           }|*4
       {5:-- INSERT --}                                                |
     ]])
@@ -1743,7 +1787,7 @@ describe('completion', function()
     screen:expect([[
       autocomplete                                                |
       autocomxxx                                                  |
-      autoc{102:^om}                                                     |
+      autoc^                                                       |
       {1:~                                                           }|*4
       {5:-- INSERT --}                                                |
     ]])
@@ -1763,7 +1807,7 @@ describe('completion', function()
     screen:expect([[
       autocomplete                                                |
       autocomxxx                                                  |
-      aut{102:^ocom}                                                     |
+      aut^                                                         |
       {1:~                                                           }|*4
       {5:-- INSERT --}                                                |
     ]])
@@ -1771,7 +1815,7 @@ describe('completion', function()
     screen:expect([[
       autocomplete                                                |
       autocomxxx                                                  |
-      au{102:^tocom}                                                     |
+      au^                                                          |
       {1:~                                                           }|*4
       {5:-- INSERT --}                                                |
     ]])
@@ -1788,13 +1832,11 @@ describe('completion', function()
 
     -- Preinsert
     command('set completeopt& completeopt+=preinsert')
-
-    -- Show preinserted text right away but display popup later
     feed('<Esc>Sau')
     screen:expect([[
       autocomplete                                                |
       autocomxxx                                                  |
-      au{102:^tocomplete}                                                |
+      au^                                                          |
       {1:~                                                           }|*4
       {5:-- INSERT --}                                                |
     ]])
@@ -1829,5 +1871,57 @@ describe('completion', function()
       {1:~                                                           }|*5
       {5:-- File name completion (^F^N^P) }{9:Pattern not found}          |
     ]])
+  end)
+
+  it('returns all entries in the directory #25791', function()
+    n.mkdir_p('Xtest/sub1')
+    n.mkdir_p('Xtest/sub2')
+    t.write_file('Xtest/A', '')
+    t.write_file('Xtest/sub1/B', '')
+    t.write_file('Xtest/sub2/C', '')
+    finally(function()
+      n.rmdir('Xtest')
+    end)
+    local path = ('%s/Xtest/**'):format(vim.fs.normalize(vim.uv.cwd()))
+    command(('set path=%s'):format(path))
+    eq({ 'A', 'B', 'C', 'sub1/', 'sub2/' }, fn.getcompletion('find ', 'cmdline'))
+  end)
+
+  it('complete-items commit_chars', function()
+    exec_lua(function()
+      _G.Omnifunc = function(findstart, _)
+        return findstart == 1 and 0 or { { word = 'foobar', commit_chars = '(' } }
+      end
+      vim.bo.omnifunc = 'v:lua.Omnifunc'
+    end)
+    n.command('set completeopt=menuone,noinsert')
+    feed('i<C-x><C-o>')
+    poke_eventloop()
+    feed('(')
+    eq('foobar(', n.api.nvim_get_current_line())
+  end)
+
+  it('complete_info() reports equal, preselect and commit_chars', function()
+    command('set completeopt=menuone,noinsert')
+    source([[
+      function! TestComplete() abort
+        call complete(1, [
+              \ {'word': 'foo', 'equal': 1},
+              \ {'word': 'bar', 'preselect': v:true},
+              \ {'word': 'baz', 'commit_chars': '('},
+              \ {'word': 'qux'},
+              \ ])
+        return ''
+      endfunction
+    ]])
+    feed('i<C-r>=TestComplete()<CR>')
+    poke_eventloop()
+
+    local items = fn.complete_info({ 'items' }).items
+    eq(4, #items)
+    eq({ 1, nil }, { items[1].equal, items[1].preselect })
+    eq(1, items[2].preselect)
+    eq('(', items[3].commit_chars)
+    eq({ nil, nil, nil }, { items[4].equal, items[4].preselect, items[4].commit_chars })
   end)
 end)

@@ -444,6 +444,8 @@ local extension = {
   rej = 'diff',
   dj = 'djot',
   djot = 'djot',
+  Containerfile = 'dockerfile',
+  containerfile = 'dockerfile',
   Dockerfile = 'dockerfile',
   dockerfile = 'dockerfile',
   bat = 'dosbatch',
@@ -636,6 +638,7 @@ local extension = {
   ihe = 'hex',
   ihx = 'hex',
   mcs = 'hex',
+  hip = 'hip',
   hjson = 'hjson',
   m3u = 'hlsplaylist',
   m3u8 = 'hlsplaylist',
@@ -817,6 +820,7 @@ local extension = {
   mkd = detect.markdown,
   markdown = detect.markdown,
   mdown = detect.markdown,
+  marko = 'marko',
   masm = 'masm',
   mhtml = 'mason',
   mason = 'mason',
@@ -1181,6 +1185,16 @@ local extension = {
   ss = 'scheme',
   scm = 'scheme',
   sld = 'scheme',
+  stwm = 'scheme',
+  stl = 'scheme',
+  stxt = 'scheme',
+  sprite = 'scheme',
+  strf = 'scheme',
+  satc = 'scheme',
+  stcd = 'scheme',
+  stf = 'scheme',
+  stcp = 'scheme',
+  music = 'scheme',
   stsg = 'scheme',
   sce = 'scilab',
   sci = 'scilab',
@@ -1269,6 +1283,7 @@ local extension = {
   srt = 'srt',
   ssa = 'ssa',
   ass = 'ssa',
+  allowed_signers = 'sshallowedsigners',
   st = 'st',
   ipd = 'starlark',
   sky = 'starlark',
@@ -1309,6 +1324,7 @@ local extension = {
   itcl = 'tcl',
   tk = 'tcl',
   jacl = 'tcl',
+  xdc = 'tcl',
   tl = 'teal',
   templ = 'templ',
   tmpl = 'template',
@@ -1716,6 +1732,7 @@ local filename = {
   ['.vscodeignore'] = 'gitignore',
   ['gitolite.conf'] = 'gitolite',
   ['git-rebase-todo'] = 'gitrebase',
+  ['.git-blame-ignore-revs'] = 'gitrevlist',
   gkrellmrc = 'gkrellmrc',
   ['.gnashrc'] = 'gnash',
   ['.gnashpluginrc'] = 'gnash',
@@ -1783,6 +1800,7 @@ local filename = {
   ['.swrc'] = 'jsonc',
   ['.vsconfig'] = 'jsonc',
   ['bun.lock'] = 'jsonc',
+  ['osquery.conf'] = 'jsonc',
   ['.justfile'] = 'just',
   ['.Justfile'] = 'just',
   ['.JUSTFILE'] = 'just',
@@ -1842,6 +1860,7 @@ local filename = {
   ['mplayer.conf'] = 'mplayerconf',
   mrxvtrc = 'mrxvtrc',
   ['.mrxvtrc'] = 'mrxvtrc',
+  msmtprc = 'msmtp',
   ['.msmtprc'] = 'msmtp',
   ['Muttngrc'] = 'muttrc',
   ['Muttrc'] = 'muttrc',
@@ -1971,8 +1990,9 @@ local filename = {
   Snakefile = 'snakemake',
   ['.sqlite_history'] = 'sql',
   ['squid.conf'] = 'squid',
-  ['ssh_config'] = 'sshconfig',
-  ['sshd_config'] = 'sshdconfig',
+  allowed_signers = 'sshallowedsigners',
+  ssh_config = 'sshconfig',
+  sshd_config = 'sshdconfig',
   ['/etc/sudoers'] = 'sudoers',
   ['sudoers.tmp'] = 'sudoers',
   ['/etc/sysctl.conf'] = 'sysctl',
@@ -2171,9 +2191,11 @@ local pattern = {
     ['/etc/slp%.conf$'] = 'slpconf',
     ['/etc/slp%.reg$'] = 'slpreg',
     ['/etc/slp%.spi$'] = 'slpspi',
-    ['/etc/sudoers%.d/'] = starsetf('sudoers'),
     ['/etc/ssh/ssh_config%.d/.*%.conf$'] = 'sshconfig',
     ['/etc/ssh/sshd_config%.d/.*%.conf$'] = 'sshdconfig',
+    ['^/etc/ssh/ssh_known_hosts$'] = 'sshknownhosts',
+    ['^/etc/ssh/.+%.pub$'] = 'sshpublickey',
+    ['/etc/sudoers%.d/'] = starsetf('sudoers'),
     ['/etc/sudoers$'] = 'sudoers',
     ['/etc/sysctl%.conf$'] = 'sysctl',
     ['/etc/sysctl%.d/.*%.conf$'] = 'sysctl',
@@ -2533,6 +2555,9 @@ local pattern = {
     ['/%.pinforc$'] = 'pinfo',
     ['^${HOME}/%.xinitrc$'] = 'sh',
     ['^${HOME}/%.xserverrc$'] = 'sh',
+    ['/%.ssh/authorized_keys$'] = 'sshauthorizedkeys',
+    ['/%.ssh/known_hosts$'] = 'sshknownhosts',
+    ['/%.ssh/.+%.pub$'] = 'sshpublickey',
     ['/%.cargo/credentials$'] = 'toml',
     ['/%.init/.*%.override$'] = 'upstart',
     ['/%.kube/kuberc$'] = 'yaml',
@@ -2825,6 +2850,7 @@ local pattern = {
     end),
     ['/queries/.*%.scm$'] = 'query', -- treesitter queries (Neovim only)
     [',v$'] = 'rcs',
+    ['/supertux2/.*/info$'] = 'scheme',
     ['^svn%-commit.*%.tmp$'] = 'svn',
     ['%.swift%.gyb$'] = 'swiftgyb',
     ['^vivado.*%.jou$'] = 'tcl',
@@ -2946,6 +2972,7 @@ end
 --- the filename is matched against the list of |lua-pattern|s (sorted by priority)
 --- until a match is found. Lastly, if pattern matching does not find a
 --- filetype, then the file extension is used.
+--- Extension mappings match only the text after the final dot in the filename.
 ---
 --- The filetype can be either a string (in which case it is used as the
 --- filetype directly) or a function. If a function, it takes the full path and
@@ -3236,6 +3263,9 @@ function M.match(args)
   end
 
   if name then
+    if name:sub(-1) == '/' and not name:find('^%a[%w+.-]*://') then
+      return 'directory'
+    end
     name = normalize_path(name)
 
     local ok_abspath, path = pcall(vim.fs.abspath, name)

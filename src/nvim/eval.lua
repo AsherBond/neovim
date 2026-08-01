@@ -671,7 +671,7 @@ M.funcs = {
     args = 1,
     base = 1,
     desc = [=[
-      Adds buffer {name} to the buffer list literally: no special
+      Adds buffer {name} to the |buffer-list| literally: no special
       chars or expansion are applied (including "~"). Returns the
       new (or existing matching) buffer number, or 0 on error.
 
@@ -679,9 +679,9 @@ M.funcs = {
       {name} is an empty string, a new buffer is always created.
 
       Example (Lua): >lua
-      	local b = vim.fn.bufadd(vim.fs.normalize('someName'))
-      	vim.bo[b].buflisted = true
-      	vim.fn.bufload(b)
+      	local buf = vim.fn.bufadd(vim.fs.normalize('someName'))
+      	-- Set 'buflisted'; trigger BufReadPre/BufReadPost/FileType.
+      	vim.api.nvim_buf_call(buf, vim.cmd.edit)
       <
     ]=],
     name = 'bufadd',
@@ -823,7 +823,9 @@ M.funcs = {
     desc = [=[
       The result is the name of a buffer.  Mostly as it is displayed
       by the `:ls` command, but not using special names such as
-      "[No Name]".
+      "[No Name]".  If the buffer represents a directory, the name
+      ends with a path separator, unless it was changed by |:file| or
+      |nvim_buf_set_name()|.
       If {buf} is omitted the current buffer is used.
       If {buf} is a Number, that buffer number's name is given.
       Number zero is the alternate buffer for the current window.
@@ -1231,6 +1233,7 @@ M.funcs = {
       	echo charidx('a😊😊', 4, 0, 1)	" returns 2
       <
     ]=],
+    fast = true,
     name = 'charidx',
     params = {
       { 'string', 'string' },
@@ -1494,7 +1497,9 @@ M.funcs = {
          items	List of all completion candidates.  Each item
       		is a dictionary containing the entries "word",
       		"abbr", "menu", "kind", "info" and
-      		"user_data".
+      		"user_data".  "equal", "preselect" and
+      		"commit_chars" are included only for items that
+      		set them.
       		See |complete-items|.
          matches	Same as "items", but only returns items that
       		are matching current query.  If both "matches"
@@ -1719,61 +1724,6 @@ M.funcs = {
     },
     returns = 'integer',
     signature = 'count({comp}, {expr} [, {ic} [, {start}]])',
-  },
-  ctxget = {
-    args = { 0, 1 },
-    desc = [=[
-      Returns a |Dictionary| representing the |context| at {index}
-      from the top of the |context-stack| (see |context-dict|).
-      If {index} is not given, it is assumed to be 0 (i.e.: top).
-    ]=],
-    name = 'ctxget',
-    params = { { 'index', 'integer' } },
-    returns = 'table',
-    signature = 'ctxget([{index}])',
-  },
-  ctxpop = {
-    desc = [=[
-      Pops and restores the |context| at the top of the
-      |context-stack|.
-    ]=],
-    name = 'ctxpop',
-    params = {},
-    signature = 'ctxpop()',
-  },
-  ctxpush = {
-    args = { 0, 1 },
-    desc = [=[
-      Pushes the current editor state (|context|) on the
-      |context-stack|.
-      If {types} is given and is a |List| of |String|s, it specifies
-      which |context-types| to include in the pushed context.
-      Otherwise, all context types are included.
-    ]=],
-    name = 'ctxpush',
-    params = { { 'types', 'string[]' } },
-    signature = 'ctxpush([{types}])',
-  },
-  ctxset = {
-    args = { 1, 2 },
-    desc = [=[
-      Sets the |context| at {index} from the top of the
-      |context-stack| to that represented by {context}.
-      {context} is a Dictionary with context data (|context-dict|).
-      If {index} is not given, it is assumed to be 0 (i.e.: top).
-    ]=],
-    name = 'ctxset',
-    params = { { 'context', 'table' }, { 'index', 'integer' } },
-    returns = 'integer',
-    signature = 'ctxset({context} [, {index}])',
-  },
-  ctxsize = {
-    desc = [=[
-      Returns the size of the |context-stack|.
-    ]=],
-    name = 'ctxsize',
-    params = {},
-    signature = 'ctxsize()',
   },
   cursor = {
     args = { 1, 3 },
@@ -2570,6 +2520,10 @@ M.funcs = {
       like with |expand()|, and environment variables, anywhere in
       {string}.  "~user" and "~/path" are only expanded at the
       start.
+      The expansion is done in two steps: the special keywords are
+      evaluated first, then "~" and environment variables are
+      expanded in the result.  Thus `expand('%:~')` keeps the "~",
+      while `expandcmd('%:~')` returns the full path.
 
       The following items are supported in the {options} Dict
       argument:
@@ -4418,7 +4372,8 @@ M.funcs = {
       If the optional {buf} argument is specified, returns the
       local marks defined in buffer {buf}.  For the use of {buf},
       see |bufname()|.  If {buf} is invalid, an empty list is
-      returned.
+      returned.  For a |prompt-buffer| the result includes the
+      |':| mark.
 
       Each item in the returned List is a |Dict| with the following:
           mark   name of the mark prefixed by "'"
@@ -4534,7 +4489,7 @@ M.funcs = {
           'x	    Position of mark x (if the mark is not set, 0 is
       	    returned for all values).
           w0	    First line visible in current window (one if the
-      	    display isn't updated, e.g. in silent Ex mode).
+      	    display isn't updated, e.g. in |silent-mode|).
           w$	    Last line visible in current window (this is one
       	    less than "w0" if no lines are visible).
           v	    End of the current Visual selection (unlike |'<|
@@ -6378,7 +6333,11 @@ M.funcs = {
         pty:	      (boolean) Connect the job to a new pseudo
       	      terminal, and its streams to the master file
       	      descriptor. `on_stdout` receives all output,
-      	      `on_stderr` is ignored. |terminal-start|
+      	      `on_stderr` is ignored. Note: if the child writes
+      	      a query (DA1, OSC, …), it may hang or timeout waiting
+      	      for a response! To avoid that, `on_stdout` should
+      	      reply via |nvim_chan_send()| on the child's stdin.
+      	      See |terminal-start| |terminal-concepts|
         rpc:	      (boolean) Use |msgpack-rpc| to communicate with
       	      the job over stdio. Then `on_stdout` is ignored,
       	      but `on_stderr` can still be used.
@@ -6389,11 +6348,12 @@ M.funcs = {
         stdin:      (string) Either "pipe" (default) to connect the
       	      job's stdin to a channel or "null" to disconnect
       	      stdin.
-        term:	    (boolean) Spawns {cmd} in a new pseudo-terminal session
-                connected to the current (unmodified) buffer. Implies "pty".
-                Default "height" and "width" are set to the current window
-                dimensions. |jobstart()|. Defaults $TERM to "xterm-256color".
-        width:      (number) Width of the `pty` terminal.
+        term:       (boolean) Spawns {cmd} in a new pseudo-terminal
+      	      session connected to the current (unmodified) buffer.
+      	      Implies "pty". Defaults "height" and "width" to the
+      	      current window dimensions. Defaults $TERM to
+      	      "xterm-256color".
+        width:      (number) Width of the `pty` pseudo-terminal.
 
       {opts} is passed as |self| dictionary to the callback; the
       caller may set other keys to pass application-specific data.
@@ -6553,6 +6513,7 @@ M.funcs = {
       <	<C-Home>
 
     ]=],
+    fast = true,
     name = 'keytrans',
     params = { { 'string', 'string' } },
     returns = 'string',
@@ -6874,7 +6835,7 @@ M.funcs = {
       Note that {expr2} is the result of an expression and is then
       used as an expression again.  Often it is good to use a
       |literal-string| to avoid having to double backslashes.  You
-      still have to double ' quotes
+      still have to double single (') quotes, though.
 
       If {expr2} is a |Funcref| it is called with two arguments:
       	1. The key or the index of the current item.
@@ -7939,7 +7900,7 @@ M.funcs = {
     signature = 'mkdir({name} [, {flags} [, {prot}]])',
     tags = { 'E739' },
     see_lua = {
-      '|uv.fs_mkdir()| for simple directory creation; `"p"`, `"D"`, `"R"`, and return semantics differ',
+      '|vim.fs.mkdir()|; `"D"`, `"R"`, and return semantics differ',
     },
   },
   mode = {
@@ -7984,8 +7945,7 @@ M.funcs = {
          Rvx	    Virtual Replace mode |i_CTRL-X| completion
          c	    Command-line editing
          cr	    Command-line editing overstrike mode |c_<Insert>|
-         cv	    Vim Ex mode |gQ|
-         cvr	    Vim Ex mode while in overstrike mode |c_<Insert>|
+         cv	    Non-interactive Ex mode |-es|
          r	    Hit-enter prompt
          rm	    The -- more -- prompt
          r?	    A |:confirm| query of some sort
@@ -8146,6 +8106,7 @@ M.funcs = {
       string, thus results in an empty string.
 
     ]=],
+    fast = true,
     name = 'nr2char',
     params = { { 'expr', 'integer' }, { 'utf8', 'boolean' } },
     returns = 'string',
@@ -10040,7 +10001,7 @@ M.funcs = {
 
       <Example named pipe: >vim
       	if has('win32')
-      	  echo serverstart('\\.\pipe\nvim-pipe-1234')
+      	  echo serverstart('//./pipe/nvim-pipe-1234')
       	else
       	  echo serverstart('nvim.sock')
       	endif
@@ -10106,14 +10067,13 @@ M.funcs = {
     args = 3,
     base = 3,
     desc = [=[
-      Set option or local variable {varname} in buffer {buf} to
-      {val}.
-      This also works for a global or local window option, but it
-      doesn't work for a global or local window variable.
-      For a local window option the global value is unchanged.
+      Set option or local variable {varname} (string, without "b:")
+      in buffer {buf} to {val}. Also works for a global or
+      window-local option (not variable). When targeting
+      a window-local option, the global option is unchanged.
+
       For the use of {buf}, see |bufname()| above.
-      The {varname} argument is a string.
-      Note that the variable name without "b:" must be used.
+
       Examples: >vim
       	call setbufvar(1, "&mod", 1)
       	call setbufvar("todo", "myvar", "foobar")
@@ -11866,6 +11826,7 @@ M.funcs = {
       	echo str2list("á")		" returns [97, 769]
       <
     ]=],
+    fast = true,
     name = 'str2list',
     params = { { 'string', 'string' }, { 'utf8', 'boolean' } },
     signature = 'str2list({string} [, {utf8}])',
@@ -11913,6 +11874,7 @@ M.funcs = {
       Also see |strlen()|, |strdisplaywidth()| and |strwidth()|.
 
     ]=],
+    fast = true,
     name = 'strcharlen',
     params = { { 'string', 'string' } },
     returns = 'integer',
@@ -11979,6 +11941,7 @@ M.funcs = {
           endif
       <
     ]=],
+    fast = true,
     name = 'strchars',
     params = { { 'string', 'string' }, { 'skipcc', '0|1|boolean' } },
     returns = 'integer',
@@ -12006,6 +11969,7 @@ M.funcs = {
       Also see |strlen()|, |strwidth()| and |strchars()|.
 
     ]=],
+    fast = true,
     name = 'strdisplaywidth',
     params = { { 'string', 'string' }, { 'col', 'integer' } },
     returns = 'integer',
@@ -12053,6 +12017,7 @@ M.funcs = {
       Also see |strcharpart()| and |strchars()|.
 
     ]=],
+    fast = true,
     name = 'strgetchar',
     params = { { 'str', 'string' }, { 'index', 'integer' } },
     returns = 'integer',
@@ -12139,6 +12104,7 @@ M.funcs = {
       Also see |len()|, |strdisplaywidth()| and |strwidth()|.
 
     ]=],
+    fast = true,
     name = 'strlen',
     params = { { 'string', 'string' } },
     returns = 'integer',
@@ -13133,6 +13099,7 @@ M.funcs = {
       <returns "{blob}"
 
     ]=],
+    fast = true,
     name = 'tr',
     params = { { 'src', 'string' }, { 'fromstr', 'string' }, { 'tostr', 'string' } },
     returns = 'string',
@@ -13170,6 +13137,7 @@ M.funcs = {
       <returns "  vim"
 
     ]=],
+    fast = true,
     name = 'trim',
     params = { { 'text', 'string' }, { 'mask', 'string' }, { 'dir', '0|1|2' } },
     returns = 'string',
@@ -13365,6 +13333,7 @@ M.funcs = {
       	echo utf16idx('a😊😊', 9)	" returns -1
       <
     ]=],
+    fast = true,
     name = 'utf16idx',
     params = {
       { 'string', 'string' },

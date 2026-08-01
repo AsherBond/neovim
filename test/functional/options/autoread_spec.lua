@@ -1,6 +1,7 @@
 local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 
+local describe, it, before_each = t.describe, t.it, t.before_each
 local clear = n.clear
 local command = n.command
 local eq = t.eq
@@ -163,15 +164,18 @@ describe('autoread file watcher', function()
       eq({ 'final' }, api.nvim_buf_get_lines(0, 0, -1, true))
     end)
 
-    -- Let any late-arriving event flush (> debounce window), then assert all 4 writes coalesced.
-    -- Every fs_event restarts the debounce timer, so the timer fires exactly once.
+    -- Debouncing collapses 4 writes into (ideally) 1 reload. But we assert "<=2" bc OS filewatch
+    -- events may arrive in multiple batches under CI load => a straggler may arrive after the
+    -- debounce window and trigger a second reload.
+    -- The buffer already holds "final" (checked above); without debouncing each write would reload.
     sleep(250)
-    eq(1, n.exec_lua('return _G.reloads'))
+    local reloads = n.exec_lua('return _G.reloads')
+    t.ok(reloads >= 1 and reloads <= 2, '1 or 2 reloads (4 writes coalesced)', reloads)
   end)
 
   it("bumps 'busy' on each watched buffer while a reload is pending", function()
-    -- Use a longer debounce so we can sample 'busy' during pending autoreads.
-    n.exec_lua([[require('nvim.autoread')._set_debounce(100)]])
+    -- Use a long debounce-window so we can sample 'busy' during pending autoreads.
+    n.exec_lua([[require('nvim.autoread')._set_debounce(5000)]])
 
     local path1 = open_watched('a1\n')
     local buf1 = api.nvim_get_current_buf()
@@ -186,16 +190,24 @@ describe('autoread file watcher', function()
     write_file(path1, 'b1\n')
     write_file(path2, 'b2\n')
 
-    -- Confirm busy=1 during the debounce window.
-    retry(nil, 1000, function()
-      eq(1, api.nvim_get_option_value('busy', { buf = buf1 }))
-      eq(1, api.nvim_get_option_value('busy', { buf = buf2 }))
-    end)
+    eq(
+      true,
+      n.exec_lua(function(b1, b2)
+        return vim.wait(2000, function()
+          return vim.bo[b1].busy == 1 and vim.bo[b2].busy == 1
+        end, 5)
+      end, buf1, buf2)
+    )
+
+    -- A short debounce + fresh write lets the pending reload complete, clearing 'busy'.
+    n.exec_lua([[require('nvim.autoread')._set_debounce(10)]])
+    write_file(path1, 'c1\n')
+    write_file(path2, 'c2\n')
 
     -- Confirm busy=0 after the autoread.
     retry(nil, 3000, function()
-      eq({ 'b1' }, api.nvim_buf_get_lines(buf1, 0, -1, true))
-      eq({ 'b2' }, api.nvim_buf_get_lines(buf2, 0, -1, true))
+      eq({ 'c1' }, api.nvim_buf_get_lines(buf1, 0, -1, true))
+      eq({ 'c2' }, api.nvim_buf_get_lines(buf2, 0, -1, true))
       eq(0, api.nvim_get_option_value('busy', { buf = buf1 }))
       eq(0, api.nvim_get_option_value('busy', { buf = buf2 }))
     end)

@@ -594,7 +594,7 @@ void getvcol(win_T *wp, pos_T *pos, colnr_T *start, colnr_T *cursor, colnr_T *en
         && (State & MODE_NORMAL)
         && !wp->w_p_list
         && !virtual_active(wp)
-        && !(VIsual_active && ((*p_sel == 'e') || ltoreq(*pos, VIsual)))) {
+        && !(Visual.active && ((*p_sel == 'e') || ltoreq(*pos, Visual.start)))) {
       // TODO(zeertzjq): subtracting "tail" may lead to better cursor position
       *cursor = vcol + incr - 1;  // cursor at end
     } else {
@@ -814,7 +814,7 @@ int plines_win_nofold(win_T *wp, linenr_T lnum)
 }
 
 /// Like plines_win(), but only reports the number of physical screen lines
-/// used from the start of the line to the given column number.
+/// used from the start of the line to the given byte column.
 int plines_win_col(win_T *wp, linenr_T lnum, long column)
 {
   // Check for filler lines above this buffer line.
@@ -837,12 +837,12 @@ int plines_win_col(win_T *wp, linenr_T lnum, long column)
   StrCharInfo ci = utf_ptr2StrCharInfo(line);
   if (cstype == kCharsizeFast) {
     bool const use_tabstop = csarg.use_tabstop;
-    while (*ci.ptr != NUL && --column >= 0) {
+    while (*ci.ptr != NUL && ci.ptr < line + column) {
       vcol += charsize_fast_impl(wp, ci.ptr, use_tabstop, vcol, ci.chr.value).width;
       ci = utfc_next(ci);
     }
   } else {
-    while (*ci.ptr != NUL && --column >= 0) {
+    while (*ci.ptr != NUL && ci.ptr < line + column) {
       vcol += charsize_regular(&csarg, ci.ptr, vcol, ci.chr.value).width;
       ci = utfc_next(ci);
     }
@@ -1028,4 +1028,18 @@ int64_t win_text_height(win_T *const wp, const linenr_T start_lnum, const int64_
     *fill = height_sum_fill;
   }
   return height_sum_fill + height_sum_nofill;
+}
+
+/// Return the maximum display width of lines "first" through "last".
+///
+/// @param max  stop measuring once this width is reached
+///
+/// @return  maximum display width, capped at "max"
+int win_max_displaywidth(win_T *wp, linenr_T first, linenr_T last, int max)
+{
+  int width = 0;
+  for (linenr_T lnum = first; lnum <= last && width < max; lnum++) {
+    width = MAX(width, linetabsize(wp, lnum));
+  }
+  return MIN(max, width);
 }

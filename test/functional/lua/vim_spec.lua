@@ -3,6 +3,7 @@ local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each = t.describe, t.it, t.before_each
 local nvim_prog = n.nvim_prog
 local fn = n.fn
 local api = n.api
@@ -11,6 +12,7 @@ local dedent = t.dedent
 local insert = n.insert
 local clear = n.clear
 local eq = t.eq
+local neq = t.neq
 local ok = t.ok
 local pesc = vim.pesc
 local eval = n.eval
@@ -1812,6 +1814,29 @@ describe('lua stdlib', function()
     -- vim.regex() error inside :silent! should not crash. #20546
     command([[silent! lua vim.regex('\\z')]])
     assert_alive()
+
+    -- match_str() in a fast (luv) callback does not abort. #18111
+    eq(
+      { true, true },
+      exec_lua(function()
+        local re = vim.regex('^.*\\.go$')
+        local res
+        local timer = assert(vim.uv.new_timer())
+        timer:start(10, 0, function()
+          -- Enough matches to reach BREAKCHECK_SKIP, which would abort (reentrant event loop).
+          local ok = true
+          for _ = 1, 3000 do
+            ok = ok and re:match_str('internal/config/config.go') ~= nil
+          end
+          res = { ok, vim.in_fast_event() }
+          timer:close()
+        end)
+        vim.wait(1000, function()
+          return res ~= nil
+        end)
+        return res
+      end)
+    )
   end)
 
   it('vim.defer_fn', function()
@@ -2672,6 +2697,17 @@ describe('lua stdlib', function()
       ]]
       )
     end)
+
+    it('utf-16le should not be equal to utf-16be', function()
+      neq(
+        exec_lua [[
+        return vim.iconv('hello', 'utf-8', 'utf-16le')
+      ]],
+        exec_lua [[
+        return vim.iconv('hello', 'utf-8', 'utf-16be')
+      ]]
+      )
+    end)
   end)
 
   describe('vim.defaulttable', function()
@@ -3034,6 +3070,23 @@ describe('vim.keymap', function()
     eq(1, exec_lua [[return GlobalCount]])
     eq('\nNo mapping found', n.exec_capture('nmap ghjk'))
     eq('\nNo mapping found', n.exec_capture('nmap qwer'))
+  end)
+
+  it('unmap with lhs option', function()
+    eq(
+      'q',
+      exec_lua [[
+      vim.keymap.set('n', 'ge', 'q')
+      local ok, err = pcall(vim.keymap.del, 'n', 'q', { lhs = true })
+      assert(not ok and err:match('E31: No such mapping'), err)
+      return vim.fn.maparg('ge', 'n')
+    ]]
+    )
+
+    exec_lua [[
+      vim.keymap.del('n', 'ge', { lhs = true })
+    ]]
+    eq('\nNo mapping found', n.exec_capture('nmap ge'))
   end)
 
   it('buffer-local mappings', function()

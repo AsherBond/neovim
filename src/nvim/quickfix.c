@@ -18,9 +18,9 @@
 #include "nvim/buffer_defs.h"
 #include "nvim/change.h"
 #include "nvim/charset.h"
+#include "nvim/context.h"
 #include "nvim/cursor.h"
 #include "nvim/drawscreen.h"
-#include "nvim/edit.h"
 #include "nvim/errors.h"
 #include "nvim/eval.h"
 #include "nvim/eval/typval.h"
@@ -44,6 +44,7 @@
 #include "nvim/help.h"
 #include "nvim/highlight_defs.h"
 #include "nvim/highlight_group.h"
+#include "nvim/insert.h"
 #include "nvim/macros_defs.h"
 #include "nvim/mark.h"
 #include "nvim/mbyte.h"
@@ -593,9 +594,6 @@ static int efm_to_regpat(const char *efm, int len, efm_T *fmt_ptr, char *regpat)
 }
 
 static efm_T *fmt_start = NULL;  // cached across qf_parse_line() calls
-
-// callback function for 'quickfixtextfunc'
-static Callback qftf_cb;
 
 static void free_efm_list(efm_T **efm_first)
 {
@@ -3128,7 +3126,7 @@ static void qf_jump_print_msg(qf_info_T *qi, int qf_index, qfline_T *qf_ptr, buf
   if (curbuf == old_curbuf && curwin->w_cursor.lnum == old_lnum) {
     msg_scroll = true;
   } else if ((msg_scrolled == 0 || (p_ch == 0 && msg_scrolled == 1))
-             && shortmess(SHM_OVERALL)) {
+             && shortmess(kShmOverall)) {
     msg_scroll = false;
   }
   msg_ext_set_kind("quickfix");
@@ -3895,12 +3893,12 @@ static int qf_goto_cwindow(const qf_info_T *qi, bool resize, int sz, bool vertsp
 static void qf_set_cwindow_options(void)
 {
   // switch off 'swapfile'
-  set_option_value_give_err(kOptSwapfile, BOOLEAN_OPTVAL(false), OPT_LOCAL);
-  set_option_value_give_err(kOptBuftype, STATIC_CSTR_AS_OPTVAL("quickfix"), OPT_LOCAL);
-  set_option_value_give_err(kOptBufhidden, STATIC_CSTR_AS_OPTVAL("hide"), OPT_LOCAL);
+  set_option_value_give_err(kOptSwapfile, BOOLEAN_OBJ(false), OPT_LOCAL);
+  set_option_value_give_err(kOptBuftype, STATIC_CSTR_AS_OBJ("quickfix"), OPT_LOCAL);
+  set_option_value_give_err(kOptBufhidden, STATIC_CSTR_AS_OBJ("hide"), OPT_LOCAL);
   RESET_BINDING(curwin);
   curwin->w_p_diff = false;
-  set_option_value_give_err(kOptFoldmethod, STATIC_CSTR_AS_OPTVAL("manual"), OPT_LOCAL);
+  set_option_value_give_err(kOptFoldmethod, STATIC_CSTR_AS_OBJ("manual"), OPT_LOCAL);
 }
 
 // Open a new quickfix or location list window, load the quickfix buffer and
@@ -4165,14 +4163,6 @@ static buf_T *qf_find_buf(qf_info_T *qi)
 }
 
 /// Process the 'quickfixtextfunc' option value.
-const char *did_set_quickfixtextfunc(optset_T *args FUNC_ATTR_UNUSED)
-{
-  if (option_set_callback_func(p_qftf, &qftf_cb) == FAIL) {
-    return e_invarg;
-  }
-  return NULL;
-}
-
 /// Update the w:quickfix_title variable in the quickfix/location list window in
 /// all the tab pages.
 static void qf_update_win_titlevar(qf_info_T *qi)
@@ -4225,11 +4215,11 @@ static void qf_update_buffer(qf_info_T *qi, qfline_T *old_last)
   // autocommands may cause trouble
   incr_quickfix_busy();
 
-  aco_save_T aco = { 0 };
+  CtxSwitch aco = { 0 };
 
   if (old_last == NULL) {
     // set curwin/curbuf to buf and save a few things
-    aucmd_prepbuf(&aco, buf);
+    ctx_switch(&aco, NULL, NULL, buf, 0);
   }
 
   qf_update_win_titlevar(qi);
@@ -4259,7 +4249,7 @@ static void qf_update_buffer(qf_info_T *qi, qfline_T *old_last)
     qf_win_pos_update(qi, 0);
 
     // restore curwin/curbuf and a few other things
-    aucmd_restbuf(&aco);
+    ctx_restore(&aco);
   }
 
   // Only redraw when added lines are visible.  This avoids flickering when
@@ -4337,7 +4327,7 @@ static int qf_buf_add_line(qf_list_T *qfl, buf_T *buf, linenr_T lnum, const qfli
 // the quickfix window for the entries 'start_idx' to 'end_idx'.
 static list_T *call_qftf_func(qf_list_T *qfl, int qf_winid, int start_idx, int end_idx)
 {
-  Callback *cb = &qftf_cb;
+  Callback *cb = &p_qftf;
   list_T *qftf_list = NULL;
   static bool recursive = false;
 
@@ -4494,7 +4484,7 @@ static void qf_fill_buffer(qf_list_T *qfl, buf_T *buf, qfline_T *old_last, int q
     // resembles reading a file into a buffer, it's more logical when using
     // autocommands.
     curbuf->b_ro_locked++;
-    set_option_value_give_err(kOptFiletype, STATIC_CSTR_AS_OPTVAL("qf"), OPT_LOCAL);
+    set_option_value_give_err(kOptFiletype, STATIC_CSTR_AS_OBJ("qf"), OPT_LOCAL);
     curbuf->b_p_ma = false;
 
     curbuf->b_keep_filetype = true;  // don't detect 'filetype'
@@ -5375,7 +5365,7 @@ void ex_cfile(exarg_T *eap)
     }
   }
   if (*eap->arg != NUL) {
-    set_option_direct(kOptErrorfile, CSTR_AS_OPTVAL(eap->arg), 0, 0);
+    set_option_direct(kOptErrorfile, CSTR_AS_OBJ(eap->arg), 0, 0);
   }
 
   char *enc = (*curbuf->b_p_menc != NUL) ? curbuf->b_p_menc : p_menc;
@@ -5820,11 +5810,11 @@ static int vgr_process_files(win_T *wp, qf_info_T *qi, vgr_args_T *cmd_args, boo
           // need to be done now, in that buffer.  And the modelines
           // need to be done (again).  But not the window-local
           // options!
-          aco_save_T aco = { 0 };
-          aucmd_prepbuf(&aco, buf);
+          CtxSwitch aco = { 0 };
+          ctx_switch(&aco, NULL, NULL, buf, 0);
           apply_autocmds(EVENT_FILETYPE, buf->b_p_ft, buf->b_fname, true, buf);
           do_modelines(OPT_NOWIN);
-          aucmd_restbuf(&aco);
+          ctx_restore(&aco);
         }
       }
     }
@@ -5984,8 +5974,8 @@ static buf_T *load_dummy_buffer(char *fname, char *dirname_start, char *resultin
     // Make sure this buffer isn't wiped out by autocommands.
     newbuf->b_locked++;
     // set curwin/curbuf to buf and save a few things
-    aco_save_T aco = { 0 };
-    aucmd_prepbuf(&aco, newbuf);
+    CtxSwitch aco = { 0 };
+    ctx_switch(&aco, NULL, NULL, newbuf, 0);
 
     // Need to set the filename for autocommands.
     setfname(curbuf, fname, NULL, false);
@@ -6018,7 +6008,7 @@ static buf_T *load_dummy_buffer(char *fname, char *dirname_start, char *resultin
     }
 
     // Restore curwin/curbuf and a few other things.
-    aucmd_restbuf(&aco);
+    ctx_restore(&aco);
 
     if (newbuf_to_wipe.br_buf != NULL && bufref_valid(&newbuf_to_wipe)) {
       block_autocmds();
@@ -7221,7 +7211,7 @@ bool set_ref_in_quickfix(int copyID)
   assert(ql_info != NULL);
   if (mark_quickfix_ctx(ql_info, copyID)
       || mark_quickfix_user_data(ql_info, copyID)
-      || set_ref_in_callback(&qftf_cb, copyID, NULL, NULL)) {
+      || set_ref_in_callback(&p_qftf, copyID, NULL, NULL)) {
     return true;
   }
 
@@ -7655,7 +7645,7 @@ void ex_helpgrep(exarg_T *eap)
     // Darn, some plugin changed the value.  If it's still empty it was
     // changed and restored, need to restore in the complicated way.
     if (*p_cpo == NUL) {
-      set_option_value_give_err(kOptCpoptions, CSTR_AS_OPTVAL(save_cpo), 0);
+      set_option_value_give_err(kOptCpoptions, CSTR_AS_OBJ(save_cpo), 0);
     }
     free_string_option(save_cpo);
   }
@@ -7709,6 +7699,7 @@ void free_quickfix(void)
     qf_free_all(win);
   }
 
+  callback_free(&p_qftf);
   ga_clear(&qfga);
 }
 #endif

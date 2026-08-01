@@ -3,6 +3,7 @@ local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local t_shada = require('test.functional.shada.testutil')
 
+local describe, it, before_each, after_each = t.describe, t.it, t.before_each, t.after_each
 local nvim_command, fn, eq = n.command, n.fn, t.eq
 local exec_capture = n.exec_capture
 local api = n.api
@@ -307,6 +308,39 @@ describe('ShaDa search pattern support code', function()
     local found = 0
     for _, v in ipairs(read_shada_file(shada_fname)) do
       if v.type == 2 and v.value.sp == '?' then
+        found = found + 1
+      end
+    end
+    eq(1, found)
+  end)
+
+  it('does not restore a search pattern cleared with :let @/ = ""', function()
+    command('let @/ = "foobar"')
+    command('wshada ' .. shada_fname)
+
+    reset({ shadafile = shada_fname })
+    eq('foobar', fn.getreg('/'))
+    command('let @/ = ""')
+    command('wshada ' .. shada_fname)
+
+    local found = 0
+    for _, v in ipairs(read_shada_file(shada_fname)) do
+      if v.type == 2 and v.value.sp == 'foobar' then
+        found = found + 1
+      end
+    end
+    eq(0, found)
+
+    reset({ shadafile = shada_fname })
+    eq('', fn.getreg('/'))
+  end)
+
+  it('keeps an on-disk search pattern that the instance never set', function()
+    wshada('\002\001\011\130\162sX\194\162sp\196\001-')
+    command('wshada ' .. shada_fname)
+    local found = 0
+    for _, v in ipairs(read_shada_file(shada_fname)) do
+      if v.type == 2 and v.value.sp == '-' then
         found = found + 1
       end
     end
@@ -903,6 +937,39 @@ describe('ShaDa registers support code', function()
     for _, v in ipairs(read_shada_file(shada_fname)) do
       if v.type == 5 and v.value.n == ('a'):byte() then
         eq({ '?' }, v.value.rc)
+        found = found + 1
+      end
+    end
+    eq(1, found)
+  end)
+
+  it('does not restore a register cleared with :let @a = ""', function()
+    command('let @a = "hello"')
+    command('wshada ' .. shada_fname)
+
+    reset({ shadafile = shada_fname })
+    eq('hello', fn.getreg('a'))
+    command('let @a = ""')
+    command('wshada ' .. shada_fname)
+
+    local found = 0
+    for _, v in ipairs(read_shada_file(shada_fname)) do
+      if v.type == 5 and v.value.n == ('a'):byte() then
+        found = found + 1
+      end
+    end
+    eq(0, found)
+
+    reset({ shadafile = shada_fname })
+    eq('', fn.getreg('a'))
+  end)
+
+  it('keeps an on-disk register that the instance never set', function()
+    wshada('\005\001\015\131\161na\162rX\194\162rc\145\196\001-')
+    command('wshada ' .. shada_fname)
+    local found = 0
+    for _, v in ipairs(read_shada_file(shada_fname)) do
+      if v.type == 5 and v.value.n == ('a'):byte() then
         found = found + 1
       end
     end

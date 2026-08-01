@@ -17,6 +17,7 @@
 #include "nvim/cmdexpand.h"
 #include "nvim/cmdexpand_defs.h"
 #include "nvim/cursor.h"
+#include "nvim/dialog.h"
 #include "nvim/drawscreen.h"
 #include "nvim/errors.h"
 #include "nvim/eval.h"
@@ -36,7 +37,6 @@
 #include "nvim/hashtab_defs.h"
 #include "nvim/help.h"
 #include "nvim/highlight_defs.h"
-#include "nvim/input.h"
 #include "nvim/insexpand.h"
 #include "nvim/lua/executor.h"
 #include "nvim/macros_defs.h"
@@ -119,6 +119,13 @@ static char *mt_names[MT_COUNT/2] =
 
 #define NOTAGFILE       99              // return value for jumpto_tag
 static char *nofile_fname = NULL;       // fname for NOTAGFILE error
+
+/// Classification of a "cmd" value returned by a tagfunc.
+typedef enum {
+  TAGCMD_INVALID,  ///< cannot be stored in a tag line
+  TAGCMD_ADDRESS,  ///< line number or /pat/ or ?pat? (no "|" needed)
+  TAGCMD_GENERIC,  ///< any other Ex command: needs a "|" terminator
+} tagcmd_T;
 
 /// Return values used when reading lines from a tags file.
 typedef enum {
@@ -218,35 +225,14 @@ static char *tagmatchname = NULL;   // name of last used tag
 static taggy_T ptag_entry = { NULL, INIT_FMARK, 0, 0, NULL };
 
 static bool tfu_in_use = false;  // disallow recursive call of tagfunc
-static Callback tfu_cb;          // 'tagfunc' callback function
 
 // Used instead of NUL to separate tag fields in the growarrays.
 #define TAG_SEP 0x02
 
-/// Reads the 'tagfunc' option value and convert that to a callback value.
-/// Invoked when the 'tagfunc' option is set. The option value can be a name of
-/// a function (string), or function(<name>) or funcref(<name>) or a lambda.
-const char *did_set_tagfunc(optset_T *args)
-{
-  buf_T *buf = (buf_T *)args->os_buf;
-  int retval;
-
-  if (args->os_flags & OPT_LOCAL) {
-    retval = option_set_callback_func(args->os_newval.string.data, &buf->b_tfu_cb);
-  } else {
-    retval = option_set_callback_func(args->os_newval.string.data, &tfu_cb);
-    if (retval == OK && !(args->os_flags & OPT_GLOBAL)) {
-      set_buflocal_tfu_callback(buf);
-    }
-  }
-
-  return retval == FAIL ? e_invarg : NULL;
-}
-
 #ifdef EXITFREE
 void free_tagfunc_option(void)
 {
-  callback_free(&tfu_cb);
+  callback_free(&p_tfu);
 }
 #endif
 
@@ -254,17 +240,7 @@ void free_tagfunc_option(void)
 /// collected.
 bool set_ref_in_tagfunc(int copyID)
 {
-  return set_ref_in_callback(&tfu_cb, copyID, NULL, NULL);
-}
-
-/// Copy the global 'tagfunc' callback function to the buffer-local 'tagfunc'
-/// callback for 'buf'.
-void set_buflocal_tfu_callback(buf_T *buf)
-{
-  callback_free(&buf->b_tfu_cb);
-  if (tfu_cb.type != kCallbackNone) {
-    callback_copy(&buf->b_tfu_cb, &tfu_cb);
-  }
+  return set_ref_in_callback(&p_tfu, copyID, NULL, NULL);
 }
 
 /// Jump to tag; handling of tag commands and tag stack
@@ -1059,6 +1035,27 @@ static void prepare_pats(pat_T *pats, bool has_re)
   }
 }
 
+/// Classify "cmd" from a tagfunc result (see tagcmd_T), like a tags file
+/// address, to decide whether a "|" terminator must be appended before storing
+/// it in a tag line.
+static tagcmd_T tagfunc_cmd_kind(char *cmd)
+{
+  if (ascii_isdigit(*cmd)) {
+    return *skipdigits(cmd) == NUL ? TAGCMD_ADDRESS : TAGCMD_INVALID;
+  }
+  if (*cmd == '/' || *cmd == '?') {
+    // A Tab inside the pattern is fine (Universal Ctags emits one for a
+    // tab-indented line); only trailing content after the closing
+    // delimiter, which would break the tag line fields, is rejected.
+    const char *end = skip_regexp(cmd + 1, *cmd, false);
+    return (*end == *cmd && end[1] == NUL) ? TAGCMD_ADDRESS : TAGCMD_INVALID;
+  }
+  if (strpbrk(cmd, "\t\r\n") != NULL) {
+    return TAGCMD_INVALID;
+  }
+  return TAGCMD_GENERIC;
+}
+
 /// Call the user-defined function to generate a list of tags used by
 /// find_tags().
 ///
@@ -1086,7 +1083,7 @@ static int find_tagfunc_tags(char *pat, garray_T *ga, int *match_count, int flag
     }
   }
 
-  if (*curbuf->b_p_tfu == NUL || curbuf->b_tfu_cb.type == kCallbackNone) {
+  if (curbuf->b_p_tfu.type == kCallbackNone) {
     return FAIL;
   }
 
@@ -1117,7 +1114,7 @@ static int find_tagfunc_tags(char *pat, garray_T *ga, int *match_count, int flag
                flags & TAG_REGEXP ? "r" : "");
 
   pos_T save_pos = curwin->w_cursor;
-  int result = callback_call(&curbuf->b_tfu_cb, 3, args, &rettv);
+  int result = callback_call(&curbuf->b_p_tfu, 3, args, &rettv);
   curwin->w_cursor = save_pos;  // restore the cursor position
   check_cursor(curwin);         // make sure cursor position is valid
   d->dv_refcount--;
@@ -1195,6 +1192,14 @@ static int find_tagfunc_tags(char *pat, garray_T *ga, int *match_count, int flag
       break;
     }
 
+    tagcmd_T cmdkind = tagfunc_cmd_kind(res_cmd);
+    if (cmdkind == TAGCMD_INVALID) {
+      emsg(_(e_invalid_return_value_from_tagfunc));
+      break;
+    }
+    if (cmdkind == TAGCMD_GENERIC) {
+      len += 3;  // need space for "|;\""
+    }
     char *const mfp = name_only ? xstrdup(res_name) : xmalloc(len + 2);
 
     if (!name_only) {
@@ -1214,7 +1219,10 @@ static int find_tagfunc_tags(char *pat, garray_T *ga, int *match_count, int flag
       STRCPY(p, res_cmd);
       p += strlen(p);
 
-      if (has_extra) {
+      if (cmdkind == TAGCMD_GENERIC) {
+        *p++ = '|';  // terminate the command
+      }
+      if (cmdkind == TAGCMD_GENERIC || has_extra) {
         STRCPY(p, ";\"");
         p += strlen(p);
 
@@ -1377,7 +1385,7 @@ static int findtags_apply_tfu(findtags_state_T *st, char *pat, char *buf_ffname)
 {
   const bool use_tfu = ((st->flags & TAG_NO_TAGFUNC) == 0);
 
-  if (!use_tfu || tfu_in_use || *curbuf->b_p_tfu == NUL) {
+  if (!use_tfu || tfu_in_use || curbuf->b_p_tfu.type == kCallbackNone) {
     return NOTDONE;
   }
 
@@ -2666,7 +2674,13 @@ static int jumpto_tag(const char *lbuf_arg, int forceit, bool keep_help)
     // Remove the "<Tab>fieldname:value" stuff; we don't need it here.
     str = pbuf;
     if (find_extra(&str) == OK) {
-      pbuf_end = str;
+      // Drop a trailing "|" that terminates a generic Ex command, so it
+      // is not executed as an empty command separator.
+      if (str > pbuf && str[-1] == '|') {
+        pbuf_end = str - 1;
+      } else {
+        pbuf_end = str;
+      }
       *pbuf_end = NUL;
     }
   }
@@ -2702,7 +2716,7 @@ static int jumpto_tag(const char *lbuf_arg, int forceit, bool keep_help)
 
       // Make the preview window the current window.
       // Open a preview window when needed.
-      prepare_tagpreview(true);
+      prepare_tagpreview(true, *p_pvp != NUL);
     }
   }
 
@@ -2764,13 +2778,13 @@ static int jumpto_tag(const char *lbuf_arg, int forceit, bool keep_help)
 
     const optmagic_T save_magic_overruled = magic_overruled;
     magic_overruled = OPTION_MAGIC_OFF;  // always execute with 'nomagic'
-    // Save value of no_hlsearch, jumping to a tag is not a real search
-    const bool save_no_hlsearch = no_hlsearch;
+    // Save no_hlsearch: jumping to a tag is not a real search
+    const bool save_no_hlsearch = Search.no_hlsearch;
 
     // If 'cpoptions' contains 't', store the search pattern for the "n"
     // command.  If 'cpoptions' does not contain 't', the search pattern
     // is not stored.
-    if (vim_strchr(p_cpo, CPO_TAGPAT) != NULL) {
+    if (vim_strchr(p_cpo, kCpoTagpat) != NULL) {
       search_options = 0;
     } else {
       search_options = SEARCH_KEEP;
@@ -2938,7 +2952,7 @@ static char *expand_tag_fname(char *fname, char *const tag_fname, const bool exp
   // Expand file name (for environment variables) when needed.
   // Disallow backticks, they could execute arbitrary shell
   // commands.  This is not needed for tag filenames.
-  if (expand && path_has_wildcard(fname) && vim_strchr(fname, '`') == NULL) {
+  if (expand && path_has_wildcard(fname, true) && vim_strchr(fname, '`') == NULL) {
     ExpandInit(&xpc);
     xpc.xp_context = EXPAND_FILES;
     expanded_fname = ExpandOne(&xpc, fname, NULL,

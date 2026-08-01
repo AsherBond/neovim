@@ -20,16 +20,16 @@
 #include "nvim/decoration.h"
 #include "nvim/diff.h"
 #include "nvim/drawscreen.h"
-#include "nvim/edit.h"
 #include "nvim/errors.h"
 #include "nvim/eval/typval.h"
 #include "nvim/eval/window.h"
 #include "nvim/fold.h"
-#include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/grid.h"
 #include "nvim/grid_defs.h"
+#include "nvim/input.h"
+#include "nvim/insert.h"
 #include "nvim/macros_defs.h"
 #include "nvim/mark_defs.h"
 #include "nvim/mbyte.h"
@@ -176,7 +176,7 @@ static void redraw_for_cursorcolumn(win_T *wp)
   }
 
   // When current buffer's cursor moves in Visual mode, redraw it with UPD_INVERTED.
-  if (VIsual_active && wp->w_buffer == curbuf) {
+  if (Visual.active && wp->w_buffer == curbuf) {
     redraw_buf_later(curbuf, UPD_INVERTED);
   }
 }
@@ -814,7 +814,6 @@ int win_col_off(win_T *wp)
 {
   return ((wp->w_p_nu || wp->w_p_rnu || *wp->w_p_stc != NUL)
           ? (number_width(wp) + (*wp->w_p_stc == NUL)) : 0)
-         + ((wp != cmdwin_win) ? 0 : 1)
          + win_fdccol_count(wp) + (wp->w_scwidth * SIGN_WIDTH);
 }
 
@@ -824,7 +823,7 @@ int win_col_off(win_T *wp)
 int win_col_off2(win_T *wp)
 {
   if ((wp->w_p_nu || wp->w_p_rnu || *wp->w_p_stc != NUL)
-      && vim_strchr(p_cpo, CPO_NUMCOL) != NULL) {
+      && vim_strchr(p_cpo, kCpoNumcol) != NULL) {
     return number_width(wp) + (*wp->w_p_stc == NUL);
   }
   return 0;
@@ -1897,9 +1896,19 @@ void scroll_cursor_top(win_T *wp, int min_scroll, int always)
     } else if (wp->w_topline == wp->w_cursor.lnum) {
       validate_virtcol(wp);
       if (wp->w_skipcol >= wp->w_virtcol) {
-        // TODO(vim): if the line doesn't fit may optimize w_skipcol instead
-        // of making it zero
-        reset_skipcol(wp);
+        // Skip up to the screen line the cursor is in, so that the
+        // position in the line is kept.
+        int width1 = wp->w_width - win_col_off(wp);
+        int width2 = width1 + win_col_off2(wp);
+        int plines_off = 0;
+        if (width2 > 0 && wp->w_virtcol >= width1) {
+          plines_off = (wp->w_virtcol - width1) / width2 + 1;
+        }
+        int skipcol = skipcol_from_plines(wp, plines_off);
+        if (skipcol != wp->w_skipcol) {
+          wp->w_skipcol = skipcol;
+          redraw_later(wp, UPD_SOME_VALID);
+        }
       }
     }
     if (wp->w_topline != old_topline
@@ -2333,16 +2342,6 @@ void cursor_correct(win_T *wp)
     return;
   }
 
-  if (wp->w_p_sms && !wp->w_p_wrap) {
-    // 'smoothscroll' is active
-    if (wp->w_cline_height == wp->w_view_height) {
-      // The cursor line just fits in the window, don't scroll.
-      reset_skipcol(wp);
-      return;
-    }
-    // TODO(vim): If the cursor line doesn't fit in the window then only adjust w_skipcol.
-  }
-
   // Narrow down the area where the cursor can be put by taking lines from
   // the top and the bottom until:
   // - the desired context lines are found
@@ -2604,11 +2603,11 @@ void do_check_cursorbind(void)
   bool set_curswant = curwin->w_set_curswant;
   win_T *old_curwin = curwin;
   buf_T *old_curbuf = curbuf;
-  int old_VIsual_select = VIsual_select;
-  int old_VIsual_active = VIsual_active;
+  int old_VIsual_select = Visual.select;
+  int old_VIsual_active = Visual.active;
 
   // loop through the cursorbound windows
-  VIsual_select = VIsual_active = false;
+  Visual.select = Visual.active = false;
   FOR_ALL_WINDOWS_IN_TAB(wp, curtab) {
     curwin = wp;
     curbuf = curwin->w_buffer;
@@ -2653,8 +2652,8 @@ void do_check_cursorbind(void)
   }
 
   // reset current-window
-  VIsual_select = old_VIsual_select;
-  VIsual_active = old_VIsual_active;
+  Visual.select = old_VIsual_select;
+  Visual.active = old_VIsual_active;
   curwin = old_curwin;
   curbuf = old_curbuf;
 }

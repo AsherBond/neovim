@@ -21,11 +21,11 @@
 #include "nvim/ex_docmd.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
-#include "nvim/getchar.h"
-#include "nvim/getchar_defs.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/highlight_defs.h"
+#include "nvim/input.h"
+#include "nvim/input_defs.h"
 #include "nvim/keycodes.h"
 #include "nvim/macros_defs.h"
 #include "nvim/mbyte.h"
@@ -1397,8 +1397,8 @@ static int get_menu_mode(void)
   if (State & MODE_TERMINAL) {
     return MENU_INDEX_TERMINAL;
   }
-  if (VIsual_active) {
-    if (VIsual_select) {
+  if (Visual.active) {
+    if (Visual.select) {
       return MENU_INDEX_SELECT;
     }
     return MENU_INDEX_VISUAL;
@@ -1495,13 +1495,13 @@ void execute_menu(const exarg_T *eap, vimmenu_T *menu, int mode_idx)
       if ((curbuf->b_visual.vi_start.lnum == eap->line1)
           && (curbuf->b_visual.vi_end.lnum) == eap->line2) {
         // Set it up for visual mode - equivalent to gv.
-        VIsual_mode = curbuf->b_visual.vi_mode;
+        Visual.mode = curbuf->b_visual.vi_mode;
         tpos = curbuf->b_visual.vi_end;
         curwin->w_cursor = curbuf->b_visual.vi_start;
         curwin->w_curswant = curbuf->b_visual.vi_curswant;
       } else {
         // Set it up for line-wise visual mode
-        VIsual_mode = 'V';
+        Visual.mode = 'V';
         curwin->w_cursor.lnum = eap->line1;
         curwin->w_cursor.col = 1;
         tpos.lnum = eap->line2;
@@ -1510,10 +1510,10 @@ void execute_menu(const exarg_T *eap, vimmenu_T *menu, int mode_idx)
       }
 
       // Activate visual mode
-      VIsual_active = true;
-      VIsual_reselect = true;
+      Visual.active = true;
+      Visual.reselect = true;
       check_cursor(curwin);
-      VIsual = curwin->w_cursor;
+      Visual.start = curwin->w_cursor;
       curwin->w_cursor = tpos;
 
       check_cursor(curwin);
@@ -1784,7 +1784,7 @@ static char *menutrans_lookup(char *name, int len)
   menutrans_T *tp = (menutrans_T *)menutrans_ga.ga_data;
 
   for (int i = 0; i < menutrans_ga.ga_len; i++) {
-    if (STRNICMP(name, tp[i].from, len) == 0 && tp[i].from[len] == NUL) {
+    if (STRNICMP(name, tp[i].from, (size_t)len) == 0 && tp[i].from[len] == NUL) {
       return tp[i].to;
     }
   }

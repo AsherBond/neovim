@@ -169,11 +169,13 @@ vim.bo.autoindent = vim.o.autoindent
 vim.bo.ai = vim.bo.autoindent
 
 --- When a file was changed outside of Nvim, automatically read it again.
---- Skipped if the file was deleted, so you have the text from before it
---- was deleted. If the file appears again then it is read. `timestamp`
+--- Skipped if the file was deleted (so you still have the last-available
+--- text). If the file appears again, then it is read; you can `undo` to
+--- see the previous contents. `timestamp`
 ---
---- This is partially driven by OS filewatcher events `uv_fs_event_t`, so
---- even the current buffer may be updated.
+--- This is driven (partially) by OS filewatcher events `uv_fs_event_t`,
+--- so buffers are updated immediately (instead of only on focus-change or
+--- shell-commands).
 ---
 --- If this option has a local value, use this command to switch back to
 --- using the global value:
@@ -228,13 +230,13 @@ vim.go.awa = vim.go.autowriteall
 --- that background type.  The `TUI` or other UI sets this on startup
 --- if it can detect the background color, and re-detects it whenever a UI
 --- attaches later, unless 'background' was set explicitly.  When multiple
---- terminal UIs are attached they share one value, taken from whichever
---- terminal reports its background last (which may not be the most
---- recently attached one, since it depends on response speed).
+--- UIs are attached they share one value, decided by "last wins" (may
+--- not be the most recently-attached UI, since it depends on response
+--- speed).
 ---
 --- This option does NOT change the background color, it tells Nvim what
---- the "inherited" (terminal/GUI) background looks like.
---- See `:hi-normal` if you want to set the background color explicitly.
+--- the "inherited" (terminal/GUI) background looks like. See `:hi-normal`
+--- to set the background color explicitly.
 --- 					*g:colors_name*
 --- When a color scheme is loaded (the "g:colors_name" variable is set)
 --- changing 'background' will cause the color scheme to be reloaded.  If
@@ -242,17 +244,16 @@ vim.go.awa = vim.go.autowriteall
 --- However, if the color scheme sets 'background' itself the effect may
 --- be undone.  First delete the "g:colors_name" variable when needed.
 ---
---- Normally this option would be set in the vimrc file.  Possibly
---- depending on the terminal name.  Example:
+--- Historically, this option was set in the vimrc file.  Example:
 ---
 --- ```vim
 --- 	if $TERM ==# "xterm"
 --- 	  set background=dark
 --- 	endif
 --- ```
---- When this option is changed, the default settings for the highlight groups
---- will change.  To use other settings, place ":highlight" commands AFTER
---- the setting of the 'background' option.
+--- When this option is changed, the defaults for highlight groups
+--- will change.  To override those defaults, place ":highlight" commands
+--- AFTER setting the 'background' option.
 ---
 --- @type 'light'|'dark'
 vim.o.background = "dark"
@@ -810,14 +811,13 @@ vim.bo.channel = vim.o.channel
 --- Also used for Unicode conversion.
 --- Example:
 ---
---- ```vim
---- 	set charconvert=CharConvert()
---- 	fun CharConvert()
---- 	  system("recode "
---- 		\ .. v:charconvert_from .. ".." .. v:charconvert_to
---- 		\ .. " <" .. v:fname_in .. " >" .. v:fname_out)
---- 	  return v:shell_error
---- 	endfun
+--- ```lua
+--- 	vim.o.charconvert = function()
+--- 	  vim.fn.system(('recode %s..%s <%s >%s'):format(
+--- 	    vim.v.charconvert_from, vim.v.charconvert_to,
+--- 	    vim.v.fname_in, vim.v.fname_out))
+--- 	  return vim.v.shell_error
+--- 	end
 --- ```
 --- The related Vim variables are:
 --- 	v:charconvert_from	name of the current encoding
@@ -839,7 +839,7 @@ vim.bo.channel = vim.o.channel
 --- Otherwise the expression is evaluated in the context of the script
 --- where the option was set, thus script-local items are available.
 ---
---- @type string
+--- @type string|function
 vim.o.charconvert = ""
 vim.o.ccv = vim.o.charconvert
 vim.go.charconvert = vim.o.charconvert
@@ -1124,7 +1124,7 @@ vim.bo.cpt = vim.bo.complete
 --- function, a `lambda` or a `Funcref`.  See `option-value-function` for
 --- more information.
 ---
---- @type string
+--- @type string|function
 vim.o.completefunc = ""
 vim.o.cfu = vim.o.completefunc
 vim.bo.completefunc = vim.o.completefunc
@@ -1170,8 +1170,8 @@ vim.go.cia = vim.go.completeitemalign
 --- 	    See also `preinserted()`.
 ---
 ---    menu	    Use a popup menu to show the possible completions.  The
---- 	    menu is only shown when there is more than one match and
---- 	    sufficient colors are available.  `ins-completion-menu`
+--- 	    menu is only shown when there is more than one match.
+--- 	    `ins-completion-menu`
 ---
 ---    menuone  Use the popup menu also when there is only one match.
 --- 	    Useful when there is additional information about the
@@ -1790,7 +1790,7 @@ vim.go.dia = vim.go.diffanchors
 --- Expression which is evaluated to obtain a diff file (either ed-style
 --- or unified-style) from two versions of a file.  See `diff-diffexpr`.
 ---
---- @type string
+--- @type string|function
 vim.o.diffexpr = ""
 vim.o.dex = vim.o.diffexpr
 vim.go.diffexpr = vim.o.diffexpr
@@ -2190,6 +2190,7 @@ vim.go.ei = vim.go.eventignore
 --- Note: The following events are considered to happen outside of a
 --- window context and thus cannot be ignored by 'eventignorewin':
 ---
+--- 	`ChanClose`,
 --- 	`ChanInfo`,
 --- 	`ChanOpen`,
 --- 	`CmdUndefined`,
@@ -2653,24 +2654,24 @@ vim.go.fcs = vim.go.fillchars
 ---
 --- Examples:
 ---
---- ```vim
----     " Use glob()
----     func FindFuncGlob(cmdarg, cmdcomplete)
---- 	let pat = a:cmdcomplete ? $'{a:cmdarg}*' : a:cmdarg
---- 	return glob(pat, v:false, v:true)
----     endfunc
----     set findfunc=FindFuncGlob
+--- ```lua
+---     -- Use vim.fn.glob()
+---     vim.o.findfunc = function(cmdarg, cmdcomplete)
+---       local pat = cmdcomplete and (cmdarg .. '*') or cmdarg
+---       return vim.fn.glob(pat, false, true)
+---     end
 ---
----     " Use the 'git ls-files' output
----     func FindGitFiles(cmdarg, cmdcomplete)
---- 	let fnames = systemlist('git ls-files')
---- 	return fnames->filter('v:val =~? a:cmdarg')
----     endfunc
----     set findfunc=FindGitFiles
+---     -- Use the "git ls-files" output
+---     vim.o.findfunc = function(cmdarg, cmdcomplete)
+---       local fnames = vim.fn.systemlist('git ls-files')
+---       return vim.tbl_filter(function(v)
+---         return v:lower():find(cmdarg:lower(), 1, true) ~= nil
+---       end, fnames)
+---     end
 --- ```
 ---
 ---
---- @type string
+--- @type string|function
 vim.o.findfunc = ""
 vim.o.ffu = vim.o.findfunc
 vim.bo.findfunc = vim.o.findfunc
@@ -2743,7 +2744,7 @@ vim.wo.fen = vim.wo.foldenable
 --- It is not allowed to change text or jump to another window while
 --- evaluating 'foldexpr' `textlock`.
 ---
---- @type string
+--- @type string|function
 vim.o.foldexpr = "0"
 vim.o.fde = vim.o.foldexpr
 vim.wo.foldexpr = vim.o.foldexpr
@@ -2889,7 +2890,7 @@ vim.go.fdo = vim.go.foldopen
 --- When set to an empty string, foldtext is disabled, and the line
 --- is displayed normally with highlighting and no line wrapping.
 ---
---- @type string
+--- @type string|function
 vim.o.foldtext = "foldtext()"
 vim.o.fdt = vim.o.foldtext
 vim.wo.foldtext = vim.o.foldtext
@@ -2941,7 +2942,7 @@ vim.wo.fdt = vim.wo.foldtext
 --- since changing the buffer text is not allowed.
 --- This option cannot be set in a modeline when 'modelineexpr' is off.
 ---
---- @type string
+--- @type string|function
 vim.o.formatexpr = ""
 vim.o.fex = vim.o.formatexpr
 vim.bo.formatexpr = vim.o.formatexpr
@@ -3520,7 +3521,7 @@ vim.go.inc = vim.go.include
 --- It is not allowed to change text or jump to another window while
 --- evaluating 'includeexpr' `textlock`.
 ---
---- @type string
+--- @type string|function
 vim.o.includeexpr = ""
 vim.o.inex = vim.o.includeexpr
 vim.bo.includeexpr = vim.o.includeexpr
@@ -3615,7 +3616,7 @@ vim.go.is = vim.go.incsearch
 --- It is not allowed to change text or jump to another window while
 --- evaluating 'indentexpr' `textlock`.
 ---
---- @type string
+--- @type string|function
 vim.o.indentexpr = ""
 vim.o.inde = vim.o.indentexpr
 vim.bo.indentexpr = vim.o.indentexpr
@@ -3963,6 +3964,10 @@ vim.go.lrm = vim.go.langremap
 --- 	1: only if there are at least two windows
 --- 	2: always
 --- 	3: always and ONLY the last window
+---
+--- Here "last window" means the last window in a column, i.e. the bottom-
+--- most one, just above the command line.
+---
 --- The screen looks nicer with a status line if you have several
 --- windows, but it takes another screen line. `status-line`
 ---
@@ -4869,7 +4874,7 @@ vim.wo.nuw = vim.wo.numberwidth
 --- This option is usually set by a filetype plugin:
 --- `:filetype-plugin-on`
 ---
---- @type string
+--- @type string|function
 vim.o.omnifunc = ""
 vim.o.ofu = vim.o.omnifunc
 vim.bo.omnifunc = vim.o.omnifunc
@@ -4880,11 +4885,20 @@ vim.bo.ofu = vim.bo.omnifunc
 --- the name of a function, a `lambda` or a `Funcref`.  See
 --- `option-value-function` for more information.
 ---
---- @type string
+--- @type string|function
 vim.o.operatorfunc = ""
 vim.o.opfunc = vim.o.operatorfunc
 vim.go.operatorfunc = vim.o.operatorfunc
 vim.go.opfunc = vim.go.operatorfunc
+
+--- Path of `vim.pack-lockfile`. Must be set before the first usage of any
+--- `vim.pack` function. Environment variables are expanded `:set_env`.
+---
+--- @type string
+vim.o.packlockfile = "$XDG_CONFIG_HOME/nvim/nvim-pack-lock.json"
+vim.o.plf = vim.o.packlockfile
+vim.go.packlockfile = vim.o.packlockfile
+vim.go.plf = vim.go.packlockfile
 
 --- Directories used to find packages.
 --- See `packages` and `packages-runtimepath`.
@@ -4908,7 +4922,7 @@ vim.go.para = vim.go.paragraphs
 --- Expression which is evaluated to apply a patch to a file and generate
 --- the resulting new version of the file.  See `diff-patchexpr`.
 ---
---- @type string
+--- @type string|function
 vim.o.patchexpr = ""
 vim.o.pex = vim.o.patchexpr
 vim.go.patchexpr = vim.o.patchexpr
@@ -5051,6 +5065,34 @@ vim.o.pvh = vim.o.previewheight
 vim.go.previewheight = vim.o.previewheight
 vim.go.pvh = vim.go.previewheight
 
+--- When not empty a floating window is used for commands that would open
+--- a preview window.  See `preview-popup`.
+--- The option is a comma-separated list of these items:
+---    height  Height of the window.  When omitted, it is derived from
+---            the content.
+---    width   Width of the window.  When omitted, it is derived from
+---            the content.
+---    border  One of the 'winborder' styles.  When omitted, 'winborder'
+---            is used.  A custom (comma separated) border cannot be
+---            given here, use 'winborder'.
+--- The window background uses `hl-NormalFloat` and the border uses
+--- `hl-FloatBorder`.
+--- Not used for the insert completion info, add "popup" to 'completeopt'
+--- for that.
+---
+--- Example:
+---
+--- ```vim
+--- 	set previewpopup=height:10,width:60,border:rounded
+--- ```
+---
+---
+--- @type string
+vim.o.previewpopup = ""
+vim.o.pvp = vim.o.previewpopup
+vim.go.previewpopup = vim.o.previewpopup
+vim.go.pvp = vim.go.previewpopup
+
 --- Identifies the preview window.  Only one window can have this option
 --- set.  It's normally not set directly, but by using one of the commands
 --- `:ptag`, `:pedit`, etc.
@@ -5148,7 +5190,7 @@ vim.go.pyx = vim.go.pyxversion
 --- It is not allowed to change text or jump to another window while
 --- evaluating 'qftf' `textlock`.
 ---
---- @type string
+--- @type string|function
 vim.o.quickfixtextfunc = ""
 vim.o.qftf = vim.o.quickfixtextfunc
 vim.go.quickfixtextfunc = vim.o.quickfixtextfunc
@@ -5369,6 +5411,13 @@ vim.go.ru = vim.go.ruler
 --- 	set rulerformat=%15(%c%V\ %p%%%)
 --- ```
 ---
+--- This looks like an item group, but there are some differences in this
+--- particular case.  Most notably, the width is fixed and not a minimum,
+--- and the ruler is left-aligned, whereas the alignment of item groups is
+--- configurable and right-aligned by default.
+---
+--- When `ui2` is enabled, the ruler no longer has a fixed width and the
+--- item group syntax has no special meaning for 'rulerformat'.
 ---
 --- @type string
 vim.o.rulerformat = ""
@@ -5668,7 +5717,7 @@ vim.go.slm = vim.go.selectmode
 ---    localoptions	options and mappings local to a window or buffer (not
 --- 		global values for local options)
 ---    options	all options and mappings (also global values for local
---- 		options)
+--- 		options), except Lua functions `option-value-function`.
 ---    skiprtp	exclude 'runtimepath' and 'packpath' from the options
 ---    resize	size of the Vim window: 'lines' and 'columns'
 ---    sesdir	the directory in which the session file is located
@@ -6875,12 +6924,16 @@ vim.wo.stc = vim.wo.statuscolumn
 ---          this label.
 ---       Use `getmousepos()`.winid in the specified function to get the
 ---       corresponding `window-ID` of the clicked item.
---- \< -   Where to truncate line if too long.  Default is at the start.
+--- \< -   Where to truncate line if too long.  Default is at the first
+---       item.  Truncation markers within item groups apply to the
+---       truncation of that group until its maxwid is reached.
 ---       No width fields allowed.
 --- = -   Separation point between alignment sections.  Each section will
 ---       be separated by an equal number of spaces.  With one %= what
 ---       comes after it will be right-aligned.  With two %= there is a
 ---       middle part, with white space left and right of it.
+---       Alignment sections within item groups will be separated until
+---       minwid of the group is reached.
 ---       No width fields allowed.
 --- # -   Set highlight group.  The name must follow and then a # again.
 ---       Thus use %#HLname# for highlight group HLname.  The same
@@ -7018,24 +7071,20 @@ vim.o.sua = vim.o.suffixesadd
 vim.bo.suffixesadd = vim.o.suffixesadd
 vim.bo.sua = vim.bo.suffixesadd
 
---- Use a swapfile for the buffer.  This option can be reset when a
---- swapfile is not wanted for a specific buffer.  For example, with
---- confidential information that even root must not be able to access.
---- Careful: All text will be in memory:
---- 	- Don't use this for big files.
---- 	- Recovery will be impossible!
---- A swapfile will only be present when 'updatecount' is non-zero and
---- 'swapfile' is set.
---- When 'swapfile' is reset, the swap file for the current buffer is
---- immediately deleted.  When 'swapfile' is set, and 'updatecount' is
---- non-zero, a swap file is immediately created.
---- Also see `swap-file`.
---- If you want to open a new buffer without creating a swap file for it,
---- use the `:noswapfile` modifier.
---- See 'directory' for where the swap file is created.
+--- Use a `swap-file` for the buffer (if 'updatecount' is non-zero). The
+--- 'directory' option decides where swapfiles are stored.
 ---
---- This option is used together with 'bufhidden' and 'buftype' to
---- specify special kinds of buffers.   See `special-buffers`.
+--- To open a new buffer without creating a swapfile, use `:noswapfile`.
+--- To disable for an existing buffer, reset its 'swapfile' option.
+--- Careful:
+--- 	- Recovery will be impossible!
+--- 	- The entire file will be in memory.
+---
+--- When reset, the swapfile for the current buffer is immediately
+--- deleted.  When re-enabled (and 'updatecount' is non-zero), a swapfile
+--- is immediately created.
+---
+--- Used with 'bufhidden' and 'buftype' to specify `special-buffers`.
 ---
 --- @type boolean
 vim.o.swapfile = true
@@ -7274,7 +7323,7 @@ vim.go.tc = vim.go.tagcase
 --- `lambda` or a `Funcref`.  See `option-value-function` for more
 --- information.
 ---
---- @type string
+--- @type string|function
 vim.o.tagfunc = ""
 vim.o.tfu = vim.o.tagfunc
 vim.bo.tagfunc = vim.o.tagfunc
@@ -7442,7 +7491,7 @@ vim.go.tsr = vim.go.thesaurus
 --- The value can be the name of a function, a `lambda` or a `Funcref`.
 --- See `option-value-function` for more information.
 ---
---- @type string
+--- @type string|function
 vim.o.thesaurusfunc = ""
 vim.o.tsrfu = vim.o.thesaurusfunc
 vim.bo.thesaurusfunc = vim.o.thesaurusfunc
@@ -7697,17 +7746,15 @@ vim.o.ur = vim.o.undoreload
 vim.go.undoreload = vim.o.undoreload
 vim.go.ur = vim.go.undoreload
 
---- After typing this many characters the swap file will be written to
---- disk.  When zero, no swap file will be created at all (see chapter on
---- recovery `crash-recovery`).  'updatecount' is set to zero by starting
---- Vim with the "-n" option, see `startup`.  When editing in readonly
---- mode this option will be initialized to 10000.
---- The swapfile can be disabled per buffer with 'swapfile'.
---- When 'updatecount' is set from zero to non-zero, swap files are
---- created for all buffers that have 'swapfile' set.  When 'updatecount'
---- is set to zero, existing swap files are not deleted.
---- This option has no meaning in buffers where 'buftype' is "nofile" or
---- "nowrite".
+--- The `swap-file` will be written after typing this many characters.
+---
+--- - Ignored in buffers where 'buftype' is "nofile" or "nowrite".
+--- - Initialized to 10000 when editing in readonly `-R` mode.
+--- - To disable swapfiles per-buffer, unset the 'swapfile' option.
+--- - To disable swapfiles globally, set this option to zero (or start
+---   with `-n`). See `crash-recovery`. Existing swapfiles are not deleted.
+--- - When re-enabled (from zero to non-zero), swapfiles are created for
+---   all buffers that have 'swapfile' set.
 ---
 --- @type integer
 vim.o.updatecount = 200
@@ -7837,7 +7884,8 @@ vim.go.vdir = vim.go.viewdir
 ---    folds	manually created folds, opened/closed folds and local
 --- 		fold options
 ---    options	options and mappings local to a window or buffer (not
---- 		global values for local options)
+---                 global values for local options), except Lua functions
+--- 		`option-value-function`.
 ---    localoptions same as "options"
 ---    slash	`deprecated` Always enabled. Uses "/" in filenames.
 ---    unix		`deprecated` Always enabled. Uses "\n" line endings.

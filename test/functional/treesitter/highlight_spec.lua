@@ -2,6 +2,7 @@ local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each, finally = t.describe, t.it, t.before_each, t.finally
 local clear = n.clear
 local insert = n.insert
 local exec_lua = n.exec_lua
@@ -1467,6 +1468,21 @@ printf('Hello World!');
       vim.api.nvim_buf_set_lines(0, 0, -1, false, {})
       assert(vim.api.nvim_win_text_height(0, {}).all == 1, 'line concealed')
     end)
+  end)
+
+  it('conceals backslash in hard_line_break/backslash_escape', function()
+    command('set concealcursor=n')
+    command('set conceallevel=2')
+    insert('Hello\\\nWorld\nHello\\. World')
+    screen:expect({
+      grid = [[
+        Hello                                   |
+        World                                   |
+        Hello. Worl^d                            |
+        {1:~                                       }|*2
+                                                |
+      ]],
+    })
   end)
 end)
 

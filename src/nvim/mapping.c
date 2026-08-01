@@ -32,11 +32,11 @@
 #include "nvim/fuzzy.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
-#include "nvim/getchar.h"
-#include "nvim/getchar_defs.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/highlight_defs.h"
+#include "nvim/input.h"
+#include "nvim/input_defs.h"
 #include "nvim/keycodes.h"
 #include "nvim/lua/executor.h"
 #include "nvim/macros_defs.h"
@@ -255,7 +255,7 @@ static void showmap(mapblock_T *mp, bool local)
   // Use false below if we only want things like <Up> to show up as such on
   // the rhs, and not M-x etc, true gets both -- webb
   if (mp->m_luaref != LUA_NOREF) {
-    char *str = nlua_funcref_str(mp->m_luaref, NULL);
+    char *str = nlua_funcref_str(mp->m_luaref, NULL, true);
     msg_puts_hl(str, HLF_8, false);
     xfree(str);
   } else if (mp->m_str[0] == NUL) {
@@ -461,7 +461,7 @@ static int str_to_mapargs(const char *strargs, bool is_unmap, MapArguments *mapa
   // With :unmap, literal white space is included in the {lhs}; there is no
   // separate {rhs}.
   const char *lhs_end = to_parse;
-  bool do_backslash = (vim_strchr(p_cpo, CPO_BSLASH) == NULL);
+  bool do_backslash = (vim_strchr(p_cpo, kCpoBslash) == NULL);
   while (*lhs_end && (is_unmap || !ascii_iswhite(*lhs_end))) {
     if ((lhs_end[0] == Ctrl_V || (do_backslash && lhs_end[0] == '\\'))
         && lhs_end[1] != NUL) {
@@ -1202,7 +1202,7 @@ static char *translate_mapping(const char *const str_in, const char *const cpo_v
   garray_T ga;
   ga_init(&ga, 1, 40);
 
-  const bool cpo_bslash = (vim_strchr(cpo_val, CPO_BSLASH) != NULL);
+  const bool cpo_bslash = (vim_strchr(cpo_val, kCpoBslash) != NULL);
 
   for (; *str; str++) {
     int c = *str;
@@ -2206,7 +2206,7 @@ static void get_maparg(typval_T *argvars, typval_T *rettv, int exact)
         rettv->vval.v_string = str2special_save(rhs, false, false);
       }
     } else if (rhs_lua != LUA_NOREF) {
-      rettv->vval.v_string = nlua_funcref_str(mp->m_luaref, NULL);
+      rettv->vval.v_string = nlua_funcref_str(mp->m_luaref, NULL, true);
     }
   } else {
     // Return a dictionary.
@@ -2738,11 +2738,13 @@ void ex_abclear(exarg_T *eap)
 /// Arguments are handled like @ref nvim_set_keymap unless noted.
 /// @param  buffer    Buffer handle for a specific buffer, or 0 for the current
 ///                   buffer, or -1 to signify global behavior ("all buffers")
-/// @param  is_unmap  When true, removes the mapping that matches {lhs}.
-void modify_keymap(uint64_t channel_id, Buffer buffer, bool is_unmap, String mode, String lhs,
+/// @param  maptype   MAPTYPE_MAP to set a mapping, MAPTYPE_UNMAP to remove the mapping that
+///                   matches {lhs} or {rhs}, MAPTYPE_UNMAP_LHS to only match {lhs}.
+void modify_keymap(uint64_t channel_id, Buffer buffer, int maptype, String mode, String lhs,
                    String rhs, Dict(keymap) *opts, Error *err)
 {
   LuaRef lua_funcref = LUA_NOREF;
+  bool is_unmap = maptype == MAPTYPE_UNMAP || maptype == MAPTYPE_UNMAP_LHS;
   bool global = (buffer == -1);
   if (global) {
     buffer = 0;
@@ -2834,14 +2836,11 @@ void modify_keymap(uint64_t channel_id, Buffer buffer, bool is_unmap, String mod
   }
 
   // buf_do_map() reads noremap/unmap as its own argument.
-  int maptype_val = MAPTYPE_MAP;
-  if (is_unmap) {
-    maptype_val = MAPTYPE_UNMAP;
-  } else if (is_noremap) {
-    maptype_val = MAPTYPE_NOREMAP;
+  if (maptype == MAPTYPE_MAP && is_noremap) {
+    maptype = MAPTYPE_NOREMAP;
   }
 
-  switch (buf_do_map(maptype_val, &parsed_args, mode_val, is_abbrev, target_buf)) {
+  switch (buf_do_map(maptype, &parsed_args, mode_val, is_abbrev, target_buf)) {
   case 0:
     break;
   case 1:

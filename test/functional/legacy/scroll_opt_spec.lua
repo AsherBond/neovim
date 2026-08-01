@@ -1,6 +1,8 @@
 local n = require('test.functional.testnvim')()
+local t = require('test.testutil')
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each = t.describe, t.it, t.before_each
 local clear = n.clear
 local exec = n.exec
 local feed = n.feed
@@ -1243,7 +1245,6 @@ describe('smoothscroll', function()
                                               |
     ]])
     exec('set showtabline=2')
-    feed('<C-E>')
     screen:expect([[
       {5: }{100:2}{5:+ [No Name] }{2:                          }|
       {1:<<<}e text with some text with some text |
@@ -1259,7 +1260,7 @@ describe('smoothscroll', function()
                                               |
     ]])
     exec('set winbar=winbar')
-    feed('<C-w>k<C-E>')
+    feed('<C-w>k')
     screen:expect([[
       {5: }{100:2}{5:+ [No Name] }{2:                          }|
       {5:winbar                                  }|

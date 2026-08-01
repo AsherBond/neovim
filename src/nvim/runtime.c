@@ -32,11 +32,11 @@
 #include "nvim/ex_eval.h"
 #include "nvim/ex_eval_defs.h"
 #include "nvim/garray.h"
-#include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/hashtab.h"
 #include "nvim/hashtab_defs.h"
+#include "nvim/input.h"
 #include "nvim/lua/executor.h"
 #include "nvim/macros_defs.h"
 #include "nvim/map_defs.h"
@@ -1183,7 +1183,7 @@ static int add_pack_dir_to_rtp(char *fname, bool is_pack)
   }
 
   bool was_valid = runtime_search_path_valid;
-  set_option_value_give_err(kOptRuntimepath, STRING_OPTVAL(new_rtp), 0);
+  set_option_value_give_err(kOptRuntimepath, STRING_OBJ(new_rtp), 0);
 
   assert(!runtime_search_path_valid);
   // If this is the result of "packadd opt_pack", rebuilding runtime_search_pat
@@ -2562,19 +2562,6 @@ void ex_scriptnames(exarg_T *eap)
   }
 }
 
-#ifdef BACKSLASH_IN_FILENAME
-/// Fix slashes in the list of script names for 'shellslash'.
-void scriptnames_slash_adjust(void)
-{
-  for (int i = 1; i <= script_items.ga_len; i++) {
-    if (SCRIPT_ITEM(i)->sn_name != NULL) {
-      slash_adjust(SCRIPT_ITEM(i)->sn_name);
-    }
-  }
-}
-
-#endif
-
 /// Get a pointer to a script name.  Used for ":verbose set".
 /// Message appended to "Last set from "
 ///
@@ -2787,7 +2774,7 @@ char *getsourceline(int c, void *cookie, int indent, bool do_concat)
 
   // Only concatenate lines starting with a \ when 'cpoptions' doesn't
   // contain the 'C' flag.
-  if (line != NULL && do_concat && (vim_strchr(p_cpo, CPO_CONCAT) == NULL)) {
+  if (line != NULL && do_concat && (vim_strchr(p_cpo, kCpoConcat) == NULL)) {
     char *p;
     // compensate for the one line read-ahead
     sp->sourcing_lnum--;

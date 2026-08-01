@@ -39,6 +39,7 @@
 #include "nvim/channel.h"
 #include "nvim/charset.h"
 #include "nvim/cmdexpand.h"
+#include "nvim/context.h"
 #include "nvim/cursor.h"
 #include "nvim/diff.h"
 #include "nvim/digraph.h"
@@ -61,7 +62,6 @@
 #include "nvim/fuzzy.h"
 #include "nvim/garray.h"
 #include "nvim/garray_defs.h"
-#include "nvim/getchar.h"
 #include "nvim/gettext_defs.h"
 #include "nvim/globals.h"
 #include "nvim/hashtab.h"
@@ -69,6 +69,7 @@
 #include "nvim/help.h"
 #include "nvim/indent.h"
 #include "nvim/indent_c.h"
+#include "nvim/input.h"
 #include "nvim/insexpand.h"
 #include "nvim/main.h"
 #include "nvim/map_defs.h"
@@ -176,7 +177,7 @@ int get_highest_fnum(void)
 static int read_buffer(bool read_stdin, exarg_T *eap, int flags)
 {
   int retval = OK;
-  bool silent = shortmess(SHM_FILEINFO);
+  bool silent = shortmess(kShmFileinfo);
 
   // Read from the buffer which the text is already filled in and append at
   // the end.  This makes it possible to retry when 'fileformat' or
@@ -224,13 +225,13 @@ bool buf_ensure_loaded(buf_T *buf)
     return true;
   }
 
-  aco_save_T aco = { 0 };
+  CtxSwitch aco = { 0 };
 
   // Make sure the buffer is in a window.
-  aucmd_prepbuf(&aco, buf);
+  ctx_switch(&aco, NULL, NULL, buf, 0);
   // status can be OK or NOTDONE (which also means ok/done)
   int status = open_buffer(false, NULL, 0);
-  aucmd_restbuf(&aco);
+  ctx_restore(&aco);
   return (status != FAIL);
 }
 
@@ -249,7 +250,7 @@ int open_buffer(bool read_stdin, exarg_T *eap, int flags_arg)
   bufref_T old_curbuf;
   OptInt old_tw = curbuf->b_p_tw;
   bool read_fifo = false;
-  bool silent = shortmess(SHM_FILEINFO);
+  bool silent = shortmess(kShmFileinfo);
 
   // The 'readonly' flag is only set when BF_NEVERLOADED is being reset.
   // When re-entering the same buffer, it should not change, because the
@@ -383,9 +384,9 @@ int open_buffer(bool read_stdin, exarg_T *eap, int flags_arg)
   // When reading stdin, the buffer contents always needs writing, so set
   // the changed flag.  Unless in readonly mode: "ls | nvim -R -".
   // When interrupted and 'cpoptions' contains 'i' set changed flag.
-  if ((got_int && vim_strchr(p_cpo, CPO_INTMOD) != NULL)
+  if ((got_int && vim_strchr(p_cpo, kCpoIntmod) != NULL)
       || curbuf->b_modified_was_set  // autocmd did ":set modified"
-      || (aborting() && vim_strchr(p_cpo, CPO_INTMOD) != NULL)) {
+      || (aborting() && vim_strchr(p_cpo, kCpoIntmod) != NULL)) {
     changed(curbuf);
   } else if (retval != FAIL && !read_stdin && !read_fifo) {
     unchanged(curbuf, false, true);
@@ -401,6 +402,24 @@ int open_buffer(bool read_stdin, exarg_T *eap, int flags_arg)
   // require "!" to overwrite the file, because it wasn't read completely
   if (aborting()) {
     curbuf->b_flags |= BF_READERR;
+  }
+
+  // Directory buf:
+  // readfile() returns NOTDONE without firing BufReadPost when it did not read a
+  // file (e.g. a directory). Since BufReadPost is what normally runs filetype
+  // detection, do it here so FileType fires before the BufEnter below.
+  if (retval == NOTDONE && *curbuf->b_p_ft == NUL
+      && curbuf->b_ffname != NULL
+      && after_pathsep(curbuf->b_ffname,
+                       curbuf->b_ffname + strlen(curbuf->b_ffname))) {
+    if (augroup_exists("filetypedetect")) {
+      bufref_T bufref;
+      set_bufref(&bufref, curbuf);
+      do_doautocmd("filetypedetect BufRead", false, NULL);
+      if (!bufref_valid(&bufref) || curbuf != old_curbuf.br_buf || aborting()) {
+        return FAIL;
+      }
+    }
   }
 
   // Need to update automatic folding.  Do this before the autocommands,
@@ -422,10 +441,10 @@ int open_buffer(bool read_stdin, exarg_T *eap, int flags_arg)
   // The autocommands may have changed the current buffer.  Apply the
   // modelines to the correct buffer, if it still exists and is loaded.
   if (bufref_valid(&old_curbuf) && old_curbuf.br_buf->b_ml.ml_mfp != NULL) {
-    aco_save_T aco = { 0 };
+    CtxSwitch aco = { 0 };
 
     // Go to the buffer that was opened, make sure it is in a window.
-    aucmd_prepbuf(&aco, old_curbuf.br_buf);
+    ctx_switch(&aco, NULL, NULL, old_curbuf.br_buf, 0);
     do_modelines(0);
     curbuf->b_flags &= ~(BF_CHECK_RO | BF_NEVERLOADED);
 
@@ -435,7 +454,7 @@ int open_buffer(bool read_stdin, exarg_T *eap, int flags_arg)
     }
 
     // restore curwin/curbuf and a few other things
-    aucmd_restbuf(&aco);
+    ctx_restore(&aco);
   }
 
   return retval;
@@ -874,7 +893,7 @@ bool buf_freeall(buf_T *buf, int flags)
   }
 
   // If curbuf, stop Visual mode just before freeing, but after autocmds that may restart it.
-  if (buf == curbuf && VIsual_active
+  if (buf == curbuf && Visual.active
 #if defined(EXITFREE)
       && !entered_free_all_mem
 #endif
@@ -1268,7 +1287,7 @@ static int empty_curbuf(bool close_others, int forceit, int action)
 
   if (!close_others) {
     need_fileinfo = false;
-  } else if (retval == OK && !shortmess(SHM_FILEINFO)) {
+  } else if (retval == OK && !shortmess(kShmFileinfo)) {
     // do_ecmd() does not display file info for a new empty buffer.
     need_fileinfo = true;
   }
@@ -1432,7 +1451,7 @@ static int do_buffer_ext(int action, int start, int dir, int count, int flags)
     int buf_fnum = buf->b_fnum;
 
     // When closing the current buffer stop Visual mode.
-    if (buf == curbuf && VIsual_active) {
+    if (buf == curbuf && Visual.active) {
       end_visual_mode();
     }
 
@@ -1455,7 +1474,7 @@ static int do_buffer_ext(int action, int start, int dir, int count, int flags)
     // Repeat this so long as we end up in a window with this buffer.
     while (buf == curbuf
            && !(win_locked(curwin) || curwin->w_buffer->b_locked > 0)
-           && (is_aucmd_win(lastwin) || !last_window(curwin))) {
+           && (is_ctx_win(lastwin) || !last_window(curwin))) {
       if (win_close(curwin, false, false) == FAIL) {
         break;
       }
@@ -1476,15 +1495,15 @@ static int do_buffer_ext(int action, int start, int dir, int count, int flags)
         // Switch to buf's holder window without entering it: caller keeps focus,
         // BufEnter doesn't fire for the deleted buffer.
         // curwin must be floating: buf != curbuf, yet firstwin (the last non-float) shows buf.
-        // Also firstwin is valid in curtab, so switch_win_noblock should not fail.
+        // Also firstwin is valid in curtab, so ctx_switch should not fail.
         assert(curwin->w_floating);
-        switchwin_T switchwin;
-        const int rv = switch_win_noblock(&switchwin, firstwin, curtab, true);
-        assert(rv == OK);
+        CtxSwitch switchwin;
+        const bool rv = ctx_switch(&switchwin, firstwin, curtab, NULL, kCtxNoDisplay);
+        assert(rv);
         (void)rv;
         // retry (recurse)
         do_buffer_ext(action, start, dir, count, flags);
-        restore_win_noblock(&switchwin, true);
+        ctx_restore(&switchwin);
       }
 
       if (buf != curbuf && bufref_valid(&bufref) && buf->b_nwindows <= 0) {
@@ -1607,7 +1626,7 @@ static int do_buffer_ext(int action, int start, int dir, int count, int flags)
     }
     if (buf == NULL) {          // Still no buffer, just take one
       buf = curbuf->b_next != NULL ? curbuf->b_next : curbuf->b_prev;
-      if (bt_quickfix(buf) || (buf != curbuf && buf->b_locked_split)) {
+      if (bt_quickfix(buf) || (buf != NULL && buf != curbuf && buf->b_locked_split)) {
         buf = NULL;
       }
     }
@@ -1700,7 +1719,7 @@ void set_curbuf(buf_T *buf, int action, bool update_jumplist)
   buflist_altfpos(curwin);                       // remember curpos
 
   // Don't restart Select mode after switching to another buffer.
-  VIsual_reselect = false;
+  Visual.reselect = false;
 
   // close_windows() or apply_autocmds() may change curbuf and wipe out "buf"
   prevbuf = curbuf;
@@ -1761,7 +1780,7 @@ static void enter_buffer(buf_T *buf)
 {
   // Stop Visual mode before changing curbuf.  Assumes curbuf and curwin->w_buffer is valid; if not,
   // buf_freeall() should've done this already!
-  if (VIsual_active
+  if (Visual.active
 #ifdef EXITFREE
       && !entered_free_all_mem
 #endif
@@ -1815,7 +1834,7 @@ static void enter_buffer(buf_T *buf)
 
     open_buffer(false, NULL, 0);
   } else {
-    if (!msg_silent && !shortmess(SHM_FILEINFO)) {
+    if (!msg_silent && !shortmess(kShmFileinfo)) {
       need_fileinfo = true;             // display file info after redraw
     }
     // check if file changed
@@ -1835,6 +1854,7 @@ static void enter_buffer(buf_T *buf)
 
   check_arg_idx(curwin);                // check for valid arg_idx
   maketitle();
+  win_float_update_preview(curwin);
   // when autocmds didn't change it
   if (curwin->w_topline == 1 && !curwin->w_topline_was_set) {
     scroll_cursor_halfway(curwin, false, false);  // redisplay at correct position
@@ -2021,8 +2041,10 @@ buf_T *buflist_new(char *ffname_arg, char *sfname_arg, linenr_T lnum, int flags)
   }
 
   if (ffname != NULL) {
+    assert(sfname != NULL);
     buf->b_ffname = ffname;
     buf->b_sfname = xstrdup(sfname);
+    TO_SLASH(buf->b_sfname);
   }
 
   clear_wininfo(buf);
@@ -2148,11 +2170,11 @@ void free_buf_options(buf_T *buf, bool free_p_ff)
   }
   clear_string_option(&buf->b_p_def);
   clear_string_option(&buf->b_p_inc);
-  clear_string_option(&buf->b_p_inex);
-  clear_string_option(&buf->b_p_inde);
+  callback_free(&buf->b_p_inex);
+  callback_free(&buf->b_p_inde);
   clear_string_option(&buf->b_p_indk);
   clear_string_option(&buf->b_p_fp);
-  clear_string_option(&buf->b_p_fex);
+  callback_free(&buf->b_p_fex);
   clear_string_option(&buf->b_p_kp);
   clear_string_option(&buf->b_p_mps);
   clear_string_option(&buf->b_p_fo);
@@ -2186,12 +2208,9 @@ void free_buf_options(buf_T *buf, bool free_p_ff)
   clear_string_option(&buf->b_p_cinw);
   clear_string_option(&buf->b_p_cot);
   clear_string_option(&buf->b_p_cpt);
-  clear_string_option(&buf->b_p_cfu);
-  callback_free(&buf->b_cfu_cb);
-  clear_string_option(&buf->b_p_ofu);
-  callback_free(&buf->b_ofu_cb);
-  clear_string_option(&buf->b_p_tsrfu);
-  callback_free(&buf->b_tsrfu_cb);
+  callback_free(&buf->b_p_cfu);
+  callback_free(&buf->b_p_ofu);
+  callback_free(&buf->b_p_tsrfu);
   clear_cpt_callbacks(&buf->b_p_cpt_cb, buf->b_p_cpt_count);
   buf->b_p_cpt_count = 0;
   clear_string_option(&buf->b_p_gefm);
@@ -2202,10 +2221,8 @@ void free_buf_options(buf_T *buf, bool free_p_ff)
   clear_string_option(&buf->b_p_path);
   clear_string_option(&buf->b_p_tags);
   clear_string_option(&buf->b_p_tc);
-  clear_string_option(&buf->b_p_tfu);
-  callback_free(&buf->b_tfu_cb);
-  clear_string_option(&buf->b_p_ffu);
-  callback_free(&buf->b_ffu_cb);
+  callback_free(&buf->b_p_tfu);
+  callback_free(&buf->b_p_ffu);
   clear_string_option(&buf->b_p_dict);
   clear_string_option(&buf->b_p_dia);
   clear_string_option(&buf->b_p_tsr);
@@ -3104,6 +3121,7 @@ int setfname(buf_T *buf, char *ffname_arg, char *sfname_arg, bool message)
     }
     sfname = xstrdup(sfname);
 #ifdef CASE_INSENSITIVE_FILENAME
+    TO_SLASH(sfname);
     path_fix_case(sfname);            // set correct case for short file name
 #endif
     if (buf->b_sfname != buf->b_ffname) {
@@ -3208,22 +3226,6 @@ int buflist_add(char *fname, int flags)
   }
   return 0;
 }
-
-#ifdef BACKSLASH_IN_FILENAME
-/// Adjust slashes in file names.  Called after 'shellslash' was set.
-void buflist_slash_adjust(void)
-{
-  FOR_ALL_BUFFERS(bp) {
-    if (bp->b_ffname != NULL) {
-      slash_adjust(bp->b_ffname);
-    }
-    if (bp->b_sfname != NULL) {
-      slash_adjust(bp->b_sfname);
-    }
-  }
-}
-
-#endif
 
 /// Set alternate cursor position for the current buffer and window "win".
 /// Also save the local window option values.
@@ -3342,7 +3344,7 @@ void fileinfo(int fullname, int shorthelp, bool dont_truncate)
                                     IOSIZE - bufferlen,
                                     "\"%s%s%s%s%s%s",
                                     curbufIsChanged()
-                                    ? (shortmess(SHM_MOD) ? " [+]" : _(" [Modified]"))
+                                    ? (shortmess(kShmMod) ? " [+]" : _(" [Modified]"))
                                     : " ",
                                     (curbuf->b_flags & BF_NOTEDITED) && !dontwrite
                                     ? _("[Not edited]") : "",
@@ -3351,7 +3353,7 @@ void fileinfo(int fullname, int shorthelp, bool dont_truncate)
                                     (curbuf->b_flags & BF_READERR)
                                     ? _("[Read errors]") : "",
                                     curbuf->b_p_ro
-                                    ? (shortmess(SHM_RO) ? _("[RO]") : _("[readonly]"))
+                                    ? (shortmess(kShmRo) ? _("[RO]") : _("[readonly]"))
                                     : "",
                                     (curbufIsChanged()
                                      || (curbuf->b_flags & BF_WRITE_MASK)
@@ -3456,10 +3458,17 @@ void maketitle(void)
       }
     } else {
       // Format: "fname + (path) (1 of 2) - Nvim".
+#ifdef MSWIN
+      int p_ssl_save = p_ssl;
+      p_ssl = true;
+#endif
       char *default_titlestring = "%t%( %M%)%( (%{expand('%:p:~:h')})%)%a - Nvim";
       build_stl_str_hl(curwin, buf, sizeof(buf), default_titlestring,
                        kOptTitlestring, 0, 0, maxlen, NULL, NULL, NULL, NULL);
       title_str = buf;
+#ifdef MSWIN
+      p_ssl = p_ssl_save;
+#endif
     }
   }
   bool mustset = value_change(title_str, &lasttitle);
@@ -3596,6 +3605,9 @@ int append_arg_number(win_T *wp, char *buf, size_t buflen)
 }
 
 /// Make "*ffname" a full file name, set "*sfname" to "*ffname" if not NULL.
+/// For a directory the resulting "*ffname" gets a trailing path separator. When
+/// "*sfname" already ends with a separator the final component is not resolved,
+/// so the symbolic link path is preserved.
 /// "*ffname" becomes a pointer to allocated memory (or NULL).
 /// When resolving a link both "*sfname" and "*ffname" will point to the same
 /// allocated memory.
@@ -3609,7 +3621,30 @@ void fname_expand(buf_T *buf, char **ffname, char **sfname)
   if (*sfname == NULL) {  // no short file name given, use ffname
     *sfname = *ffname;
   }
-  *ffname = fix_fname((*ffname));     // expand to full path
+  *ffname = fix_fname(*ffname);     // expand to full path
+  if (*ffname == NULL) {
+    *sfname = NULL;
+    return;
+  }
+  // Preserve a symbolic link path for directory buffers. fix_fname("link/")
+  // resolves to the target, so re-expand without the trailing separator: if
+  // "link" is a symbolic link to directory "target", ":edit link/" produces
+  // ".../link/", not ".../target/".
+  if (os_isdir(*ffname)) {
+    char *name = xstrdup(*sfname);
+    size_t name_len = strlen(name);
+    if (name_len > 0 && after_pathsep(name, name + name_len)
+        && name + name_len > get_past_head(name)) {
+      *path_tail_with_sep(name) = NUL;
+    }
+    char *full = fix_fname(name);
+    xfree(name);
+    if (full != NULL) {
+      xfree(*ffname);
+      *ffname = full;
+    }
+    *ffname = concat_fnames_realloc(*ffname, "", true);
+  }
 
 #ifdef MSWIN
   if (!buf->b_p_bin) {
@@ -3631,6 +3666,13 @@ bool bt_prompt(buf_T *buf)
   return buf != NULL && buf->b_p_bt[0] == 'p';
 }
 
+/// @return  true if "buf" is the |cmdwin| scratch buffer.
+bool bt_cmdwin(const buf_T *buf)
+  FUNC_ATTR_PURE
+{
+  return buf != NULL && buf == cmdwin_buf;
+}
+
 /// Open a window for a number of buffers.
 void ex_buffer_all(exarg_T *eap)
 {
@@ -3647,7 +3689,7 @@ void ex_buffer_all(exarg_T *eap)
   // When true also load inactive buffers.
   int all = eap->cmdidx != CMD_unhide && eap->cmdidx != CMD_sunhide;
 
-  // Stop Visual mode, the cursor and "VIsual" may very well be invalid after
+  // Stop Visual mode, the cursor and `Visual.start` may very well be invalid after
   // switching to another buffer.
   reset_VIsual_and_resel();
 
@@ -3674,7 +3716,7 @@ void ex_buffer_all(exarg_T *eap)
            || (had_tab > 0 && wp != firstwin))
           && !ONE_WINDOW
           && !(win_locked(wp) || wp->w_buffer->b_locked > 0)
-          && !is_aucmd_win(wp)) {
+          && !is_ctx_win(wp)) {
         if (win_close(wp, false, false) == FAIL) {
           break;
         }
@@ -3701,7 +3743,7 @@ void ex_buffer_all(exarg_T *eap)
   //
   // Don't execute Win/Buf Enter/Leave autocommands here.
   autocmd_no_enter++;
-  // lastwin may be aucmd_win
+  // lastwin may be ctx_win
   win_enter(lastwin_nofloating(NULL), false);
   autocmd_no_leave++;
   for (buf_T *buf = firstbuf; buf != NULL && open_wins < count; buf = buf->b_next) {
@@ -3793,7 +3835,7 @@ void ex_buffer_all(exarg_T *eap)
   // Close superfluous windows.
   for (win_T *wp = lastwin; open_wins > count;) {
     bool r = (buf_hide(wp->w_buffer) || !bufIsChanged(wp->w_buffer)
-              || autowrite(wp->w_buffer, false) == OK) && !is_aucmd_win(wp);
+              || autowrite(wp->w_buffer, false) == OK) && !is_ctx_win(wp);
     if (!win_valid(wp)) {
       // BufWrite Autocommands made the window invalid, start over
       wp = lastwin;
@@ -4092,7 +4134,7 @@ char *buf_spname(buf_T *buf)
     if (buf->b_fname != NULL) {
       return buf->b_fname;
     }
-    if (buf == cmdwin_buf) {
+    if (bt_cmdwin(buf)) {
       return _("[Command Line]");
     }
     if (bt_prompt(buf)) {
@@ -4153,8 +4195,8 @@ bool buf_contents_changed(buf_T *buf)
   prep_exarg(&ea, buf);
 
   // Set curwin/curbuf to buf and save a few things.
-  aco_save_T aco = { 0 };
-  aucmd_prepbuf(&aco, newbuf);
+  CtxSwitch aco = { 0 };
+  ctx_switch(&aco, NULL, NULL, newbuf, 0);
 
   // We don't want to trigger autocommands now, they may have nasty
   // side-effects like wiping buffers
@@ -4178,7 +4220,7 @@ bool buf_contents_changed(buf_T *buf)
   xfree(ea.cmd);
 
   // restore curwin/curbuf and a few other things
-  aucmd_restbuf(&aco);
+  ctx_restore(&aco);
 
   if (curbuf != newbuf) {  // safety check
     wipe_buffer(newbuf, false);
@@ -4201,34 +4243,6 @@ void wipe_buffer(buf_T *buf, bool aucmd)
   if (!aucmd) {
     unblock_autocmds();
   }
-}
-
-/// Creates or switches to a scratch buffer. :h special-buffers
-/// Scratch buffer is:
-///   - buftype=nofile bufhidden=hide noswapfile
-///   - Always considered 'nomodified'
-///
-/// @param bufnr     Buffer to switch to, or 0 to create a new buffer.
-/// @param bufname   Buffer name, or NULL.
-///
-/// @see curbufIsChanged()
-///
-/// @return  FAIL for failure, OK otherwise
-int buf_open_scratch(handle_T bufnr, char *bufname)
-{
-  if (do_ecmd((int)bufnr, NULL, NULL, NULL, ECMD_ONE, ECMD_HIDE, NULL) == FAIL) {
-    return FAIL;
-  }
-  if (bufname != NULL) {
-    apply_autocmds(EVENT_BUFFILEPRE, NULL, NULL, false, curbuf);
-    setfname(curbuf, bufname, NULL, true);
-    apply_autocmds(EVENT_BUFFILEPOST, NULL, NULL, false, curbuf);
-  }
-  set_option_value_give_err(kOptBufhidden, STATIC_CSTR_AS_OPTVAL("hide"), OPT_LOCAL);
-  set_option_value_give_err(kOptBuftype, STATIC_CSTR_AS_OPTVAL("nofile"), OPT_LOCAL);
-  set_option_value_give_err(kOptSwapfile, BOOLEAN_OPTVAL(false), OPT_LOCAL);
-  RESET_BINDING(curwin);
-  return OK;
 }
 
 bool buf_is_empty(buf_T *buf)

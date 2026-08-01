@@ -1313,6 +1313,7 @@ func Run_noroom_for_newwindow_test(dir_arg)
 endfunc
 
 func Test_split_cmds_with_no_room()
+  throw "Skipped: Nvim supports cmdwin freedom #40312"
   call Run_noroom_for_newwindow_test('h')
   call Run_noroom_for_newwindow_test('v')
 endfunc
@@ -1765,6 +1766,7 @@ endfunc
 " tabline, for each possible value of 'laststatus', 'scrolloff',
 " 'equalalways', and with the cursor at the top, middle and bottom.
 func Test_splitkeep_options()
+  throw "Skipped: Nvim supports cmdwin freedom #40312"
   " disallow window resizing
   " let save_WS = &t_WS
   " set t_WS=
@@ -1894,6 +1896,7 @@ func Test_splitkeep_options()
 endfunc
 
 func Test_splitkeep_cmdwin_cursor_position()
+  throw 'Skipped: Nvim supports cmdwin freedom #40312'
   set splitkeep=screen
   call setline(1, range(&lines))
 
@@ -1984,6 +1987,24 @@ func Test_splitkeep_cmdheight()
   call assert_equal(&lines - 1, line('.'))
   %bwipeout!
   set splitkeep& cmdheight&
+endfunc
+
+func Test_aucmd_win_scroll_multibyte()
+  " Using the autocommand window must not scroll the current window when the
+  " cursor is behind multi-byte characters.
+  set splitkeep=cursor
+  call setline(1, repeat([repeat(nr2char(0x3042), 200)], 20))
+  normal! G0100l
+  redraw
+  let topline = line('w0')
+
+  for i in range(3)
+    call bufload(bufadd(''))
+  endfor
+  call assert_equal(topline, line('w0'))
+
+  %bwipeout!
+  set splitkeep&
 endfunc
 
 func Test_splitkeep_cursor()
@@ -2205,6 +2226,7 @@ func Test_autocmd_window_force_room()
 endfunc
 
 func Test_win_gotoid_splitmove_textlock_cmdwin()
+  throw 'Skipped: Nvim supports cmdwin freedom #40312'
   call setline(1, 'foo')
   new
   let curwin = win_getid()
@@ -2430,6 +2452,23 @@ func Test_winfixheight_resize_wmh_zero()
 
   cclose
   set winminheight& laststatus&
+endfunc
+
+" Splitting the only window while it has 'winfixheight' set and 'laststatus' is
+" one must not leave a screen line unused.
+func Test_winfixheight_split_only_window()
+  set laststatus=1
+  new
+  only!
+  setlocal winfixheight
+  split
+  " Two windows, both with a status line, and the command line.
+  call assert_equal(&lines - &cmdheight - 2, winheight(1) + winheight(2))
+
+  only!
+  setlocal winfixheight&
+  set laststatus&
+  bwipe!
 endfunc
 
 func Test_window_w_locked_bypass()

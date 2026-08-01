@@ -95,6 +95,11 @@ typedef struct {
 } Dict(keymap);
 
 typedef struct {
+  OptionalKeys is_set__keymap_del_;
+  Boolean lhs;
+} Dict(keymap_del);
+
+typedef struct {
   Boolean builtin;
 } Dict(get_commands);
 
@@ -170,6 +175,8 @@ typedef struct {
   Buffer buf;
   Tabpage tab;
   String filetype;
+  String operation;
+  Boolean dry_run;
 } Dict(option);
 
 typedef struct {
@@ -254,6 +261,11 @@ typedef struct {
 } Dict(win_text_height);
 
 typedef struct {
+  OptionalKeys is_set__win_resize_;
+  String anchor;
+} Dict(win_resize);
+
+typedef struct {
   OptionalKeys is_set__clear_autocmds_;
   Buffer buffer;  // deprecated - use buf
   Buffer buf;
@@ -307,7 +319,7 @@ typedef struct {
   Integer count;
   String reg;
   Boolean bang;
-  ArrayOf(String) args;
+  ArrayOf(Union(Integer, String, Boolean)) args;
   DictAs(cmd__magic) magic;
   DictAs(cmd__mods) mods;
   Union(Integer, Enum("?", "+", "*")) nargs;

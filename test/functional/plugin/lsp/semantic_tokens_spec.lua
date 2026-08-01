@@ -3,6 +3,7 @@ local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 local t_lsp = require('test.functional.plugin.lsp.testutil')
 
+local describe, it, before_each, after_each = t.describe, t.it, t.before_each, t.after_each
 local command = n.command
 local dedent = t.dedent
 local eq = t.eq
@@ -334,6 +335,8 @@ describe('semantic token highlighting', function()
       n.poke_eventloop()
       -- modify the buffer
       feed('o<ESC>')
+
+      n.poke_eventloop()
 
       local messages = exec_lua('return _G.server_full.messages')
       local called_full = 0

@@ -45,7 +45,7 @@ Follow these steps to get LSP features:
          }
        }
      }
-3. Use |vim.lsp.enable()| to enable the config.
+3. Use |vim.lsp.enable()| to enable the config. See |lsp-activate|.
    Example: >lua
      vim.lsp.enable('emmylua_ls')
 4. Open a code file matching one of the `filetypes` specified in the config.
@@ -182,15 +182,19 @@ Use |vim.lsp.config()| to define or modify LSP configurations, and
 |vim.lsp.start()| which allows you to share and merge configs (provided by
 Nvim, plugins, and your local config).
 
+
 NEW CONFIG                                            *lsp-new-config*
+
 To create a new config you can either use `vim.lsp.config()` or create
 a `lsp/<config-name>.lua` file.
+
 
 EXAMPLE: DEFINE A CONFIG AS CODE ~
 
 1. Run `:lua vim.lsp.config('foo', {cmd={'true'}})`
 2. Run `:lua vim.lsp.enable('foo')`
 3. Run `:checkhealth vim.lsp`, check "Enabled Configurations". 😎
+
 
 EXAMPLE: DEFINE A CONFIG AS A FILE ~
 
@@ -207,7 +211,23 @@ EXAMPLE: DEFINE A CONFIG AS A FILE ~
    :lua vim.lsp.enable('foo')
 5. Run `:checkhealth vim.lsp`, check "Enabled Configurations". 🌈
 
+
+HOW CONFIGS ACTIVATE                                    *lsp-activate*
+
+Call |vim.lsp.enable()| to ENABLE a config: it will automatically ACTIVATE
+(attach a client) whenever you open a buffer, if:
+
+- 'filetype' matches one of the config `filetypes`
+- 'buftype' is empty or "help"
+- `root_markers` or `root_dir()` resolved a workspace roort, or the config has
+  `workspace_required=false`
+
+Note: The initial call to |vim.lsp.enable()| (or |:lsp-enable|) also actively
+checks and activates EXISTING buffers, if any.
+
+
 HOW CONFIGS ARE MERGED                                  *lsp-config-merge*
+
 When an LSP client starts, it resolves its configuration by merging the
 following sources (merge semantics defined by |vim.tbl_deep_extend()| with
 "force" behavior), in order of increasing priority:
@@ -270,7 +290,9 @@ Example: given the following configs... >lua
     }
   }
 <
+
 CONFIGURE ON ATTACH                                     *lsp-attach*
+
 To use LSP features beyond those provided by Nvim (see |lsp-buf|), you can set
 keymaps and options on |Client:on_attach()| or |LspAttach|. Not all language
 servers provide the same capabilities; check `supports_method()` in your
@@ -279,7 +301,7 @@ LspAttach handler.
 Example: Enable auto-completion and auto-formatting ("linting"): >lua
 
     vim.api.nvim_create_autocmd('LspAttach', {
-      group = vim.api.nvim_create_augroup('my.lsp', {}),
+      group = vim.api.nvim_create_augroup('my.lsp'),
       callback = function(ev)
         local client = assert(vim.lsp.get_client_by_id(ev.data.client_id))
         if client:supports_method('textDocument/implementation') then
@@ -362,20 +384,20 @@ FAQ                                                     *lsp-faq*
      but it is fast, lightweight and useful for navigating polyglot projects.
 
 ================================================================================
-LSP API                                                 *lsp-api*
+CONCEPTS
+
+API                                                                  *lsp-api*
 
 The |lsp-core| API provides core functions for creating and managing clients,
 You can even create creating custom (in-process) |lsp-server|s.
 The |lsp-buf| functions operate LSP clients attached to the current buffer.
 
-------------------------------------------------------------------------------
-CONCEPTS
 
-                                                                  *lsp-method*
+METHOD                                                            *lsp-method*
 Requests and notifications defined by the LSP specification are referred to as
 "LSP methods". These are handled by |lsp-handler| functions.
 
-                                                                 *lsp-handler*
+HANDLER                                                          *lsp-handler*
 LSP handlers are functions that handle |lsp-response|s to requests made by Nvim
 to the server. (Notifications, as opposed to requests, are fire-and-forget:
 there is no response, so they can't be handled. |lsp-notification|)
@@ -1118,8 +1140,9 @@ config({name}, {cfg})                                       *vim.lsp.config()*
       • {cfg}   (`vim.lsp.Config`) See |vim.lsp.Config|.
 
 enable({name}, {enable})                                    *vim.lsp.enable()*
-    Auto-activates LSP in each buffer based on the |lsp-config| `filetypes`,
-    `root_markers`, and `root_dir`.
+    Enables a |lsp-config|: automatically attaches the client to any buffer
+    based on the config `filetypes`, `root_markers`, and `root_dir`. See
+    |lsp-activate| for details.
 
     To disable, pass `enable=false`: Stops related clients and servers
     (force-stops servers after a timeout, unless `exit_timeout=false`).
@@ -1161,7 +1184,7 @@ enable({name}, {enable})                                    *vim.lsp.enable()*
                   milliseconds).
 
 foldclose({kind}, {winid})                               *vim.lsp.foldclose()*
-    Close all {kind} of folds in the the window with {winid}.
+    Close all {kind} of folds in the window with {winid}.
 
     To automatically fold imports when opening a file, you can use an autocmd: >lua
         vim.api.nvim_create_autocmd('LspNotify', {
@@ -1187,7 +1210,7 @@ foldexpr({lnum})                                          *vim.lsp.foldexpr()*
 
     To use, set 'foldmethod' to "expr" and set the value of 'foldexpr': >lua
         vim.o.foldmethod = 'expr'
-        vim.o.foldexpr = 'v:lua.vim.lsp.foldexpr()'
+        vim.o.foldexpr = vim.lsp.foldexpr
 <
 
     Or use it only when supported by checking for the
@@ -1195,14 +1218,14 @@ foldexpr({lnum})                                          *vim.lsp.foldexpr()*
     Example: >lua
         vim.o.foldmethod = 'expr'
         -- Default to treesitter folding
-        vim.o.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
+        vim.o.foldexpr = vim.treesitter.foldexpr
         -- Prefer LSP folding if client supports it
         vim.api.nvim_create_autocmd('LspAttach', {
           callback = function(ev)
             local client = vim.lsp.get_client_by_id(ev.data.client_id)
             if client:supports_method('textDocument/foldingRange') then
               local win = vim.api.nvim_get_current_win()
-              vim.wo[win][0].foldexpr = 'v:lua.vim.lsp.foldexpr()'
+              vim.wo[win][0].foldexpr = vim.lsp.foldexpr
             end
           end,
         })
@@ -1225,9 +1248,12 @@ formatexpr({opts})                                      *vim.lsp.formatexpr()*
     function.
 
     Currently only supports a single client. This can be set via
-    `setlocal formatexpr=v:lua.vim.lsp.formatexpr()` or (more typically) in
-    `on_attach` via
-    `vim.bo[bufnr].formatexpr = 'v:lua.vim.lsp.formatexpr(#{timeout_ms:250})'`.
+    `vim.bo[bufnr].formatexpr = vim.lsp.formatexpr`, or with a wrapper to pass
+    options: >lua
+        vim.bo[bufnr].formatexpr = function()
+          return vim.lsp.formatexpr({ timeout_ms = 250 })
+        end
+<
 
     Parameters: ~
       • {opts}  (`table?`) A table with the following fields:
@@ -1465,7 +1491,7 @@ the current buffer.
 
                     See |setqflist-what| for the structure of the `what`
                     parameter.
-      • {pos}       (`vim.Pos`, default: cursor position) Position on a buffer
+      • {pos}?      (`vim.Pos`, default: cursor position) Position on a buffer
                     to request.
 
 *vim.lsp.buf.hover.Opts*
@@ -1595,9 +1621,11 @@ format({opts})                                          *vim.lsp.buf.format()*
                   default: current selection in visual mode, `nil` in other
                   modes, formatting the full buffer) Range to format. Table
                   must contain `start` and `end` keys with {row,col} tuples
-                  using (1,0) indexing. Can also be a list of tables that
-                  contain `start` and `end` keys as described above, in which
-                  case `textDocument/rangesFormatting` support is required.
+                  using (1,0) indexing. The end column can be -1 to format
+                  through the end of the line. Can also be a list of tables
+                  that contain `start` and `end` keys as described above, in
+                  which case `textDocument/rangesFormatting` support is
+                  required.
                 • {timeout_ms}? (`integer`, default: `1000`) Time in
                   milliseconds to block for formatting requests. No effect if
                   async=true.
@@ -1880,12 +1908,13 @@ Lua module: vim.lsp.client                                        *lsp-client*
                                      return vim.lsp.rpc.start(cmd, dispatchers)
                                    end
 <
-                               • See |vim.lsp.rpc.request()|
-                                 |vim.lsp.rpc.notify()|
+                               • See |vim.lsp.rpc.Client|.
                                • For TCP there is a builtin RPC client
                                  factory: |vim.lsp.rpc.connect()|
-      • {cmd_cwd}?             (`string`, default: cwd) Directory to launch
-                               the `cmd` process. Not related to `root_dir`.
+      • {cmd_cwd}?             (`string`) Directory where the `cmd` process is
+                               launched when `cmd` is a string array. Defaults
+                               to `root_dir` when available, then the current
+                               working directory.
       • {cmd_env}?             (`table`) Environment variables passed to the
                                LSP process on spawn. Non-string values are
                                coerced to string. Example: >lua
@@ -2210,6 +2239,12 @@ you want to trigger on EVERY keypress you can either:
   example.
 • Call `vim.lsp.completion.get()` from an |InsertCharPre| autocommand.
 
+If the server provides `commitCharacters` for a completion item, typing one of
+those characters while the item is selected accepts the completion and then
+inserts the character. To disable this: >lua
+    vim.lsp.completion.enable(true, client_id, bufnr, { commit_characters = false })
+<
+
 
                                                  *vim.lsp.completion.enable()*
 enable({enable}, {client_id}, {bufnr}, {opts})
@@ -2246,6 +2281,8 @@ enable({enable}, {client_id}, {bufnr}, {opts})
                        `triggerCharacters`.
                      • {cmp}? (`fun(a: table, b: table): boolean`) Comparator
                        for sorting merged completion items from all servers.
+                     • {commit_characters}? (`boolean`) (default: true) When
+                       false, commit characters are ignored.
                      • {convert}? (`fun(item: lsp.CompletionItem): table`)
                        Transforms an LSP CompletionItem to |complete-items|.
 
@@ -2385,9 +2422,11 @@ enable({enable}, {filter})                       *vim.lsp.inlay_hint.enable()*
 
     Parameters: ~
       • {enable}  (`boolean?`) true/nil to enable, false to disable
-      • {filter}  (`table?`) Optional filters |kwargs|, or `nil` for all.
-                  • {bufnr} (`integer?`) Buffer number, or 0 for current
-                    buffer, or nil for all.
+      • {filter}  (`table?`) Optional filters |kwargs|,
+                  • {bufnr}? (`integer`, default: all) Buffer number, or 0 for
+                    current buffer, or nil for all.
+                  • {client_id}? (`integer`, default: all) Client ID, or nil
+                    for all.
 
 get({filter})                                       *vim.lsp.inlay_hint.get()*
     Get the list of inlay hints, (optionally) restricted by buffer or range.
@@ -2431,9 +2470,11 @@ is_enabled({filter})                         *vim.lsp.inlay_hint.is_enabled()*
         Since: 0.10.0
 
     Parameters: ~
-      • {filter}  (`table?`) Optional filters |kwargs|, or `nil` for all.
-                  • {bufnr} (`integer?`) Buffer number, or 0 for current
-                    buffer, or nil for all.
+      • {filter}  (`table?`) Optional filters |kwargs|,
+                  • {bufnr}? (`integer`, default: all) Buffer number, or 0 for
+                    current buffer, or nil for all.
+                  • {client_id}? (`integer`, default: all) Client ID, or nil
+                    for all.
 
     Return: ~
         (`boolean`)
@@ -2674,10 +2715,10 @@ Lua module: vim.lsp.rpc                                              *lsp-rpc*
 
     Fields: ~
       • {is_closing}  (`fun(): boolean`) Indicates if the RPC is closing.
-      • {notify}      (`fun(method: string, params: any): boolean`) See
-                      |vim.lsp.rpc.notify()|
+      • {notify}      (`fun(method: string, params: any): boolean`) Sends a
+                      notification to the LSP server.
       • {request}     (`fun(method: string, params: table?, callback: fun(err?: lsp.ResponseError, result: any, request_id: integer), notify_reply_callback?: fun(message_id: integer)):boolean,integer?`)
-                      See |vim.lsp.rpc.request()|
+                      Sends a request to the LSP server.
       • {terminate}   (`fun()`) Terminates the RPC client.
 
 
@@ -2707,34 +2748,6 @@ format_rpc_error({err})                       *vim.lsp.rpc.format_rpc_error()*
 
     Return: ~
         (`string`) error_message The formatted error message
-
-notify({method}, {params})                              *vim.lsp.rpc.notify()*
-    Sends a notification to the LSP server.
-
-    Parameters: ~
-      • {method}  (`string`) The invoked LSP method
-      • {params}  (`table?`) Parameters for the invoked LSP method
-
-    Return: ~
-        (`boolean`) `true` if notification could be sent, `false` if not
-
-                                                       *vim.lsp.rpc.request()*
-request({method}, {params}, {callback}, {notify_reply_callback})
-    Sends a request to the LSP server and runs {callback} upon response.
-
-    Parameters: ~
-      • {method}                 (`string`) The invoked LSP method
-      • {params}                 (`table?`) Parameters for the invoked LSP
-                                 method
-      • {callback}               (`fun(err: lsp.ResponseError?, result: any)`)
-                                 Callback to invoke
-      • {notify_reply_callback}  (`fun(message_id: integer)?`) Callback to
-                                 invoke as soon as a request is no longer
-                                 pending
-
-    Return (multiple): ~
-        (`boolean`) success `true` if request could be sent, `false` if not
-        (`integer?`) message_id if request could be sent, `nil` if not
 
                                             *vim.lsp.rpc.rpc_response_error()*
 rpc_response_error({code}, {message}, {data})

@@ -3315,12 +3315,14 @@ func Test_thesaurusfunc_callback()
   set thesaurusfunc=
   setlocal thesaurusfunc=NoSuchFunc
   setglobal thesaurusfunc=s:TsrFunc3
+  " A callback-option (e.g. 'findfunc') stores funcref as its unambiguous <SNR> form.
+  let tsrfunc3 = expand('<SID>') .. 'TsrFunc3'
   call assert_equal('NoSuchFunc', &thesaurusfunc)
   call assert_equal('NoSuchFunc', &l:thesaurusfunc)
-  call assert_equal('s:TsrFunc3', &g:thesaurusfunc)
+  call assert_equal(tsrfunc3, &g:thesaurusfunc)
   new | only
-  call assert_equal('s:TsrFunc3', &thesaurusfunc)
-  call assert_equal('s:TsrFunc3', &g:thesaurusfunc)
+  call assert_equal(tsrfunc3, &thesaurusfunc)
+  call assert_equal(tsrfunc3, &g:thesaurusfunc)
   call assert_equal('', &l:thesaurusfunc)
   call setline(1, 'script1')
   let g:TsrFunc3Args = []
@@ -3332,8 +3334,8 @@ func Test_thesaurusfunc_callback()
   set thesaurusfunc=
   setlocal thesaurusfunc=NoSuchFunc
   set thesaurusfunc=s:TsrFunc3
-  call assert_equal('s:TsrFunc3', &thesaurusfunc)
-  call assert_equal('s:TsrFunc3', &g:thesaurusfunc)
+  call assert_equal(tsrfunc3, &thesaurusfunc)
+  call assert_equal(tsrfunc3, &g:thesaurusfunc)
   call assert_equal('', &l:thesaurusfunc)
   call setline(1, 'script1')
   let g:TsrFunc3Args = []
@@ -3341,8 +3343,8 @@ func Test_thesaurusfunc_callback()
   call assert_equal([[1, ''], [0, 'script1']], g:TsrFunc3Args)
   setlocal bufhidden=wipe
   new | only!
-  call assert_equal('s:TsrFunc3', &thesaurusfunc)
-  call assert_equal('s:TsrFunc3', &g:thesaurusfunc)
+  call assert_equal(tsrfunc3, &thesaurusfunc)
+  call assert_equal(tsrfunc3, &g:thesaurusfunc)
   call assert_equal('', &l:thesaurusfunc)
   call setline(1, 'script1')
   let g:TsrFunc3Args = []
@@ -6039,17 +6041,19 @@ func Test_autocompletedelay()
   call term_sendkeys(buf, "\<BS>")
   call VerifyScreenDump(buf, 'Test_autocompletedelay_5', {})
   sleep 500m
-  call VerifyScreenDump(buf, 'Test_autocompletedelay_6', {})
+  call VerifyScreenDump(buf, 'Test_autocompletedelay_5', {})
 
   " During delay wait, user can open menu using CTRL_N completion
   call term_sendkeys(buf, "\<Esc>:set completeopt=menuone\<CR>")
   call term_sendkeys(buf, "Sf\<C-N>")
   call VerifyScreenDump(buf, 'Test_autocompletedelay_7', {})
 
-  " After the menu is open, ^N/^P and Up/Down should not delay
+  " After the menu is open, ^N/^P and Up/Down should not delay.
+  " Wait a bit longer than 'autocompletedelay' so the popup is surely shown
+  " before sending CTRL-N, otherwise the keys race with the deferred popup.
   call term_sendkeys(buf, "\<Esc>:set completeopt=menu noruler\<CR>")
   call term_sendkeys(buf, "\<Esc>Sf")
-  sleep 500ms
+  sleep 600ms
   call term_sendkeys(buf, "\<C-N>")
   call VerifyScreenDump(buf, 'Test_autocompletedelay_8', {})
   call term_sendkeys(buf, "\<Down>")
@@ -6064,6 +6068,80 @@ func Test_autocompletedelay()
 
   call term_sendkeys(buf, "\<esc>")
   call StopVimInTerminal(buf)
+endfunc
+
+func Run_test_autocompletedelay_ctrl_g_U(delay1, delay2)
+  new
+  call setline(1, 'foo bar baz')
+  inoremap <buffer> ( ()<C-g>U
+  set autocomplete autocompletedelay=200
+
+  call timer_start(a:delay1, { -> feedkeys('(', 't') })
+  call timer_start(a:delay2, { -> feedkeys("\<Left>a\<Esc>", 't') })
+  call feedkeys('ob', 'tx!')
+  call assert_equal(['foo bar baz', 'b(a)'], getline(1, '$'))
+  undo
+  call assert_equal(['foo bar baz'], getline(1, '$'))
+
+  set autocomplete& autocompletedelay&
+  bwipe!
+endfunc
+
+func Test_autocompletedelay_ctrl_g_U()
+  " '(' typed after 'autocompletedelay' expires
+  call Run_test_autocompletedelay_ctrl_g_U(250, 500)
+  " '(' typed before 'autocompletedelay' expires
+  call Run_test_autocompletedelay_ctrl_g_U(150, 500)
+endfunc
+
+func Run_test_autocompletedelay_ctrl_k(delay1, delay2)
+  new
+  call setline(1, 'foo bar baz')
+  set autocomplete autocompletedelay=200
+
+  call timer_start(a:delay1, { -> feedkeys("\<C-K>", 't') })
+  call timer_start(a:delay2, { -> feedkeys(".,\<Esc>", 't') })
+  call feedkeys('ob', 'tx!')
+  call assert_equal(['foo bar baz', 'b…'], getline(1, '$'))
+
+  set autocomplete& autocompletedelay&
+  bwipe!
+endfunc
+
+func Test_autocompletedelay_ctrl_k()
+  throw 'Skipped: use test/functional/editor/completion_spec.lua'
+  " Ctrl-K typed after 'autocompletedelay' expires
+  call Run_test_autocompletedelay_ctrl_k(250, 500)
+  " Ctrl-K typed before 'autocompletedelay' expires
+  call Run_test_autocompletedelay_ctrl_k(150, 500)
+endfunc
+
+func Test_autocompletedelay_no_record()
+  " The K_COMPLETE_DELAY pseudo key must not be recorded into a register while
+  " recording a macro, like K_CURSORHOLD.
+  new
+  call setline(1, 'foobar')
+  set autocomplete autocompletedelay=100
+
+  let @a = ''
+  " Type a char that arms the delay, idle past 'autocompletedelay' so a
+  " K_COMPLETE_DELAY would be injected, then end Insert mode and stop recording.
+  call timer_start(300, { -> feedkeys("\<Esc>q", 't') })
+  call feedkeys("qaSf", 'tx!')
+  call assert_equal("Sf\<Esc>", @a)
+
+  " Delayed autocompletion still works when recording.
+  if !has('win32') || has('nvim')
+    call setline(1, 'foobar foofoo')
+    call timer_start(300, { -> feedkeys("\<Down>\<C-Y>\<Esc>q", 't') })
+    call feedkeys("qaof", 'tx!')
+    call assert_equal('foobar', getline('.'))
+    " XXX: This doesn't produce the same result when replaying.
+    call assert_equal("of\<Down>\<C-Y>\<Esc>", @a)
+  endif
+
+  set autocomplete& autocompletedelay&
+  bwipe!
 endfunc
 
 " Preinsert longest prefix when autocomplete
@@ -6366,8 +6444,6 @@ func Test_autocompletedelay_longest_preinsert()
 
   " Preinsert
   call term_sendkeys(buf, "\<Esc>:set completeopt& completeopt+=preinsert\<CR>")
-
-  " Show preinserted text right away but display popup later
   call term_sendkeys(buf, "\<Esc>Sau")
   sleep 100m
   call VerifyScreenDump(buf, 'Test_autocompletedelay_preinsert_1', {})
@@ -6623,6 +6699,34 @@ func Test_call_complete_while_filtering()
   call assert_equal(['foobar', 'foobaz', 'foobcd', 'foobcd'], getline(1, '$'))
 
   bwipe!
+endfunc
+
+func Test_complete_check_mapped_typed_key()
+  func SlowComplete(findstart, base)
+    if a:findstart
+      return col('.') - 1
+    endif
+    call complete_add('foobar')
+    let g:compl_iterations = 0
+    while !complete_check() && g:compl_iterations < 100
+      let g:compl_iterations += 1
+      sleep 5m
+    endwhile
+    return []
+  endfunc
+
+  new
+  setlocal completefunc=SlowComplete
+  setlocal completeopt=menuone,noselect
+  inoremap <buffer> <Space> <Space><Space>
+
+  let g:compl_iterations = -1
+  call feedkeys("Sfoo\<C-X>\<C-U> \<Esc>", 'tx')
+  call assert_inrange(0, 99, g:compl_iterations)
+
+  bwipe!
+  delfunc SlowComplete
+  unlet g:compl_iterations
 endfunc
 
 " vim: shiftwidth=2 sts=2 expandtab nofoldenable

@@ -177,6 +177,10 @@ end
 --- (default: `1`)
 --- @field depth? integer
 ---
+--- Report errors via the iterator's third value ("err"), instead of silently skipping.
+--- (default: `false`)
+--- @field err? boolean
+---
 --- Predicate to control traversal.
 --- Return false to stop searching the current directory.
 --- Only useful when depth > 1
@@ -186,52 +190,82 @@ end
 --- Follow symbolic links.
 --- (default: `false`)
 --- @field follow? boolean
-
----@alias Iterator fun(): string?, string?
+---
+--- Do not expand special forms like "~" and "$" in {path}.
+--- (default: `false`)
+--- @field plain? boolean
 
 --- Gets an iterator over items found in `path` (normalized via |vim.fs.normalize()|).
 ---
+--- Example:
+---
+--- ```lua
+--- for name, type, err in vim.fs.dir(path, { err = true }) do
+---   if err then
+---     -- Failed to scan directory {name} (may be the root {path} itself).
+---   end
+--- end
+--- ```
+---
 ---@since 10
----@param path (string) Directory to iterate over, normalized via |vim.fs.normalize()|.
----@param opts? vim.fs.dir.Opts Optional keyword arguments:
----@return Iterator over items in {path}. Each iteration yields two values: "name" and "type".
----        "name" is the basename of the item relative to {path}.
----        "type" is one of the following:
----        "file", "directory", "link", "fifo", "socket", "char", "block", "unknown".
+---@param path (string) Directory to iterate over, normalized via |vim.fs.normalize()| unless
+---            `opts.normalize=false`.
+---@param opts? vim.fs.dir.Opts
+---@return fun(): string?, string?, string? # Iterator over items in {path}, yielding (name, type, err):
+---        - name: Basename of the item relative to {path}.
+---        - type: One of: "file", "directory", "link", "fifo", "socket", "char", "block", "unknown".
+---        - err: Error string, or nil. Only if `opts.err=true`. If the root {path} itself could not
+---          be scanned, yields a single (name, nil, err) item.
 function M.dir(path, opts)
   opts = opts or {}
 
   vim.validate('path', path, 'string')
   vim.validate('depth', opts.depth, 'number', true)
-  vim.validate('skip', opts.skip, 'function', true)
+  vim.validate('err', opts.err, 'boolean', true)
   vim.validate('follow', opts.follow, 'boolean', true)
+  vim.validate('skip', opts.skip, 'function', true)
+  vim.validate('plain', opts.plain, 'boolean', true)
 
-  path = M.normalize(path)
-  if not opts.depth or opts.depth == 1 then
-    local fs = uv.fs_scandir(path)
+  if opts.plain ~= true then
+    path = M.normalize(path)
+  end
+
+  local rootfs, rooterr = uv.fs_scandir(path)
+
+  if not rootfs then
+    -- Root scan failed:
+    -- - If opts.err=false, behave as an empty listing (back-compat).
+    -- - If opts.err=true, surface yield a single (name, nil, err) result.
+    local done = not opts.err
     return function()
-      if not fs then
-        return
+      if done then
+        return nil
       end
-      return fs_scandir_next(fs, path)
+      done = true
+      return path, nil, rooterr
+    end
+  end
+
+  if not opts.depth or opts.depth == 1 then
+    return function()
+      return fs_scandir_next(rootfs, path)
     end
   end
 
   --- @async
   return coroutine.wrap(function()
-    local dirs = { { path, 1 } }
+    local dirs = { { path, 1, rootfs } }
     while #dirs > 0 do
-      --- @type string, integer
-      local dir0, level = unpack(table.remove(dirs, 1))
+      --- @type string, integer, any
+      local dir0, level, fs = unpack(table.remove(dirs, 1))
       local dir = level == 1 and dir0 or M.joinpath(path, dir0)
-      local fs = uv.fs_scandir(dir)
       while fs do
         local name, t = fs_scandir_next(fs, dir)
         if not name then
           break
         end
         local f = level == 1 and name or M.joinpath(dir0, name)
-        coroutine.yield(f, t)
+        local err_scan = nil
         if
           opts.depth
           and level < opts.depth
@@ -240,8 +274,14 @@ function M.dir(path, opts)
           ).type == 'directory'))
           and (not opts.skip or opts.skip(f) ~= false)
         then
-          dirs[#dirs + 1] = { f, level + 1 }
+          local fs_next, err = uv.fs_scandir(M.joinpath(path, f))
+          if not fs_next then
+            err_scan = opts.err and err or nil
+          else
+            dirs[#dirs + 1] = { f, level + 1, fs_next }
+          end
         end
+        coroutine.yield(f, t, err_scan)
       end
     end
   end)
@@ -308,7 +348,8 @@ end
 ---             The function should return `true` if the given item is considered a match.
 ---
 ---@param opts? vim.fs.find.Opts Optional keyword arguments:
----@return (string[]) # Normalized paths |vim.fs.normalize()| of all matching items
+---@return string[] # Normalized paths |vim.fs.normalize()| of all matching items.
+---@return string[] # Errors collected while searching.
 function M.find(names, opts)
   opts = opts or {}
   vim.validate('names', names, { 'string', 'table', 'function' })
@@ -328,6 +369,7 @@ function M.find(names, opts)
   local limit = opts.limit or 1
 
   local matches = {} --- @type string[]
+  local errors = {} --- @type string[]
 
   local function add(match)
     matches[#matches + 1] = M.normalize(match)
@@ -342,8 +384,10 @@ function M.find(names, opts)
     if type(names) == 'function' then
       test = function(p)
         local t = {}
-        for name, type in M.dir(p) do
-          if (not opts.type or opts.type == type) and names(name, p) then
+        for name, type, err in M.dir(p, { err = true }) do
+          if err ~= nil then
+            table.insert(errors, err)
+          elseif (not opts.type or opts.type == type) and names(name, p) then
             table.insert(t, M.joinpath(p, name))
           end
         end
@@ -352,6 +396,11 @@ function M.find(names, opts)
     else
       test = function(p)
         local t = {} --- @type string[]
+        local ok, aerr = uv.fs_access(p, 'R') -- Check if the root dir is readable.
+        if not ok then
+          table.insert(errors, aerr)
+          return t
+        end
         for _, name in ipairs(names) do
           local f = M.joinpath(p, name)
           local stat = uv.fs_stat(f)
@@ -366,7 +415,7 @@ function M.find(names, opts)
 
     for _, match in ipairs(test(path)) do
       if add(match) then
-        return matches
+        return matches, errors
       end
     end
 
@@ -377,7 +426,7 @@ function M.find(names, opts)
 
       for _, match in ipairs(test(parent)) do
         if add(match) then
-          return matches
+          return matches, errors
         end
       end
     end
@@ -389,35 +438,39 @@ function M.find(names, opts)
         break
       end
 
-      for other, type_ in M.dir(dir) do
-        local f = M.joinpath(dir, other)
-        if type(names) == 'function' then
-          if (not opts.type or opts.type == type_) and names(other, dir) then
-            if add(f) then
-              return matches
-            end
-          end
+      for other, type_, err in M.dir(dir, { err = true }) do
+        if err ~= nil then
+          table.insert(errors, err)
         else
-          for _, name in ipairs(names) do
-            if name == other and (not opts.type or opts.type == type_) then
+          local f = M.joinpath(dir, other)
+          if type(names) == 'function' then
+            if (not opts.type or opts.type == type_) and names(other, dir) then
               if add(f) then
-                return matches
+                return matches, errors
+              end
+            end
+          else
+            for _, name in ipairs(names) do
+              if name == other and (not opts.type or opts.type == type_) then
+                if add(f) then
+                  return matches, errors
+                end
               end
             end
           end
-        end
 
-        if
-          type_ == 'directory'
-          or (type_ == 'link' and opts.follow and (uv.fs_stat(f) or {}).type == 'directory')
-        then
-          dirs[#dirs + 1] = f
+          if
+            type_ == 'directory'
+            or (type_ == 'link' and opts.follow and (uv.fs_stat(f) or {}).type == 'directory')
+          then
+            dirs[#dirs + 1] = f
+          end
         end
       end
     end
   end
 
-  return matches
+  return matches, errors
 end
 
 --- Find the first parent directory containing a specific "marker", relative to a file path or
@@ -624,10 +677,10 @@ end
 --- (default: `true` in Windows, `false` otherwise)
 --- @field win? boolean
 
---- Normalize a path to a standard format. A tilde (~) character at the beginning of the path is
---- expanded to the user's home directory and environment variables are also expanded. "." and ".."
---- components are also resolved, except when the path is relative and trying to resolve it would
---- result in an absolute path.
+--- Normalize a path to a standard format. Expands environment variables, and tilde "~" at the
+--- beginning of the path. Resolves "." and ".." components, except when the path is relative and
+--- resolving it would produce an absolute path.
+---
 --- - "." as the only part in a relative path:
 ---   - "." => "."
 ---   - "././" => "."
@@ -637,20 +690,20 @@ end
 --- - ".." in the root directory returns the root directory.
 ---   - "/../../" => "/"
 ---
---- On Windows, backslash (\) characters are converted to forward slashes (/).
+--- On Windows, backslashes (`\`) are converted to forward slashes (`/`).
 ---
 --- Examples:
 --- ```lua
---- [[C:\Users\jdoe]]                         => "C:/Users/jdoe"
---- "~/src/neovim"                            => "/home/jdoe/src/neovim"
---- "$XDG_CONFIG_HOME/nvim/init.vim"          => "/Users/jdoe/.config/nvim/init.vim"
---- "~/src/nvim/api/../tui/./tui.c"           => "/home/jdoe/src/nvim/tui/tui.c"
---- "./foo/bar"                               => "foo/bar"
---- "foo/../../../bar"                        => "../../bar"
---- "/home/jdoe/../../../bar"                 => "/bar"
---- "C:foo/../../baz"                         => "C:../baz"
---- "C:/foo/../../baz"                        => "C:/baz"
---- [[\\?\UNC\server\share\foo\..\..\..\bar]] => "//?/UNC/server/share/bar"
+--- [[C:\Users\jdoe]]                         --> "C:/Users/jdoe"
+--- "~/src/neovim"                            --> "/home/jdoe/src/neovim"
+--- "$XDG_CONFIG_HOME/nvim/init.vim"          --> "/Users/jdoe/.config/nvim/init.vim"
+--- "~/src/nvim/api/../tui/./tui.c"           --> "/home/jdoe/src/nvim/tui/tui.c"
+--- "./foo/bar"                               --> "foo/bar"
+--- "foo/../../../bar"                        --> "../../bar"
+--- "/home/jdoe/../../../bar"                 --> "/bar"
+--- "C:foo/../../baz"                         --> "C:../baz"
+--- "C:/foo/../../baz"                        --> "C:/baz"
+--- [[\\?\UNC\server\share\foo\..\..\..\bar]] --> "//?/UNC/server/share/bar"
 --- ```
 ---
 ---@since 10
@@ -727,6 +780,32 @@ function M.normalize(path, opts)
   return path
 end
 
+--- @class vim.fs.mkdir.Opts
+--- @inlinedoc
+---
+--- Create intermediate directories as necessary.
+--- (default: `false`)
+--- @field parents? boolean
+---
+--- Permission bits for newly-created directories.
+--- (default: `493`)
+--- @field mode? integer
+
+--- Creates a directory.
+---
+---@since 15
+---@param path string Path to create (not expanded/resolved).
+---@param opts? vim.fs.mkdir.Opts Optional keyword arguments.
+function M.mkdir(path, opts)
+  vim.validate('path', path, 'string')
+  vim.validate('opts', opts, 'table', true)
+  opts = opts or {}
+  vim.validate('parents', opts.parents, 'boolean', true)
+  vim.validate('mode', opts.mode, 'number', true)
+
+  vim.fn.mkdir(path, opts.parents and 'p' or '', tostring(opts.mode or 493))
+end
+
 --- @param path string Path to remove
 --- @param ty string type of path
 --- @param recursive? boolean
@@ -786,21 +865,37 @@ function M.rm(path, opts)
   end
 end
 
---- Converts `path` to an absolute path. Expands tilde (~) at the beginning of the path
---- to the user's home directory. Does not check if the path exists, normalize the path, resolve
---- symlinks or hardlinks (including `.` and `..`), or expand environment variables. If the path is
---- already absolute, it is returned unchanged. Also converts `\` path separators to `/`.
+--- @class vim.fs.abspath.Opts
+--- @inlinedoc
+---
+--- Resolve the path relative to this directory.
+--- @field cwd? string
+---
+--- Do not expand tilde (~).
+--- @field plain? boolean
+
+--- Converts `path` to an absolute path. Expands tilde (~) at the beginning of the path (unless
+--- plain=true). Does not check if the path exists, normalize the path, resolve symlinks or
+--- hardlinks (including "." and ".."), or expand environment variables. If the path is already
+--- absolute, it is returned unchanged. Converts `\` path separators to `/`.
 ---
 --- @since 13
 --- @param path string Path
+--- @param opts? vim.fs.abspath.Opts
 --- @return string Absolute path
-function M.abspath(path)
+function M.abspath(path, opts)
   -- TODO(justinmk): mark f_fnamemodify as API_FAST and use it, ":p:h" should be safe...
+  --
+  opts = opts or {}
 
   vim.validate('path', path, 'string')
+  vim.validate('cwd', opts.cwd, 'string', true)
+  vim.validate('plain', opts.plain, 'boolean', true)
 
   -- Expand ~ to user's home directory
-  path = expand_home(path)
+  if not opts.plain then
+    path = expand_home(path)
+  end
 
   -- Convert path separator to `/`
   path = path:gsub(os_sep, '/')
@@ -818,7 +913,8 @@ function M.abspath(path)
 
   -- Windows allows paths like C:foo/bar, these paths are relative to the current working directory
   -- of the drive specified in the path
-  local cwd = assert((iswin and prefix:match('^%w:$')) and uv.fs_realpath(prefix) or uv.cwd())
+  local cwd =
+    assert((iswin and prefix:match('^%w:$')) and uv.fs_realpath(prefix) or opts.cwd or uv.cwd())
   -- Convert cwd path separator to `/`
   cwd = cwd:gsub(os_sep, '/')
 

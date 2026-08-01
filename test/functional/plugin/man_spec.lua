@@ -2,6 +2,7 @@ local t = require('test.testutil')
 local n = require('test.functional.testnvim')()
 local Screen = require('test.functional.ui.screen')
 
+local describe, it, before_each, pending = t.describe, t.it, t.before_each, t.pending
 local command, feed = n.command, n.feed
 local dedent = t.dedent
 local clear = n.clear
@@ -300,6 +301,31 @@ describe(':Man', function()
         '/usr/share/man/man3/string.3.gz',
         '/usr/share/man/man7/string_copying.7.gz',
       }, 'strcpy', '3')
+    )
+  end)
+
+  it('uses direct manpage lookup if man directories cannot be determined #25919', function()
+    eq(
+      {
+        {
+          name = 'open',
+          filename = 'man://open(2)',
+          cmd = '1',
+        },
+      },
+      exec_lua(function()
+        local man = require('man')
+        vim.env.MANPATH = nil
+        vim.npcall = function()
+          return nil
+        end
+        man._find_path = function(name, sect)
+          if name == 'open' and sect == '2' then
+            return '/usr/share/man/man2/open.2'
+          end
+        end
+        return man.goto_tag('open(2)')
+      end)
     )
   end)
 

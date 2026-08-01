@@ -572,8 +572,8 @@ local function lsp_enable_callback(bufnr)
   end
 end
 
---- Auto-activates LSP in each buffer based on the |lsp-config| `filetypes`, `root_markers`, and
---- `root_dir`.
+--- Enables a [lsp-config]: automatically attaches the client to any buffer based on the config
+--- `filetypes`, `root_markers`, and `root_dir`. See [lsp-activate] for details.
 ---
 --- To disable, pass `enable=false`: Stops related clients and servers (force-stops servers after
 --- a timeout, unless `exit_timeout=false`).
@@ -644,7 +644,7 @@ function lsp.enable(name, enable)
   else
     -- Only ever create autocmd once to reuse computation of config merging.
     lsp_enable_autocmd_id = lsp_enable_autocmd_id
-      or nvim_on('FileType', api.nvim_create_augroup('nvim.lsp.enable', {}), function(ev)
+      or nvim_on('FileType', api.nvim_create_augroup('nvim.lsp.enable'), function(ev)
         lsp_enable_callback(ev.buf)
       end)
   end
@@ -846,12 +846,12 @@ function lsp._set_defaults(client, bufnr)
   if
     client:supports_method('textDocument/definition') and is_empty_or_default(bufnr, 'tagfunc')
   then
-    vim.bo[bufnr].tagfunc = 'v:lua.vim.lsp.tagfunc'
+    vim.bo[bufnr].tagfunc = lsp.tagfunc
   end
   if
     client:supports_method('textDocument/completion') and is_empty_or_default(bufnr, 'omnifunc')
   then
-    vim.bo[bufnr].omnifunc = 'v:lua.vim.lsp.omnifunc'
+    vim.bo[bufnr].omnifunc = lsp.omnifunc
   end
   if
     client:supports_method('textDocument/rangeFormatting')
@@ -871,9 +871,6 @@ function lsp._set_defaults(client, bufnr)
       end, { buf = bufnr, desc = 'vim.lsp.buf.hover()' })
     end
   end)
-  if client:supports_method('textDocument/diagnostic') then
-    lsp.diagnostic._enable(bufnr)
-  end
 end
 
 --- @deprecated
@@ -1377,8 +1374,13 @@ end
 --- Provides an interface between the built-in client and a `formatexpr` function.
 ---
 --- Currently only supports a single client. This can be set via
---- `setlocal formatexpr=v:lua.vim.lsp.formatexpr()` or (more typically) in `on_attach`
---- via `vim.bo[bufnr].formatexpr = 'v:lua.vim.lsp.formatexpr(#{timeout_ms:250})'`.
+--- `vim.bo[bufnr].formatexpr = vim.lsp.formatexpr`, or with a wrapper to pass options:
+---
+--- ```lua
+--- vim.bo[bufnr].formatexpr = function()
+---   return vim.lsp.formatexpr({ timeout_ms = 250 })
+--- end
+--- ```
 ---
 ---@param opts? vim.lsp.formatexpr.Opts
 function lsp.formatexpr(opts)
@@ -1448,7 +1450,7 @@ end
 ---
 --- ```lua
 --- vim.o.foldmethod = 'expr'
---- vim.o.foldexpr = 'v:lua.vim.lsp.foldexpr()'
+--- vim.o.foldexpr = vim.lsp.foldexpr
 --- ```
 ---
 --- Or use it only when supported by checking for the "textDocument/foldingRange"
@@ -1457,14 +1459,14 @@ end
 --- ```lua
 --- vim.o.foldmethod = 'expr'
 --- -- Default to treesitter folding
---- vim.o.foldexpr = 'v:lua.vim.treesitter.foldexpr()'
+--- vim.o.foldexpr = vim.treesitter.foldexpr
 --- -- Prefer LSP folding if client supports it
 --- vim.api.nvim_create_autocmd('LspAttach', {
 ---   callback = function(ev)
 ---     local client = vim.lsp.get_client_by_id(ev.data.client_id)
 ---     if client:supports_method('textDocument/foldingRange') then
 ---       local win = vim.api.nvim_get_current_win()
----       vim.wo[win][0].foldexpr = 'v:lua.vim.lsp.foldexpr()'
+---       vim.wo[win][0].foldexpr = vim.lsp.foldexpr
 ---     end
 ---   end,
 --- })
@@ -1475,7 +1477,7 @@ function lsp.foldexpr(lnum)
   return vim.lsp._folding_range.foldexpr(lnum)
 end
 
---- Close all {kind} of folds in the the window with {winid}.
+--- Close all {kind} of folds in the window with {winid}.
 ---
 --- To automatically fold imports when opening a file, you can use an autocmd:
 ---

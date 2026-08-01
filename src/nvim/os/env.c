@@ -13,7 +13,6 @@
 #include "nvim/ascii_defs.h"
 #include "nvim/buffer_defs.h"
 #include "nvim/charset.h"
-#include "nvim/cmdexpand.h"
 #include "nvim/cmdexpand_defs.h"
 #include "nvim/eval.h"
 #include "nvim/eval/fs.h"
@@ -412,7 +411,7 @@ void init_homedir(void)
     char *homedrive = os_getenv("HOMEDRIVE");
     char *homepath = os_getenv("HOMEPATH");
     if (homepath == NULL) {
-      homepath = xstrdup("\\");
+      homepath = xstrdup(PATHSEPSTR);
     }
     if (homedrive != NULL
         && strlen(homedrive) + strlen(homepath) < MAXPATHL) {
@@ -473,7 +472,7 @@ void init_homedir(void)
   }
 #endif
   if (var != NULL) {
-    homedir = xstrdup(var);
+    homedir = TO_SLASH_SAVE(var);
   }
   xfree(tofree);
 }
@@ -619,6 +618,10 @@ size_t expand_env_esc(const char *restrict srcp, char *restrict dst, int dstlen,
 #endif
         *var = NUL;
         var = vim_getenv(dst);
+        // Backslashes in `srcp` might just be used for escaping. Expanded env
+        // vars represent paths, so their backslashes can be safely normalized.
+        // Autocmd file patterns require this normalization.
+        TO_SLASH(var);
         mustfree = true;
 #ifdef UNIX
       }
@@ -641,20 +644,9 @@ size_t expand_env_esc(const char *restrict srcp, char *restrict dst, int dstlen,
           *var++ = *tail++;
         }
         *var = NUL;
-        // Get the user directory. If this fails the shell is used to expand
-        // ~user, which is slower and may fail on old versions of /bin/sh.
         var = (*dst == NUL) ? NULL
                             : os_get_userdir(dst + 1);
         mustfree = true;
-        if (var == NULL) {
-          expand_T xpc;
-
-          ExpandInit(&xpc);
-          xpc.xp_context = EXPAND_FILES;
-          var = ExpandOne(&xpc, dst, NULL,
-                          WILD_ADD_SLASH|WILD_SILENT, WILD_EXPAND_FREE);
-          mustfree = true;
-        }
 #else
         // cannot expand user's home directory, so don't try
         var = NULL;
@@ -1042,7 +1034,7 @@ size_t home_replace(const buf_T *const buf, const char *src, char *const dst, si
     size_t usedlen = 0;
     size_t flen = strlen(homedir_env_mod);
     char *fbuf = NULL;
-    modify_fname(":p", false, &usedlen, &homedir_env_mod, &fbuf, &flen);
+    modify_fname(":p", false, &usedlen, &homedir_env_mod, &fbuf, &flen, false);
     flen = strlen(homedir_env_mod);
     assert(homedir_env_mod != homedir_env);
     if (vim_ispathsep(homedir_env_mod[flen - 1])) {

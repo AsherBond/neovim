@@ -14,6 +14,7 @@
 #include "nvim/api/private/defs.h"
 #include "nvim/api/private/helpers.h"
 #include "nvim/ascii_defs.h"
+#include "nvim/charset.h"
 #include "nvim/cursor_shape.h"
 #include "nvim/event/defs.h"
 #include "nvim/event/loop.h"
@@ -525,14 +526,16 @@ static void terminfo_start(TUIData *tui)
   char *konsolev_env = os_getenv("KONSOLE_VERSION");
   char *term_program_version_env = os_getenv("TERM_PROGRAM_VERSION");
 
-  int vtev = vte_version_env ? (int)strtol(vte_version_env, NULL, 10) : 0;
+  char *vte_version_end = vte_version_env;
+  int vtev = vte_version_env ? getdigits_int(&vte_version_end, false, 0) : 0;
   bool iterm_env = termprg && strstr(termprg, "iTerm.app");
   bool nsterm = (termprg && strstr(termprg, "Apple_Terminal"))
                 || terminfo_is_term_family(term, "nsterm");
   bool konsole = terminfo_is_term_family(term, "konsole")
                  || os_env_exists("KONSOLE_PROFILE_NAME", true)
                  || os_env_exists("KONSOLE_DBUS_SESSION", true);
-  int konsolev = konsolev_env ? (int)strtol(konsolev_env, NULL, 10)
+  char *konsolev_end = konsolev_env;
+  int konsolev = konsolev_env ? getdigits_int(&konsolev_end, false, 0)
                               : (konsole ? 1 : 0);
   bool wezterm = strequal(termprg, "WezTerm");
   const char *weztermv = wezterm ? term_program_version_env : NULL;
@@ -2267,6 +2270,12 @@ static void patch_terminfo_bugs(TUIData *tui, const char *term, const char *colo
     // 2017-04 terminfo.src has older control sequences.
     terminfo_set_str(tui, kTerm_enter_ca_mode, "\x1b[?1049h");
     terminfo_set_str(tui, kTerm_exit_ca_mode, "\x1b[?1049l");
+    // rxvt-unicode has a default steady block cursor, though there's an option
+    // to initialize it with an underline https://cvs.schmorp.de/rxvt-unicode/src/init.C?revision=1.351&view=markup#l727
+    // \x1b[0 q doesn't work because it makes it a blinking block https://cvs.schmorp.de/rxvt-unicode/src/command.C?revision=1.605&view=markup#l4122
+    // We can't really account for that, so just set it to steady block and hope for the best.
+    terminfo_set_str(tui, kTerm_reset_cursor_style, "\x1b[2 q");
+    terminfo_set_str(tui, kTerm_set_cursor_style, "\x1b[%p1%d q");
   } else if (screen) {
     // per the screen manual; 2017-04 terminfo.src lacks these.
     terminfo_set_if_empty(tui, kTerm_to_status_line, "\x1b_");
@@ -2354,9 +2363,7 @@ static void patch_terminfo_bugs(TUIData *tui, const char *term, const char *colo
   // DECSCUSR (cursor shape) is widely supported.
   // https://github.com/gnachman/iTerm2/pull/92
   if (!bsdvt
-      && (xterm         // anything claiming xterm compat
-          // per MinTTY 0.4.3-1 release notes from 2009
-          || putty
+      && (putty         // per MinTTY 0.4.3-1 release notes from 2009
           // per https://chromium.googlesource.com/apps/libapps/+/a5fb83c190aa9d74f4a9bca233dac6be2664e9e9/hterm/doc/ControlSequences.md
           || hterm
           // per https://bugzilla.gnome.org/show_bug.cgi?id=720821
@@ -2366,7 +2373,6 @@ static void patch_terminfo_bugs(TUIData *tui, const char *term, const char *colo
           // https://lists.gnu.org/archive/html/screen-devel/2013-03/msg00000.html
           || screen
           || st         // #7641
-          || rxvt       // per command.C
           // https://github.com/gnachman/iTerm2/pull/651
           || iterm || iterm_pretending_xterm
           || teraterm   // per TeraTerm "Supported Control Functions" doco
@@ -2403,6 +2409,11 @@ static void patch_terminfo_bugs(TUIData *tui, const char *term, const char *colo
                      "%e%{0}"                   // anything else
                      "%;" "%dc");
     terminfo_set_str(tui, kTerm_reset_cursor_style, "\x1b[?c");
+  } else if (!bsdvt && xterm) {
+    terminfo_set_if_empty(tui, kTerm_set_cursor_style, "\x1b[%p1%d q");
+    // xterm has a configurable cursor, but the default is 2, and 0 doesn't
+    // reset to default. #41047
+    terminfo_set_if_empty(tui, kTerm_reset_cursor_style, "\x1b[2 q");
   }
 
   xfree(xterm_version);
@@ -2631,12 +2642,17 @@ static void flush_buf(TUIData *tui, FlushBufFinish finish)
       fwrite(bufs[i].base, bufs[i].len, 1, tui->screenshot);
     }
   } else {
-    int ret
-      = uv_write(&req, (uv_stream_t *)&tui->output_handle, bufs, ARRAY_SIZE(bufs), NULL);
-    if (ret) {
-      ELOG("uv_write failed: %s", uv_strerror(ret));
+    unsigned nbufs = ARRAY_SIZE(bufs);
+    while (nbufs > 0 && bufs[nbufs - 1].len == 0) {
+      nbufs--;  // Trim trailing zero-length buffers. https://github.com/libuv/libuv/issues/5182
     }
-    uv_run(&tui->write_loop, UV_RUN_DEFAULT);
+    if (nbufs > 0) {
+      int ret = uv_write(&req, (uv_stream_t *)&tui->output_handle, bufs, nbufs, NULL);
+      if (ret) {
+        ELOG("uv_write failed: %s", uv_strerror(ret));
+      }
+      uv_run(&tui->write_loop, UV_RUN_DEFAULT);
+    }
   }
   tui->buf_to_flush = NULL;
   tui->bufpos = 0;
