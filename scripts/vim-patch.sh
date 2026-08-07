@@ -942,20 +942,29 @@ is_na_patch() {
           test "$HUNK_NUM_FINAL" -ne 0 && return 1
         fi
         ;;
+      src/testdir/Make*.mak)
+        HUNKS=$(git -C "${VIM_SOURCE_DIR}" diff-tree --no-commit-id -r -b -U0 \
+          '-I\stest8[67]\.out \\$' \
+          "$patch" -- "${file}")
+        test -n "$HUNKS" && return 1
+        ;;
       *.h)
         HUNKS=$(git -C "${VIM_SOURCE_DIR}" diff-tree --no-commit-id -r -b -U0 \
           '-I^\s+$' \
           '-I^#\s*(ifdef|if.*defined\().*FEAT_' \
           '-I^#\s*(else|endif)' \
+          '-I#\s*define\s+XDG_' \
           '-I^EXTERN type_T t_.* INIT[2-9]\(' \
           '-I^EXTERN char e_(abstract|class|enum|interface|type)_' \
           '-I^EXTERN char e_.*def_function' \
           '-I^EXTERN char e_.*enddef' \
           '-I^EXTERN char e_.*vim9' \
-          '-I^\s*INIT\(= .+"E[0-9]+: (Abstract|Class|Enum|Interface|Type) ' \
-          '-I^\s*INIT\(= .+"E[0-9]+: .*:def ' \
-          '-I^\s*INIT\(= .+"E[0-9]+: .*enddef"' \
-          '-I^\s*INIT\(= .+"E[0-9]+: .*[vV]im9' \
+          '-I^EXTERN char e_cannot_declare_.*variable_str' \
+          '-I\sINIT\(= .+"E[0-9]+: (Abstract|Class|Enum|Interface|Type) ' \
+          '-I\sINIT\(= .+"E[0-9]+: .*:def ' \
+          '-I\sINIT\(= .+"E[0-9]+: .*enddef"' \
+          '-I\sINIT\(= .+"E[0-9]+: .*[vV]im9' \
+          '-I\sINIT\(= .+"E1016: Cannot declare .* variable: ' \
           "$patch" -- "${file}" |
           grep '^@@ .* @@')
         if test -n "$HUNKS"; then
@@ -966,6 +975,7 @@ is_na_patch() {
       *.c)
         HUNKS=$(git -C "${VIM_SOURCE_DIR}" diff-tree --no-commit-id -r -b -U0 \
           '-I^\s+$' \
+          '-I^#\s*include\s+<proto/' \
           '-I^#\s*(ifdef|if.*defined\().*FEAT_' \
           '-I^#\s*(else|endif)' \
           '-I^\s+\{"prop_[a-z]+",.*f_prop_[a-z]+},$' \
