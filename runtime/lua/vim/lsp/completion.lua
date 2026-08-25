@@ -160,6 +160,12 @@ local function has_completeopt(flag)
   return vim.list_contains(vim.opt.completeopt:get(), flag)
 end
 
+--- @param s string?
+--- @return string?
+local function nonempty(s)
+  return s ~= '' and s or nil
+end
+
 --- @param input string Unparsed snippet
 --- @return string # Parsed snippet if successful, else returns its input
 local function parse_snippet(input)
@@ -211,12 +217,10 @@ local function get_completion_word(item, prefix, match)
       --    label: insert
       --
       -- Typing `i` would remove the candidate because newText starts with `t`.
-      local text = parse_snippet(item.insertText or item.textEdit.newText)
+      local text = parse_snippet(nonempty(item.insertText) or item.textEdit.newText)
+      local filter_text = nonempty(item.filterText)
       local word = #text < #item.label and vim.fn.matchstr(text, '\\k*')
-        or (
-          item.filterText and vim.fn.match(item.label, '^\\k') == -1 and item.filterText
-          or item.label
-        )
+        or (filter_text and vim.fn.match(item.label, '^\\k') == -1 and filter_text or item.label)
       return fallback_filtertext(item, word, prefix, match)
     else
       return item.label
@@ -266,7 +270,10 @@ local function apply_defaults(item, defaults, apply_kind)
   if defaults.editRange then
     local textEdit = item.textEdit or {}
     item.textEdit = textEdit
-    textEdit.newText = textEdit.newText or item.textEditText or item.insertText or item.label
+    textEdit.newText = textEdit.newText
+      or item.textEditText
+      or nonempty(item.insertText)
+      or item.label
     if defaults.editRange.start then
       textEdit.range = textEdit.range or defaults.editRange
     elseif defaults.editRange.insert then
@@ -446,6 +453,20 @@ local function commit_chars_str(chars)
   return table.concat(result)
 end
 
+--- @param item lsp.CompletionItem
+--- @param lnum integer
+--- @return integer?
+local function edit_start_char(item, lnum)
+  local edit = item.textEdit
+  if not edit then
+    return nil
+  elseif edit.range and edit.range.start.line == lnum then
+    return edit.range.start.character
+  elseif edit.insert and edit.insert.start.line == lnum then
+    return edit.insert.start.character
+  end
+end
+
 --- Turns the result of a `textDocument/completion` request into vim-compatible
 --- |complete-items|.
 ---
@@ -456,6 +477,7 @@ end
 --- @param line string? current line content
 --- @param lnum integer? 0-indexed line number
 --- @param encoding string? encoding
+--- @param default_start_byte integer? 0-indexed start byte for items without an edit range
 --- @return table[]
 --- @see complete-items
 function M._lsp_to_complete_items(
@@ -465,24 +487,27 @@ function M._lsp_to_complete_items(
   server_start_boundary,
   line,
   lnum,
-  encoding
+  encoding,
+  default_start_byte
 )
   local items = get_items(result)
   if vim.tbl_isempty(items) then
     return {}
   end
 
-  ---@type fun(item: lsp.CompletionItem):boolean
+  ---@type fun(item: lsp.CompletionItem, item_prefix: string):boolean
   local matches
   if not prefix:find('%w') then
-    matches = function(_)
+    matches = function(_, _)
       return true
     end
   else
     ---@param item lsp.CompletionItem
-    matches = function(item)
-      if item.filterText then
-        return match_item_by_value(item.filterText, prefix)
+    ---@param item_prefix string text the item replaces, up to the cursor
+    matches = function(item, item_prefix)
+      local filter_text = nonempty(item.filterText)
+      if filter_text then
+        return match_item_by_value(filter_text, item_prefix)
       end
 
       if item.textEdit and not item.textEdit.newText then
@@ -490,7 +515,7 @@ function M._lsp_to_complete_items(
         return true
       end
 
-      return match_item_by_value(item.label, prefix)
+      return match_item_by_value(item.label, item_prefix)
     end
   end
 
@@ -515,27 +540,20 @@ function M._lsp_to_complete_items(
   local all_commit_str = all_commit_chars and commit_chars_str(all_commit_chars) or nil
 
   for _, item in ipairs(items) do
-    local match, score = matches(item)
-    if match then
-      local word = get_completion_word(item, prefix, match_item_by_value)
-
-      if server_start_boundary and line and lnum and encoding and item.textEdit then
-        --- @type integer?
-        local item_start_char
-        if item.textEdit.range and item.textEdit.range.start.line == lnum then
-          item_start_char = item.textEdit.range.start.character
-        elseif item.textEdit.insert and item.textEdit.insert.start.line == lnum then
-          item_start_char = item.textEdit.insert.start.character
-        end
-
-        if item_start_char then
-          local item_start_byte = vim.str_byteindex(line, encoding, item_start_char, false)
-          if item_start_byte > server_start_boundary then
-            local missing_prefix = line:sub(server_start_boundary + 1, item_start_byte)
-            word = missing_prefix .. word
-          end
-        end
+    local pad, item_prefix = '', prefix
+    if server_start_boundary and line and lnum and encoding then
+      local start_char = edit_start_char(item, lnum)
+      local start_byte = start_char and vim.str_byteindex(line, encoding, start_char, false)
+        or default_start_byte
+      if start_byte and start_byte > server_start_boundary then
+        pad = line:sub(server_start_boundary + 1, start_byte)
+        item_prefix = prefix:sub(#pad + 1)
       end
+    end
+
+    local match, score = matches(item, item_prefix)
+    if match then
+      local word = pad .. get_completion_word(item, item_prefix, match_item_by_value)
 
       local hl_group = ''
       if
@@ -593,7 +611,7 @@ function M._lsp_to_complete_items(
       local itema = a.user_data.nvim.lsp.completion_item
       ---@type lsp.CompletionItem
       local itemb = b.user_data.nvim.lsp.completion_item
-      return (itema.sortText or itema.label) < (itemb.sortText or itemb.label)
+      return (nonempty(itema.sortText) or itema.label) < (nonempty(itemb.sortText) or itemb.label)
     end
 
     local use_fuzzy_sort = has_completeopt('fuzzy')
@@ -625,18 +643,9 @@ end
 local function adjust_start_col(lnum, line, items, encoding)
   local min_start_char = nil
   for _, item in pairs(items) do
-    if item.textEdit then
-      local start_char = nil
-      if item.textEdit.range and item.textEdit.range.start.line == lnum then
-        start_char = item.textEdit.range.start.character
-      elseif item.textEdit.insert and item.textEdit.insert.start.line == lnum then
-        start_char = item.textEdit.insert.start.character
-      end
-      if start_char then
-        if not min_start_char or start_char < min_start_char then
-          min_start_char = start_char
-        end
-      end
+    local start_char = edit_start_char(item, lnum)
+    if start_char and (not min_start_char or start_char < min_start_char) then
+      min_start_char = start_char
     end
   end
   if min_start_char then
@@ -689,8 +698,17 @@ function M._convert_results(
     server_start_boundary = client_start_boundary
   end
   local prefix = line:sub((server_start_boundary or client_start_boundary) + 1, cursor_col)
-  local matches =
-    M._lsp_to_complete_items(result, prefix, client_id, server_start_boundary, line, lnum, encoding)
+  local default_start_byte = curstartbyte and client_start_boundary or nil
+  local matches = M._lsp_to_complete_items(
+    result,
+    prefix,
+    client_id,
+    server_start_boundary,
+    line,
+    lnum,
+    encoding,
+    default_start_byte
+  )
 
   return matches, server_start_boundary
 end

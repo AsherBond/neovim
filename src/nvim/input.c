@@ -132,6 +132,8 @@ static kvec_withinit_t(char, MAXMAPLEN + 1) on_key_buf = KVI_INITIAL_VALUE(on_ke
 
 /// Number of following bytes that should not be stored for vim.on_key().
 static size_t on_key_ignore_len = 0;
+/// Nesting depth of getchar()/getcharstr(). Will skip vim.on_key() callbacks. #40010
+static int getchar_depth = 0;
 
 static int typeahead_char = 0;  ///< typeahead char that's not flushed
 
@@ -260,8 +262,8 @@ static void redo_chars(const CmdSpec *spec, StringBuilder *buf, bool arg_meta)
   if (spec->cmd2 != NUL) {
     sb_add_char(buf, spec->cmd2);
   }
-  if (spec->arg != NUL && !arg_meta) {
-    sb_add_char(buf, spec->arg);
+  if (spec->cmdarg != NUL && !arg_meta) {
+    sb_add_char(buf, spec->cmdarg);
   }
 }
 
@@ -557,13 +559,13 @@ void redo_free_all(void)
 
 /// Prepare for redo of any command: stores `spec` and appends its command chars.
 ///
-/// @param claim     Claim it as the atom. False if the atom is captured by other means
-///                  (insert-session entry/restart, "z=").
+/// @param as_atom   The redo also defines the command's atom (`curcmd.redo_frame`). False for
+///                  "prep-exempt" special cases (insert-session entry/restart, "z=").
 /// @param arg_meta  Skip the `arg` byte: an interactively-typed operand may need CTRL-V quoting
 ///                  or its composing-char string form, which the caller appends itself.
-void prep_redo(bool claim, bool arg_meta, CmdSpec spec)
+void prep_redo(bool as_atom, bool arg_meta, CmdSpec spec)
 {
-  if (claim) {
+  if (as_atom) {
     atom_redo_set(spec);
   }
   redo_new(spec);
@@ -576,7 +578,7 @@ void prep_redo(bool claim, bool arg_meta, CmdSpec spec)
 /// Prepare for redo of a Visual-mode command: the body opens with `keys` (the captured selection),
 /// so "." re-executes the selection at cursor; the `["x][count]` prefix and command chars of
 /// `spec` compose into the body after them (zeroed in the stored spec, so replay doesn't also
-/// prefix them). Always claims (see prep_redo()).
+/// prefix them).
 void prep_redo_visual(const char *keys, size_t len, CmdSpec spec)
 {
   CmdSpec stored = spec;
@@ -1811,7 +1813,7 @@ int vgetc(void)
 
   // Execute Lua on_key callbacks.
   kvi_push(on_key_buf, NUL);
-  if (nlua_exec_on_key(c, on_key_buf.items)) {
+  if (getchar_depth == 0 && nlua_exec_on_key(c, on_key_buf.items)) {
     // Keys following K_COMMAND/K_LUA/K_PASTE_START aren't normally received by
     // vim.on_key() callbacks, so discard them along with the current key.
     if (c == K_COMMAND) {
@@ -1948,9 +1950,11 @@ static void getchar_common(typval_T *argvars, typval_T *rettv, bool allow_number
 
   no_mapping++;
   allow_keys++;
+  getchar_depth++;
   if (!simplify) {
     no_reduce_keys++;
   }
+  atom_payload_start();
   while (true) {
     if (cursor_flag == 'm' || (cursor_flag == NUL && msg_col > 0)) {
       ui_cursor_goto(msg_row, msg_col);
@@ -1970,7 +1974,7 @@ static void getchar_common(typval_T *argvars, typval_T *rettv, bool allow_number
         }
       }
       n = safe_vgetc();
-    } else if (tv_get_number_chk(&argvars[0], &error) == 1) {
+    } else if (tv_get_bool_chk(&argvars[0], &error)) {
       // getchar(1): only check if char avail
       n = vpeekc_any();
     } else if (error || vpeekc_any() == NUL) {
@@ -1990,8 +1994,10 @@ static void getchar_common(typval_T *argvars, typval_T *rettv, bool allow_number
     }
     break;
   }
+  atom_payload_end();
   no_mapping--;
   allow_keys--;
+  getchar_depth--;
   if (!simplify) {
     no_reduce_keys--;
   }
@@ -2245,7 +2251,7 @@ static int char_iter(const uint8_t **itp, int nomap)
 /// - When there is no match yet, return map_result_nomatch, need to get more
 ///   typeahead.
 /// - On failure (out of memory) return map_result_fail.
-static int handle_mapping(int *keylenp, const bool *timedout, int *mapdepth)
+static int handle_mapping(int *keylenp, const bool *timedout, int *mapdepth, bool advance)
   FUNC_ATTR_NONNULL_ARG(1)
 {
   mapblock_T *mp = NULL;
@@ -2495,7 +2501,7 @@ static int handle_mapping(int *keylenp, const bool *timedout, int *mapdepth)
                (size_t)(keylen - typebuf.tb_maplen));
       // A typed key sequence resolved this mapping (not a nested expansion:
       // those keys come from another mapping): open its composite.
-      atom_map_start(mp->m_keys, (size_t)mp->m_keylen);
+      atom_map_start(mp->m_keys, (size_t)mp->m_keylen, !advance);
     }
 
     cmd_silent = (typebuf.tb_silent > 0);
@@ -2779,7 +2785,8 @@ static int vgetorpeek(bool advance)
           break;
         } else if (typebuf.tb_len > 0) {
           // Check for a mapping in "typebuf".
-          map_result_T result = (map_result_T)handle_mapping(&keylen, &timedout, &mapdepth);
+          map_result_T result = (map_result_T)handle_mapping(&keylen, &timedout, &mapdepth,
+                                                             advance);
 
           if (result == map_result_retry) {
             // try mapping again

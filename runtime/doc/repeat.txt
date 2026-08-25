@@ -11,7 +11,7 @@ Chapter 26 of the user manual introduces repeating |usr_26.txt|.
                                       Type |gO| to see the table of contents.
 
 ==============================================================================
-Single repeats						*single-repeat*
+Single repeat						*single-repeat*
 
 							*.*
 .			Repeat last change, with count replaced with [count].
@@ -37,30 +37,164 @@ jumps (mouse, |i_<PageUp>|, …) split an insert session.
 Repeating a Visual-mode command re-executes the captured keysequence,
 selection included.  See |visual-repeat|.
 
+==============================================================================
+Semantic repeat				*action-repeat* *cmdatom* *excalibur*
+
+The |CmdAtom| event is published on every user action. This avoids the need
+for plugins to "announce" the repeatable unit, thus plugins like vim-repeat
+aren't needed.
+
+`CmdAtom.lhs` is the high-level user input collected during an action,
+including getchar() input. This is signficant: it reflects the semantic
+intent. `CmdAtom.keys` reveals the low-level internal commands that were
+produced.
+
+	INPUT (`lhs`)	RESOLUTION (`keys`) ~
+	dw		"dw"		Not translated.
+	zfa{		"zfa{"		Not an edit (`changed=false`).
+	x		"dl"		Translated builtin.
+	,d		"dl"		Mapping `:nnoremap ,d x`.
+	@q		"dl"		Macro `@q = "x"`.
+	<F6>		"dlw"		Composite `:nnoremap <F6> xw`:
+					`type='mapping'`, subatoms "dl" and "w"
+					concat to the composite keys.
+	,Dw		"dw"		Incomplete mapping: ended mid-
+					operation (`:nnoremap ,D d`),
+					captures its continuation ("w").
+	ds)		":call …<NL>)"	"Payload" mapping (e.g. vim-surround
+					"ds'" reads |getchar()|).
+	]q		nil		Lua mapping.
+	V<C-E>d		""		Unreplayable: viewport-dependent
+					Visual sequence; `lhs` is only
+					a hint/label.
+
+To repeat an atom, feed `keys` (mode "n"), or `lhs` (mode "m") if `keys=nil`. >lua
+
+    local function replay(a)
+      vim.api.nvim_feedkeys(a.keys or a.lhs, a.keys and 'n' or 'm', false)
+    end
+<
 							*motion-repeat*
-Example: a "," mapping that repeats the last motion, like |;| but for any
-motion ("3w", "fx", "/pat<CR>"): remember the last "motion" |CmdAtom| and
-replay its keys: >lua
-    local last ---@type string?
+Example: This "," mapping repeats the last motion ("zj", "3w", "fx",
+"/pat<CR>", "]c", any mapping/command that sets `moved=true`). >lua
+
+    local last ---@type vim.event.cmdatom.data?
     vim.api.nvim_create_autocmd('CmdAtom', {
-      pattern = 'motion',
       callback = function(ev)
-        last = ev.data.keys
+        -- Skip edits, and the "," mapping itself.
+        local motion = ev.data.moved or ev.match == 'motion'
+        if motion and not (ev.data.changed or ev.data.lhs == ',') then
+          last = ev.data
+        end
       end,
     })
     vim.keymap.set('n', ',', function()
-      -- CmdAtom is deferred: schedule the replay after any pending event,
-      -- so `last` is fresh when "," follows a motion.
+      -- CmdAtom is deferred; schedule the replay, in case "," follows a motion.
       vim.schedule(function()
         if last then
-          vim.api.nvim_feedkeys(last, 'n', false)  -- "n": already resolved
+          vim.api.nvim_feedkeys(last.keys or last.lhs, last.keys and 'n' or 'm', false)
         end
       end)
     end)
 <
+							*edit-repeat*
+Example: This "." mapping repeats ANY edit (except undo/redo), including
+operations provided by plugins, without the need for "announcement" via
+vim-repeat or similar. >lua
+
+    local last ---@type vim.event.cmdatom.data?
+    local maxseq = {} ---@type table<integer, integer>
+    vim.api.nvim_create_autocmd('CmdAtom', {
+      callback = function(ev)
+        local is_redo_or_undo = ev.data.changed and (ev.data.undoseq or 0) <= (maxseq[ev.buf] or 0)
+        maxseq[ev.buf] = vim.fn.undotree(ev.buf).seq_last
+        if ev.data.changed and not is_redo_or_undo and ev.data.lhs ~= '.' then
+          last = ev.data
+        end
+      end,
+    })
+    vim.keymap.set('n', '.', function()
+      -- CmdAtom is deferred; schedule the replay, in case "." follows an edit.
+      vim.schedule(function()
+        if last then
+          vim.api.nvim_feedkeys(last.keys or last.lhs, last.keys and 'n' or 'm', false)
+        end
+      end)
+    end)
+<
+							*cmdatom-macro*
+Example: This "[count]<Space>" mapping saves the last [count] atoms as an
+editable macro: "2<Space>" opens the |cmdwin| with the last [count] atoms
+listed (you can delete/edit steps if you want), <Enter> saves it. "<Space>"
+without a count replays the macro. >lua
+
+    -- Track the last 20 atoms.
+    local atom_ring = {} ---@type vim.event.cmdatom.data[]
+    vim.api.nvim_create_autocmd('CmdAtom', {
+      callback = function(ev)
+        -- Skip this mapping itself, and cmdwin edits.
+        if ev.data.lhs ~= ' ' and vim.fn.getcmdwintype() == '' then
+          atom_ring[#atom_ring + 1] = ev.data
+          if #atom_ring > 20 then
+            table.remove(atom_ring, 1)
+          end
+        end
+      end,
+    })
+    -- [count]<space> shows a cmdwin where the user can edit/save the last [count] atoms as a "macro".
+    -- <space> (no count) replays it.
+    vim.keymap.set('n', '<Space>', function()
+      local count = vim.v.count
+      -- CmdAtom is deferred; schedule it so pending events land in the ring first.
+      vim.schedule(function()
+        count = math.min(count, #atom_ring)
+        if count == 0 then -- Replay the saved macro.
+          for _, step in ipairs(vim.g.atom_macro or {}) do
+            vim.api.nvim_feedkeys(vim.keycode(step.keys or step.lhs), step.keys and 'n' or 'm', false)
+          end
+          return
+        end
+        local parts = {}
+        for i = #atom_ring - count + 1, #atom_ring do
+          local a = atom_ring[i]
+          local keys = a.keys or ('%s%s'):format(a.count or '', a.lhs)
+          local field = a.keys and 'keys' or 'lhs'
+          parts[#parts + 1] = ('{%s=%q},'):format(field, vim.fn.keytrans(keys))
+        end
+        local cmd = ('lua vim.g.atom_macro = { %s }'):format(table.concat(parts, ' '))
+        -- Draft it on the cmdline; CTRL-F opens the cmdwin to edit it.
+        vim.api.nvim_feedkeys((':%s%s'):format(cmd, vim.keycode('<C-f>')), 'n', false)
+      end)
+    end)
+<
+							*restore-undo-cursor*
+Example: Restore cursor position after undo. Works for |u|, "3u", |CTRL-R|,
+":undo N", |g-| and any mapping: >lua
+
+    local seen = {} ---@type table<integer, table>
+    vim.api.nvim_create_autocmd('CmdAtom', {
+      callback = function(ev)
+        local seq = ev.data.undoseq
+        if not seq then
+          return
+        end
+        local s = seen[ev.buf] or {}
+        seen[ev.buf] = s
+        -- Note: g- :earlier may cross undo-tree branches, "best effort" in that case.
+        if s.prev and seq < s.prev and s[seq + 1] then
+          vim.api.nvim_win_set_cursor(0, s[seq + 1]) -- Undo: first abandoned state.
+        elseif s.prev and seq > s.prev and s[seq] then
+          vim.api.nvim_win_set_cursor(0, s[seq]) -- Redo: revisiting a known seq.
+        elseif ev.data.changed and not s[seq] then
+          s[seq] = ev.data.pos -- New edit.
+        end
+        s.prev = seq
+      end,
+    })
+<
 
 ==============================================================================
-Multiple repeats					*multi-repeat*
+Multiple repeat					*multi-repeat*
 
 						*:g* *:global* *E148*
 :[range]g[lobal]/{pattern}/[cmd]
@@ -128,7 +262,7 @@ This replaces all occurrences of "pat" with "PAT".  The same can be done with: >
 Which is two characters shorter!
 
 ==============================================================================
-Complex repeats						*complex-repeat*
+Complex repeat						*complex-repeat*
 
 							*q* *recording* *macro*
 q{0-9a-zA-Z"}		Record typed characters into register {0-9a-zA-Z"}

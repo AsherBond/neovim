@@ -135,6 +135,14 @@ describe('vim.lsp.completion: item conversion', function()
           range = range0,
         },
       },
+      -- "" is unset
+      {
+        label = 'zoocar_long',
+        sortText = '',
+        insertText = '',
+        insertTextFormat = 2,
+        textEdit = { newText = 'foobar($1)', range = range0 },
+      },
     }
     local expected = {
       { abbr = 'foobar', word = 'foobar' },
@@ -145,6 +153,7 @@ describe('vim.lsp.completion: item conversion', function()
       { abbr = 'foocar', word = 'foobar' },
       { abbr = 'foocar', word = 'foodar(${1:var1})' }, -- marked as PlainText, text is used as is
       { abbr = '•INT16_C(c)', word = 'INT16_C' },
+      { abbr = 'zoocar_long', word = 'foobar' },
     }
     local result = complete('|', completion_list)
     eq(expected, extract_word_abbr(result.items))
@@ -299,9 +308,9 @@ describe('vim.lsp.completion: item conversion', function()
       })
     end)
 
-    it('fuzzy matches on label when filterText is missing', function()
+    it('fuzzy matches on label when filterText is missing or empty', function()
       assert_completion_matches('fo', {
-        { label = 'foo' },
+        { label = 'foo', filterText = '' },
         { label = 'faz other' },
         { label = 'bar' },
       }, {
@@ -755,6 +764,7 @@ describe('vim.lsp.completion: item conversion', function()
           {
             label = 'hello',
             data = 'item-property-has-priority',
+            insertText = '',
           },
         },
       }
@@ -1420,6 +1430,10 @@ describe('vim.lsp.completion: integration', function()
             range = { start = { line = 0, character = 0 }, ['end'] = { line = 0, character = 7 } },
           },
         },
+        {
+          label = 'foobar',
+          insertTextFormat = 1,
+        },
       },
     }
     exec_lua(function()
@@ -1431,6 +1445,12 @@ describe('vim.lsp.completion: integration', function()
     feed('<C-Y>')
     eq('<div class="foo"></div>', n.api.nvim_get_current_line())
     eq({ 1, 17 }, n.api.nvim_win_get_cursor(0))
+
+    feed('<Esc>ccdiv.foo<C-x><C-O>')
+    wait_for_pum()
+    feed('<C-N><C-Y>')
+    eq('div.foobar', n.api.nvim_get_current_line())
+
     assert_cleanup_after_detach(client_id)
   end)
 

@@ -918,13 +918,11 @@ static void apply_cursorline_highlight(win_T *wp, winlinevars_T *wlv)
   //  * high-priority ("same as Vim" priority) CursorLine if fg is set
   if (ae.rgb_fg_color == -1 && ae.cterm_fg_color == 0) {
     wlv->line_attr_lowprio = wlv->cul_attr;
+  } else if (!(State & MODE_INSERT) && bt_quickfix(wp->w_buffer)
+             && qf_current_entry(wp) == wlv->lnum) {
+    wlv->line_attr = hl_combine_attr(wlv->cul_attr, wlv->line_attr);
   } else {
-    if (!(State & MODE_INSERT) && bt_quickfix(wp->w_buffer)
-        && qf_current_entry(wp) == wlv->lnum) {
-      wlv->line_attr = hl_combine_attr(wlv->cul_attr, wlv->line_attr);
-    } else {
-      wlv->line_attr = wlv->cul_attr;
-    }
+    wlv->line_attr = wlv->cul_attr;
   }
 }
 
@@ -2428,8 +2426,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
           char *p = ptr - (mb_off + 1);
 
           CharsizeArg csarg;
-          // lnum == 0, do not want virtual text to be counted here
-          CSType cstype = init_charsize_arg(&csarg, wp, 0, line);
+          CSType cstype = init_charsize_arg_skip_cur_text(&csarg, wp, lnum, line);
           // TODO(zeertzjq): consider using CharSize.tail here
           wlv.n_extra = win_charsize(cstype, wlv.vcol, p, utf_ptr2CharInfo(p).value,
                                      &csarg).width - 1;

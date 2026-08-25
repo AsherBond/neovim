@@ -44,6 +44,20 @@ local M = {
   cmd_on_key = nil, ---@type integer? vim.on_key namespace while cmdline is expanded.
 }
 
+--- Resolved options values from 'messagesopt', 'fillchars'.
+local mopt = { maxrows = 0, msgsep = ' ', pager = nil, timeout = 4000 } ---@type table<string,any>
+
+--- Resolves the option values used by this module.
+function M.on_option_changed()
+  mopt.msgsep = vim.opt.fcs:get().msgsep or ' '
+  local v = vim.opt.messagesopt:get() --[[@as table<string,string|boolean>]]
+  mopt.maxrows = math.ceil(o.lines * (tonumber(v.maxheight) or 50) / 100)
+  mopt.timeout = tonumber(v.timeout) or 4000
+  -- Normalize to the keytrans() form that cmd_on_key() compares against: "<cr>" => "<CR>".
+  local key = v.pager
+  mopt.pager = type(key) == 'string' and key ~= '' and fn.keytrans(vim.keycode(key)) or nil
+end
+
 -- An external redraw indicates the start of a new batch of messages in the cmdline.
 api.nvim_set_decoration_provider(ui.ns, {
   on_start = function()
@@ -88,7 +102,7 @@ function M.msg:start_timer(buf, id)
     else
       self:clear()
     end
-  end, ui.cfg.msg.msg.timeout)
+  end, mopt.timeout)
 end
 
 --- Place or delete a virtual text mark in the cmdline or message window.
@@ -239,7 +253,8 @@ function M.expand_msg(src, tgt, focus)
 
     api.nvim_buf_set_lines(ui.bufs[tgt], srow, -1, false, lines)
     for _, m in ipairs(marks) do
-      hlopts.hl_group, hlopts.end_col, hlopts.end_row = m[4].hl_group, m[4].end_col, m[4].end_row
+      hlopts.hl_group, hlopts.end_col, hlopts.end_row =
+        m[4].hl_group, m[4].end_col, srow + m[4].end_row
       api.nvim_buf_set_extmark(ui.bufs[tgt], ui.ns, srow + m[2], m[3], hlopts)
     end
   else
@@ -329,7 +344,7 @@ function M.show_msg(tgt, kind, content, replace_last, append, id)
         M.cmd.msg_row = texth.end_row
 
         -- Expand the cmdline for a non-error message that doesn't fit.
-        local expand = ui.cfg.msg.cmd.height < 1 or ui.cfg.msg.cmd.height > ui.cmdheight
+        local expand = mopt.maxrows > ui.cmdheight
         local error_kinds = { rpc_error = 1, emsg = 1, echoerr = 1, lua_error = 1 }
         if expand and texth.all > ui.cmdheight and (ui.cmdheight == 0 or not error_kinds[kind]) then
           tgt, buf = M.expand_msg(tgt)
@@ -581,8 +596,8 @@ local typed_g = false
 local function cmd_on_key(key, typed)
   -- Don't dismiss for non-typed keys and mouse movement. When 'g' is passed (typed
   -- or mapped), wait until the next key to avoid flickering when the pager is opened.
-  if typed == '' or (not typed_g and (typed == '<MouseMove>' or typed == 'g' or key == 'g')) then
-    typed_g = typed == 'g' or key == 'g'
+  if not typed_g and (typed == '' or (typed == '<MouseMove>' or typed == 'g' or key == 'g')) then
+    typed_g = typed ~= '' and (typed == 'g' or key == 'g')
     return
   end
   if typed == ':' or ui.cmd.level > 0 or fn.getcmdtype() ~= '' then
@@ -597,8 +612,7 @@ local function cmd_on_key(key, typed)
   -- Check if window was entered and reopen with original config. A shown (but not entered)
   -- pager is dismissed instead; "g<" passes through to reopen and enter it.
   local can_enter = not api.nvim_get_mode().mode:match('[it]') and not pager_shown()
-  local enter = can_enter
-      and (typed == ui.cfg.pager_char or typed_g and (typed == '<lt>' or key == '<'))
+  local enter = can_enter and (typed == mopt.pager or typed_g and (typed == '<lt>' or key == '<'))
     or (typed:find('LeftMouse') and fn.getmousepos().winid == ui.wins.cmd)
   if enter then
     M.expand_msg('cmd', 'pager', true)
@@ -654,8 +668,8 @@ end
 local was_cmdwin = ''
 ---@param min integer Minimum window height.
 local function win_row_height_border(tgt, min)
-  local cfgmin = ui.cfg.msg[tgt].height --[[@as number]]
-  min = math.min(min, cfgmin < 1 and math.ceil(o.lines * cfgmin) or cfgmin)
+  local h = (tgt ~= 'cmd' and ui.cfg.msg[tgt].height or 0) --[[@as number]]
+  min = math.min(min, tgt == 'cmd' and mopt.maxrows or h < 1 and math.ceil(o.lines * h) or h)
   if tgt ~= 'pager' then
     return (tgt == 'msg' and 0 or 1) - ui.cmd.wmnumode,
       math.max(1, min),
@@ -723,7 +737,7 @@ function M.set_pos(tgt, focus)
       and api.nvim_win_get_config(win)
     if cfg and (tgt or not cfg.hide) then
       local texth = api.nvim_win_text_height(win, { max_height = o.lines })
-      local top = { vim.opt.fcs:get().msgsep or ' ', 'MsgSeparator' }
+      local top = { mopt.msgsep, 'MsgSeparator' }
       cfg = { hide = false, relative = 'laststatus', col = 10000 } ---@type table
       cfg.row, cfg.height, cfg.border = win_row_height_border(t, texth.all)
       cfg.border = cfg.border and t ~= 'msg' and { '', top, '', '', '', '', '', '' } or nil

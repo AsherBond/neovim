@@ -34,11 +34,16 @@ if _G.arg[1] and vim.startswith(_G.arg[1], '-P') then
 end
 if _G.arg[1] and vim.startswith(_G.arg[1], '-X') then
   local xdg_dir = string.sub(table.remove(_G.arg, 1), 3)
-  vim.env.NVIM_LOG_FILE = xdg_dir .. '/Xtest_nvimlog'
   vim.env.NVIM_RPLUGIN_MANIFEST = xdg_dir .. '/Xtest_rplugin_manifest'
   vim.env.XDG_CONFIG_HOME = xdg_dir .. '/config'
   vim.env.XDG_DATA_HOME = xdg_dir .. '/share'
   vim.env.XDG_STATE_HOME = xdg_dir .. '/state'
+  if vim.fn.has('win32') == 0 then
+    -- Socket dir (stdpath("run")), deliberately NOT in the build dir. sockaddr_un.sun_path is 104
+    -- bytes on macOS/BSD, "/…/build/tmp/nvim.<pid>.<n>" can exceed it. #38623
+    vim.env.XDG_RUNTIME_DIR = ('/tmp/nvim_%d'):format(vim.uv.os_getpid())
+    vim.fn.mkdir(vim.env.XDG_RUNTIME_DIR, 'p')
+  end
 end
 
 local root = repo_root()
