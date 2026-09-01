@@ -265,24 +265,26 @@ describe('messages2', function()
                                                            |
     ]])
     feed(':messages<CR>')
+    -- Cmdwin stays open behind the pager: it is a regular window (#40312).
     screen:expect([[
       ^foo                                                  |
       foo                                                  |*4
-      {1:~                                                    }|*7
+      {1::}echo "foo" | echo "bar\nbaz\n"->repeat(&lines)      |
+      {1::}                                                    |
+      {1:~                                                    }|*5
       {3:[Pager]                            1,1            Top}|
       {16::}{15:messages}                                            |
     ]])
-    -- Cmdwin is restored after pager is closed.
+    -- Closing the pager returns to the cmdwin, unchanged (it was never closed).
     feed('q')
     screen:expect([[
       x                                                    |
       {1:~                                                    }|*3
       ─────────────────────────────────────────────────────|
       {1::}echo "foo" | echo "bar\nbaz\n"->repeat(&lines)      |
-      {1::}messages                                            |
       {1::}^                                                    |
-      {1:~                                                    }|*4
-      {3:[Command Line]                     3,0-1          All}|
+      {1:~                                                    }|*5
+      {3:[Command Line]                     2,0-1          All}|
       {16::}{15:messages}                                            |
     ]])
     -- Configured maximum height.
@@ -399,11 +401,22 @@ describe('messages2', function()
     feed([[echo "bar\n"->repeat(&lines)<CR>]])
     screen:expect([[
       ^                                                     |
-      {1:~                                                    }|*4
-      {3:                                                     }|
+      {1:~                                                    }|*5
       foo                                                  |
       bar                                                  |*5
       bar [+8]                                             |
+    ]])
+  end)
+
+  it('does not draw the message seperator with cmdheight=0', function()
+    command('set laststatus=2 statusline=%f')
+    command('set cmdheight=0')
+    command('echo "hello"')
+
+    screen:expect([[
+      ^                                                     |
+      {1:~                                                    }|*12
+      hello                                                |
     ]])
   end)
 
@@ -985,8 +998,7 @@ describe('messages2', function()
     command('ls!')
     screen:expect([[
       ^                                                     |
-      {1:~                                                    }|
-      {3:                                                     }|
+      {1:~                                                    }|*2
       foo                                                  |*2
       {14:f}oo [+6]                                             |
     ]])

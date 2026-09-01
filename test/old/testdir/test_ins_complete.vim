@@ -6851,4 +6851,110 @@ func Test_complete_info_hlgroup()
   bwipe!
 endfunc
 
+" Test that complete_info() tells a completion Vim started by itself from one
+" that a key asked for.
+func Test_complete_info_auto()
+  call Ntest_override("char_avail", 1)
+  new
+  func! AutoOmni(findstart, base)
+    if a:findstart
+      call add(g:auto, complete_info(['auto']).auto)
+      return 4
+    endif
+    return ['alpha', 'alphabet']
+  endfunc
+  setlocal omnifunc=AutoOmni
+  setlocal complete=o
+  setlocal completeopt=menuone
+  call setline(1, '    al')
+
+  " 'autocomplete' starts it, nothing was asked for.
+  setlocal autocomplete
+  let g:auto = []
+  call feedkeys("A\<Esc>", 'tx')
+  call assert_equal([1], g:auto)
+
+  " The second call is the one CTRL-X CTRL-O asked for.
+  let g:auto = []
+  call feedkeys("A\<C-X>\<C-O>\<Esc>", 'tx')
+  call assert_equal([1, 0], g:auto)
+
+  " CTRL-X CTRL-O is typed before 'autocompletedelay' expires.
+  set autocompletedelay=100
+  let g:auto = []
+  call feedkeys("A\<C-X>\<C-O>\<Esc>", 'tx')
+  call assert_equal([0], g:auto)
+
+  set autocompletedelay&
+  setlocal noautocomplete
+  let g:auto = []
+  call feedkeys("A\<C-X>\<C-O>\<Esc>", 'tx')
+  call assert_equal([0], g:auto)
+
+  call Ntest_override("ALL", 0)
+  unlet g:auto
+  delfunc AutoOmni
+  bwipe!
+endfunc
+
+" A completion asked for while 'autocompletedelay' runs is not given the
+" implicit "noselect" of autocompletion.
+func Test_complete_asked_for_during_delay()
+  call Ntest_override("char_avail", 1)
+  new
+  func! AutoOmni(findstart, base)
+    if a:findstart
+      return 4
+    endif
+    return ['alpha', 'alphabet']
+  endfunc
+  func! Selected()
+    let g:selected = complete_info(['selected']).selected
+    return ''
+  endfunc
+  setlocal omnifunc=AutoOmni
+  setlocal complete=o
+  setlocal completeopt=menuone
+  setlocal autocomplete
+  call setline(1, '    al')
+
+  " CTRL-X CTRL-O before the delay expires: the first match is selected,
+  " and taken.
+  set autocompletedelay=100
+  call feedkeys("A\<C-X>\<C-O>\<C-R>=Selected()\<CR>\<Esc>", 'tx')
+  call assert_equal(0, g:selected)
+  call assert_equal('    alpha', getline(1))
+
+  " What autocompletion puts up on its own selects nothing, so the word is
+  " left as it was.
+  set autocompletedelay&
+  call setline(1, '    al')
+  call feedkeys("A\<C-R>=Selected()\<CR>\<Esc>", 'tx')
+  call assert_equal(-1, g:selected)
+  call assert_equal('    al', getline(1))
+
+  call Ntest_override("ALL", 0)
+  unlet g:selected
+  delfunc AutoOmni
+  delfunc Selected
+  bwipe!
+endfunc
+
+func Test_complete_fuzzy_resort()
+  new
+  set completeopt=menu,menuone,noselect,fuzzy
+
+  inoremap <buffer> <F5> <Cmd>call complete(1, ['xxxb', 'xb', 'b'])<CR>
+  call feedkeys("i\<F5>b\<C-R>=string(map(complete_info(['items']).items, 'v:val.word'))\<CR>\<Esc>", 'tx')
+  call assert_equal("b['b', 'xb', 'xxxb']", getline(1))
+
+  %d _
+  call setline(1, ['xxxbar', 'xbar', 'bar'])
+  call feedkeys("Go\<C-P>b\<C-R>=string(map(complete_info(['items']).items, 'v:val.word'))\<CR>\<Esc>", 'tx')
+  call assert_equal("b['bar', 'xbar', 'xxxbar']", getline('$'))
+
+  bwipe!
+  set completeopt&
+endfunc
+
 " vim: shiftwidth=2 sts=2 expandtab nofoldenable
