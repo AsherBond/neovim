@@ -118,7 +118,8 @@ function TSHighlighter.new(tree, opts)
     end,
   })
 
-  -- Enable conceal_lines if query exists for lang and has conceal_lines metadata.
+  --- Enable conceal_lines if query exists for lang and has conceal_lines metadata.
+  --- @param lang string
   local function set_conceal_lines(lang)
     if not self._conceal_line and self:get_query(lang):query() then
       self._conceal_line = self:get_query(lang):query().has_conceal_line
@@ -298,7 +299,7 @@ end
 --- @param metadata vim.treesitter.query.TSMetadata
 --- @return string?
 local function get_url(match, bufnr, capture, metadata)
-  ---@type string|number|nil
+  ---@type string|integer|nil
   local url = metadata[capture] and metadata[capture].url
 
   if not url or type(url) == 'string' then
@@ -369,7 +370,6 @@ local function on_range_impl(
   self:for_each_highlight_state(function(state)
     subtree_counter = subtree_counter + 1
     local root_node = state.tstree:root()
-    ---@type { [1]: integer, [2]: integer, [3]: integer, [4]: integer }
     local root_range = { root_node:range() }
 
     if
@@ -549,7 +549,7 @@ function TSHighlighter._on_conceal_line(_, _, buf, row)
 
   -- Do not affect potentially populated highlight state.
   local highlight_states = self._highlight_states
-  self.tree:parse({ row, row })
+  self.tree:parse({ row, row + 1 })
   self:prepare_highlight_states(row, row)
   on_range_impl(self, buf, row, 0, row + 1, 0, false, true)
   self._highlight_states = highlight_states

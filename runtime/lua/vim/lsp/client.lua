@@ -416,8 +416,8 @@ function Client.create(config)
   local id = client_index
   local name = get_name(id, config)
 
-  --- @class vim.lsp.Client
-  local self = {
+  --- @type vim.lsp.Client
+  local self = setmetatable({
     id = id,
     config = config,
     handlers = config.handlers or {},
@@ -455,7 +455,7 @@ function Client.create(config)
 
     --- @deprecated use client.progress instead
     messages = { name = name, messages = {}, progress = {}, status = {} },
-  }
+  }, Client)
 
   self.capabilities =
     vim.tbl_deep_extend('force', lsp.protocol.make_client_capabilities(), self.capabilities or {})
@@ -515,8 +515,6 @@ function Client.create(config)
       detached = config.detached,
     })
   end
-
-  setmetatable(self, Client)
 
   method_wrapper(self, Client, 'request')
   method_wrapper(self, Client, 'request_sync')
@@ -768,19 +766,19 @@ function Client:request(method, params, handler, bufnr)
   local request_registered = false
 
   -- NOTE: rpc.request might call an in-process (Lua) server, thus may be synchronous.
-  local success, request_id = self.rpc.request(method, params, function(err, result, request_id)
+  local success, request_id = self.rpc.request(method, params, function(err, result, id)
     handler(err, result, {
       method = method,
       client_id = self.id,
-      request_id = request_id,
+      request_id = id,
       bufnr = bufnr,
       params = params,
       version = version,
     })
-  end, function(request_id)
+  end, function(id)
     -- Called when the server sends a response to the request (including cancelled acknowledgment).
     if request_registered then
-      self:_process_request(request_id, 'complete')
+      self:_process_request(id, 'complete')
     end
     already_responded = true
   end)
@@ -828,6 +826,8 @@ end
 --- @see |vim.lsp.buf_request_sync()|
 function Client:request_sync(method, params, timeout_ms, bufnr)
   local request_result = nil
+  --- @param err lsp.ResponseError?
+  --- @param result any
   local function _sync_handler(err, result)
     request_result = { err = err, result = result }
   end
@@ -986,12 +986,12 @@ function Client:_supports_registration(method)
     return true
   end
   local capability = vim.tbl_get(self.capabilities, unpack(capability_path))
-  return type(capability) == 'table' and capability.dynamicRegistration
+  return type(capability) == 'table' and capability.dynamicRegistration == true
 end
 
 --- Get provider for a method to be registered dynamically.
 --- @param method vim.lsp.protocol.Method | vim.lsp.protocol.Method.Registration
-function Client:_registration_provider(method)
+function Client._registration_provider(_, method)
   return lsp.protocol._request_name_to_registration_provider[method] or method
 end
 
@@ -1059,6 +1059,7 @@ function Client:_unregister(unregistrations)
 end
 
 --- @private
+--- @param bufnr integer
 function Client:_get_language_id(bufnr)
   return self.get_language_id(bufnr, vim.bo[bufnr].filetype)
 end
@@ -1226,7 +1227,7 @@ function Client:on_attach(bufnr)
   -- schedule the initialization of capabilities to give the above on_attach and LspAttach callbacks
   -- the ability to enable or disable them
   vim.schedule(function()
-    if not vim.api.nvim_buf_is_valid(bufnr) then
+    if not api.nvim_buf_is_valid(bufnr) then
       return
     end
     for _, Capability in pairs(lsp._capability.all) do
@@ -1458,7 +1459,7 @@ function Client:_on_detach(bufnr)
     end
   end
 
-  vim.diagnostic.reset(vim.lsp.diagnostic.get_namespace(self.id, false), bufnr)
+  vim.diagnostic.reset(lsp.diagnostic.get_namespace(self.id, false), bufnr)
 
   changetracking.reset_buf(self, bufnr)
 
@@ -1469,11 +1470,12 @@ end
 
 --- Reset defaults set by `set_defaults`.
 --- Must only be called if the last client attached to a buffer exits.
+--- @param bufnr integer
 local function reset_defaults(bufnr)
-  if vim.bo[bufnr].tagfunc == vim.lsp.tagfunc then
+  if vim.bo[bufnr].tagfunc == lsp.tagfunc then
     vim.bo[bufnr].tagfunc = nil
   end
-  if vim.bo[bufnr].omnifunc == vim.lsp.omnifunc then
+  if vim.bo[bufnr].omnifunc == lsp.omnifunc then
     vim.bo[bufnr].omnifunc = nil
   end
   if vim.bo[bufnr].formatexpr == 'v:lua.vim.lsp.formatexpr()' then

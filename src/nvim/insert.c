@@ -131,6 +131,7 @@ static kvec_t(char) replace_stack = KV_INITIAL_VALUE;
 // Otherwise trigger completion right away.
 #define TRIGGER_AUTOCOMPLETE() \
   do { \
+    mc_ins_cascade();  /* Multicursor: replay pending keys, since compl refused edit(). #41605 */ \
     redraw_later(curwin, UPD_VALID); \
     update_screen();  /* Show char deletion immediately */ \
     ui_flush(); \
@@ -2905,7 +2906,7 @@ static void replace_do_bs(int limit_col)
       int vcol = start_vcol;
       for (int i = 0; i < ins_len; i++) {
         vcol += win_chartabsize(curwin, p + i, vcol);
-        i += utfc_ptr2len(p) - 1;
+        i += utfc_ptr2len(p + i) - 1;
       }
       vcol -= start_vcol;
 
@@ -4383,14 +4384,14 @@ static char *do_insert_char_pre(int c)
   char buf[MB_MAXBYTES + 1];
   const int save_State = State;
 
-  if (c == Ctrl_RSB) {
+  if (c == Ctrl_RSB  // i_CTRL-] only triggers abbreviations.
+      // Stuffed text was transformed when typed and appended to redobuf (redo_append_lit).
+      // Like abbreviations (vgetorpeek()), don't transform it again.
+      || KeyStuffed
+      || !has_event(EVENT_INSERTCHARPRE)) {
     return NULL;
   }
 
-  // Return quickly when there is nothing to do.
-  if (!has_event(EVENT_INSERTCHARPRE)) {
-    return NULL;
-  }
   size_t buflen = (size_t)utf_char2bytes(c, buf);
   buf[buflen] = NUL;
 

@@ -29,6 +29,8 @@ local function colorize_hl_groups(patterns)
   vim.fn.setpos('.', save_cursor)
 end
 
+--- @param bufname string
+--- @param path string
 local function help_bufname_match(bufname, path)
   return vim.endswith(bufname, path .. '.txt') or bufname:find(path .. '%.%a%ax$')
 end
@@ -96,7 +98,8 @@ local function runnables()
 
       if name == 'code' then
         local code = vim.treesitter.get_node_text(node, 0)
-        local lang_node = match[metadata[id].lang][1] --[[@as TSNode]]
+        local lang_id = metadata[id].lang --[[@as integer]]
+        local lang_node = match[lang_id][1]
         local lang = vim.treesitter.get_node_text(lang_node, 0)
         for i = start + 1, end_ do
           code_blocks[i] = { lang = lang, code = code }

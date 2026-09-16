@@ -53,6 +53,8 @@
 --- 1.2 - 2.3.0       is 1.2.0 - 2.3.0
 --- ```
 
+---@class (internal) vim.VersionModule
+---@operator call: vim.Version
 local M = {}
 
 ---@nodoc
@@ -101,10 +103,13 @@ local function cmp_prerel(prerel1, prerel2)
   end
 end
 
+---@param key string|integer
 function Version:__index(key)
   return type(key) == 'number' and ({ self.major, self.minor, self.patch })[key] or Version[key]
 end
 
+---@param key string|integer
+---@param value integer|string|nil
 function Version:__newindex(key, value)
   if key == 1 then
     self.major = value

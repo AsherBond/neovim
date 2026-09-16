@@ -10,12 +10,12 @@ local Capability = require('vim.lsp._capability')
 ---@class (private) vim.lsp.codelens.RowLenses
 ---@field lenses lsp.CodeLens[]
 ---@field version? integer `TextDocument` version most recently applied to this row.
----
+
 ---@class (private) vim.lsp.codelens.ClientState
 ---@field row_lenses table<integer, vim.lsp.codelens.RowLenses>
 ---@field namespace integer
 ---@field version? integer `TextDocument` version current state corresponds to.
----
+
 ---@class (private) vim.lsp.codelens.Provider : vim.lsp.Capability
 ---@field active table<integer, vim.lsp.codelens.Provider>
 ---
@@ -53,11 +53,13 @@ function Provider:on_detach(client_id)
 end
 
 ---@private
+---@param client_id integer
 function Provider:on_close(client_id)
   self:clear(client_id)
 end
 
 ---@private
+---@param client_id integer
 function Provider:on_change(client_id)
   self:request(client_id)
 end
@@ -297,6 +299,7 @@ end
 ---
 ---@param filter? vim.lsp.codelens.get.Filter
 ---@return vim.lsp.codelens.get.Result[]
+---@overload fun(filter: integer): lsp.CodeLens[]
 function M.get(filter)
   if type(filter) == 'number' then
     vim.deprecate(
@@ -316,6 +319,7 @@ function M.get(filter)
         result = vim.list_extend(result, row_lenses.lenses)
       end
     end
+    ---@diagnostic disable-next-line: return-type-mismatch
     return result
   end
 
@@ -428,7 +432,7 @@ end
 
 --- |lsp-handler| for the method `workspace/codeLens/refresh`
 ---
----@private
+---@internal
 ---@type lsp.Handler
 function M.on_refresh(err, _, ctx)
   if err then

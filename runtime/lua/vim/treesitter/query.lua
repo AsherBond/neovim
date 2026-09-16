@@ -25,6 +25,7 @@ local M = {}
 local Query = {}
 Query.__index = Query
 
+---@param name string
 local function is_directive(name)
   return string.sub(name, -1) == '!'
 end
@@ -129,6 +130,8 @@ local function dedupe_files(files)
   return result
 end
 
+--- @param filename string
+--- @param read_quantifier '*a'|'*l'
 local function safe_read(filename, read_quantifier)
   local file, err = io.open(filename, 'r')
   if not file then
@@ -141,6 +144,9 @@ end
 
 --- Adds {ilang} to {base_langs}, only if {ilang} is different than {lang}
 ---
+---@param base_langs string[]
+---@param lang string
+---@param ilang string
 ---@return boolean true If lang == ilang
 local function add_included_lang(base_langs, lang, ilang)
   if lang == ilang then
@@ -445,6 +451,7 @@ local impl = {
 
   ['match'] = (function()
     local magic_prefixes = { ['\\v'] = true, ['\\m'] = true, ['\\M'] = true, ['\\V'] = true }
+    --- @param str string
     local function check_magic(str)
       if string.len(str) < 2 or magic_prefixes[string.sub(str, 1, 2)] then
         return str
@@ -548,6 +555,7 @@ local predicate_handlers = {
     return impl['contains'](match, source, predicate, true)
   end,
 
+  --- @param predicate any[] & { string_set?: table<string, boolean> }
   ['any-of?'] = function(match, _, source, predicate)
     local nodes = match[predicate[2]]
     if not nodes or #nodes == 0 then
@@ -559,7 +567,7 @@ local predicate_handlers = {
 
       -- Since 'predicate' will not be used by callers of this function, use it
       -- to store a string set built from the list of words to check against.
-      local string_set = predicate['string_set'] --- @type table<string, boolean>
+      local string_set = predicate['string_set']
       if not string_set then
         string_set = {}
         for i = 3, #predicate do
@@ -597,7 +605,8 @@ local predicate_handlers = {
     end
 
     for _, node in ipairs(nodes) do
-      if vim.list_contains({ unpack(predicate, 3) }, node:parent():type()) then
+      local parent = node:parent()
+      if parent and vim.list_contains({ unpack(predicate, 3) }, parent:type()) then
         return true
       end
     end
@@ -828,7 +837,7 @@ end
 ---@param captures table<integer, TSNode[]>
 ---@param source integer|string
 ---@return boolean whether the predicates match
-function Query:_match_predicates(predicates, pattern_i, captures, source)
+function Query._match_predicates(predicates, pattern_i, captures, source)
   for _, predicate in ipairs(predicates) do
     local processed_name = predicate[1]
     local should_match = predicate[2]
@@ -854,7 +863,7 @@ end
 ---@param source integer|string
 ---@param captures table<integer, TSNode[]>
 ---@return vim.treesitter.query.TSMetadata metadata
-function Query:_apply_directives(directives, pattern_i, captures, source)
+function Query._apply_directives(_, directives, pattern_i, captures, source)
   ---@type vim.treesitter.query.TSMetadata
   local metadata = {}
 
@@ -954,6 +963,8 @@ function Query:iter_captures(node, source, start_row, end_row, opts)
   ---@type table<integer, vim.treesitter.query.TSMetadata>
   local match_cache = {}
 
+  ---@param end_line? integer
+  ---@param end_col? integer
   local function iter(end_line, end_col)
     local capture, captured_node, match = cursor:next_capture()
 
@@ -977,7 +988,7 @@ function Query:iter_captures(node, source, start_row, end_row, opts)
         local captures = match:captures()
 
         local predicates = processed_pattern.predicates
-        if not self:_match_predicates(predicates, pattern_i, captures, source) then
+        if not self._match_predicates(predicates, pattern_i, captures, source) then
           cursor:remove_match(match_id)
 
           local row, col = captured_node:range()
@@ -1079,7 +1090,7 @@ function Query:iter_matches(node, source, start, stop, opts)
     local metadata = {}
     if processed_pattern then
       local predicates = processed_pattern.predicates
-      if not self:_match_predicates(predicates, pattern_i, captures, source) then
+      if not self._match_predicates(predicates, pattern_i, captures, source) then
         cursor:remove_match(match_id)
         return iter() -- tail call: try next match
       end

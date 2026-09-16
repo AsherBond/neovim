@@ -1,7 +1,7 @@
 local M = {}
 local health = vim.health
 
-local deprecated = {} ---@type [string, table, string][]
+local deprecated = {} ---@type table<string, [string, string[], string?]>
 
 function M.check()
   if next(deprecated) == nil then
@@ -27,6 +27,10 @@ function M.check()
   end
 end
 
+--- @param name string
+--- @param version string
+--- @param backtrace string
+--- @param alternative? string
 function M.add(name, version, backtrace, alternative)
   if deprecated[name] == nil then
     deprecated[name] = { version, { backtrace }, alternative }

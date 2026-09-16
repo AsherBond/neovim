@@ -3205,6 +3205,11 @@ int modifier_len(char *cmd)
     p = skipwhite(skipdigits(cmd + 1));
   }
   for (int i = 0; i < (int)ARRAY_SIZE(cmdmods); i++) {
+    // cmdmod_info_tab[] is sorted by name: once the first letter is past
+    // the command's first letter no later entry can match.
+    if (cmdmods[i].name[0] > *p) {
+      break;
+    }
     int j;
     for (j = 0; p[j] != NUL; j++) {
       if (p[j] != cmdmods[i].name[j]) {
@@ -4725,7 +4730,7 @@ bool before_quit_autocmds(win_T *wp, bool quit_all, bool forceit)
   if (*get_vim_var_str(VV_EXITREASON) == NUL) {
     set_vim_var_string(VV_EXITREASON, S_LEN("quit"));
   }
-  apply_autocmds(EVENT_QUITPRE, NULL, NULL, false, wp->w_buffer);
+  apply_autocmds_win(EVENT_QUITPRE, NULL, NULL, false, wp->w_buffer, wp);
 
   // Bail out when autocommands closed the window.
   // Refuse to quit when the buffer in the last window is being closed (can
@@ -7092,7 +7097,7 @@ void update_topline_cursor(void)
   update_curswant();
 }
 
-/// Save the current State and go to Normal mode.
+/// Save the current State (editor-mode) and go to Normal mode.
 void save_current_state(save_state_T *sst)
   FUNC_ATTR_NONNULL_ALL
 {

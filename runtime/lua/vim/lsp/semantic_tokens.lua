@@ -88,7 +88,7 @@ local function tokens_to_ranges(data, bufnr, client, request, ranges)
   local encoding = client.offset_encoding
   local lines = api.nvim_buf_get_lines(bufnr, 0, -1, false)
   -- For all encodings, \r\n takes up two code points, and \n (or \r) takes up one.
-  local eol_offset = vim.bo.fileformat[bufnr] == 'dos' and 2 or 1
+  local eol_offset = vim.bo[bufnr].fileformat == 'dos' and 2 or 1
   local version = request.version
   local request_id = request.request_id
   local last_insert_idx = 1
@@ -111,6 +111,7 @@ local function tokens_to_ranges(data, bufnr, client, request, ranges)
           -- If it's stale, we don't resume the coroutine so it'll be garbage collected.
           if
             version == util.buf_versions[bufnr]
+            ---@diagnostic disable-next-line: preferred-local-alias
             and request_id == request.request_id
             and api.nvim_buf_is_valid(bufnr)
           then
@@ -163,7 +164,7 @@ local function tokens_to_ranges(data, bufnr, client, request, ranges)
 
       if last_insert_idx < #ranges then
         local needs_insert = true
-        local idx = vim.list.bisect(ranges, { line = range.line }, {
+        local idx = vim.list.bisect(ranges, range, {
           lo = last_insert_idx,
           key = function(highlight)
             return highlight.line
@@ -208,6 +209,7 @@ local function tokens_to_ranges(data, bufnr, client, request, ranges)
 end
 
 ---@package
+---@param bufnr integer
 function STHighlighter:new(bufnr)
   self = Capability.new(self, bufnr)
 
@@ -229,6 +231,7 @@ function STHighlighter:new(bufnr)
 end
 
 ---@package
+---@param client_id integer
 function STHighlighter:on_attach(client_id)
   local client = vim.lsp.get_client_by_id(client_id)
   local state = self.client_state[client_id]
@@ -253,6 +256,7 @@ function STHighlighter:on_attach(client_id)
 end
 
 ---@package
+---@param client_id integer
 function STHighlighter:on_detach(client_id)
   local state = self.client_state[client_id]
   if state then
@@ -264,11 +268,13 @@ function STHighlighter:on_detach(client_id)
 end
 
 ---@private
+---@param client_id integer
 function STHighlighter:on_close(client_id)
   self:reset(client_id)
 end
 
 ---@private
+---@param client_id integer
 function STHighlighter:on_change(client_id)
   self:send_request(client_id)
 end
@@ -435,6 +441,7 @@ function STHighlighter:send_full_delta_request(client, state, version)
 end
 
 ---@private
+---@param client_id integer
 function STHighlighter:cancel_active_request(client_id)
   local state = assert(self.client_state[client_id])
   local client = vim.lsp.get_client_by_id(client_id)
@@ -457,7 +464,7 @@ end
 --- @return lsp.Range
 function STHighlighter:get_overscan_range()
   local wins = vim.fn.win_findbuf(self.bufnr)
-  local num_lines = vim.api.nvim_buf_line_count(self.bufnr)
+  local num_lines = api.nvim_buf_line_count(self.bufnr)
   local min_start, max_end = nil, nil
 
   for _, win in ipairs(wins) do
@@ -668,6 +675,9 @@ function STHighlighter:on_win(topline, botline)
       -- finishes, clangd sends a refresh request which lets the client
       -- re-synchronize the tokens.
 
+      --- @param token STTokenRange
+      --- @param hl_group string
+      --- @param delta integer
       local function set_mark0(token, hl_group, delta)
         set_mark(
           self.bufnr,
@@ -775,7 +785,7 @@ end
 
 ---@private
 ---@param state STClientState
-function STHighlighter:reset_timer(state)
+function STHighlighter.reset_timer(_, state)
   local timer = state.timer
   if timer then
     state.timer = nil
@@ -980,6 +990,7 @@ end
 --- invalidate the current results of all buffers and automatically kick off a
 --- new request for buffers that are displayed in a window. For those that aren't,
 --- the BufWinEnter event should take care of it next time it's displayed.
+---@param err lsp.ResponseError?
 ---@param ctx lsp.HandlerContext
 function M._refresh(err, _, ctx)
   if err then

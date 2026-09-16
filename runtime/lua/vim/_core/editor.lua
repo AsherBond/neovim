@@ -21,6 +21,7 @@ for k, v in pairs({
   secure = true,
   snippet = true,
   pack = true,
+  async = true,
   _watch = true,
   net = true,
   pos = true,
@@ -196,6 +197,7 @@ local utfs = {
 
 -- Gets process info from the `ps` command.
 -- Used by nvim_get_proc() as a fallback.
+--- @param pid integer
 function vim._os_proc_info(pid)
   if pid == nil or pid <= 0 or type(pid) ~= 'number' then
     error('invalid pid')
@@ -221,6 +223,7 @@ end
 
 -- Gets process children from the `pgrep` command.
 -- Used by nvim_get_proc_children() as a fallback.
+--- @param ppid integer
 function vim._os_proc_children(ppid)
   if ppid == nil or ppid <= 0 or type(ppid) ~= 'number' then
     error('invalid ppid')
@@ -243,7 +246,8 @@ end
 --- @class vim.inspect.Opts
 --- @field depth? integer
 --- @field newline? string
---- @field process? fun(item:any, path: string[]): any
+--- @field indent? string
+--- @field process? fun(item: any, path: any[]): any
 
 --- Gets a human-readable representation of the given object.
 ---
@@ -423,6 +427,7 @@ vim.fn = setmetatable({}, {
         error(string.format('Tried to call API function with vim.fn: use vim.api.%s instead', key))
       end
     else
+      --- @param ... any
       _fn = function(...)
         return vim.call(key, ...)
       end
@@ -433,8 +438,10 @@ vim.fn = setmetatable({}, {
 })
 
 --- @private
+--- @param viml_func_name string
+--- @return function
 vim.funcref = function(viml_func_name)
-  return vim.fn[viml_func_name]
+  return vim.fn[viml_func_name] --[[@as function]]
 end
 
 --- Executes Vimscript (|Ex-command|s).
@@ -492,9 +499,8 @@ vim.cmd = setmetatable({}, {
   --- @param t table<string,function>
   __index = function(t, cmd)
     t[cmd] = function(...)
-      local opts --- @type vim.api.keyset.cmd
+      local opts --- @type vim.api.keyset.cmd & { [integer]: any }
       if select('#', ...) == 1 and type(select(1, ...)) == 'table' then
-        --- @type vim.api.keyset.cmd
         opts = select(1, ...)
 
         -- Move indexed positions in opts to opt.args
@@ -505,7 +511,6 @@ vim.cmd = setmetatable({}, {
               break
             end
             opts.args[i] = opts[i]
-            --- @diagnostic disable-next-line: no-unknown
             opts[i] = nil
           end
         end
@@ -536,10 +541,13 @@ do
   local function make_dict_accessor(scope, handle)
     vim.validate('scope', scope, 'string')
     local mt = {}
-    function mt:__newindex(k, v)
+    --- @param k string
+    --- @param v any
+    function mt.__newindex(_, k, v)
       return vim._setvar(scope, handle or 0, k, v)
     end
-    function mt:__index(k)
+    --- @param k string|integer
+    function mt.__index(_, k)
       if handle == nil and type(k) == 'number' then
         return make_dict_accessor(scope, k)
       end
@@ -564,7 +572,7 @@ end
 ---@param bufnr integer Buffer number, or 0 for current buffer
 ---@param pos1 integer[]|string Start of region as a (line, column) tuple or |getpos()|-compatible string
 ---@param pos2 integer[]|string End of region as a (line, column) tuple or |getpos()|-compatible string
----@param regtype string [setreg()]-style selection type
+---@param regtype string # [setreg()]-style selection type
 ---@param inclusive boolean Controls whether the ending column is inclusive (see also 'selection').
 ---@return table region Dict of the form `{linenr = {startcol,endcol}}`. `endcol` is exclusive, and
 ---whole lines are returned as `{startcol,endcol} = {0,-1}`.
@@ -761,6 +769,8 @@ end
 
 --- Executes the on_key callbacks.
 ---@private
+---@param buf string
+---@param typed_buf string
 function vim._on_key(buf, typed_buf)
   local failed = {} ---@type [integer, string][]
   local discard = false
@@ -927,7 +937,7 @@ function vim.str_utfindex(s, encoding, index, strict_indexing)
 
   if encoding == 'utf-8' then
     local len = #s
-    return index <= len and index or (strict_indexing and error('index out of range') or len)
+    return (index <= len and index or (strict_indexing and error('index out of range') or len)) --[[@as integer]]
   end
   local col32, col16 = vim._str_utfindex(s, index) --[[@as integer?,integer?]]
   local col = encoding == 'utf-16' and col16 or col32
@@ -948,6 +958,7 @@ end
 --- 2. Can we get it to return things from global namespace even with `print(` in front.
 ---
 --- @param pat string
+--- @param env? table<string,any>
 --- @return any[], integer
 function vim._expand_pat(pat, env)
   env = env or _G
@@ -1062,6 +1073,8 @@ function vim._expand_pat(pat, env)
     end
   end
   ---@param acc table<string,any>
+  ---@param k string
+  ---@param v any
   local function _fold_to_map(acc, k, v)
     acc[k] = (v or true)
     return acc
@@ -1119,10 +1132,12 @@ function vim._expand_pat(pat, env)
       return true
     end
     if vim.bo == final_env then
+      --- @param option vim.api.keyset.get_option_info
       filter = function(_, option)
         return option.scope == 'buf'
       end
     elseif vim.wo == final_env then
+      --- @param option vim.api.keyset.get_option_info
       filter = function(_, option)
         return option.scope == 'win'
       end
@@ -1314,9 +1329,12 @@ function vim.keycode(keys, info)
   end
 end
 
+--- @param rcid integer
 --- @param server_addr string
 --- @param connect_error string
+--- @param args string[]
 function vim._cs_remote(rcid, server_addr, connect_error, args)
+  --- @param consequence string
   --- @return string
   local function connection_failure_errmsg(consequence)
     local explanation --- @type string
@@ -1388,6 +1406,7 @@ function vim._cs_remote(rcid, server_addr, connect_error, args)
 end
 
 do
+  --- @param msg string
   local function truncated_echo(msg)
     -- Truncate message to avoid hit-enter-prompt
     vim.api.nvim_echo({ { msg, 'WarningMsg' } }, true, { _truncate = true })
@@ -1395,6 +1414,7 @@ do
 
   local notified = false
 
+  --- @param msg string
   function vim._truncated_echo_once(msg)
     if not notified then
       truncated_echo(msg)

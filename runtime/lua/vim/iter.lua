@@ -64,13 +64,11 @@
 --- -- { "a", "b" }
 --- ```
 
--- LuaLS cannot model the variadic EmmyLua generics used by this module.
----@diagnostic disable: no-unknown, undefined-doc-name, luadoc-miss-symbol, missing-return, missing-return-value, param-type-mismatch, return-type-mismatch, redundant-return-value, undefined-field
-
+-- `never` represents an empty tail for single-value iterators.
 --- @nodoc
 --- @class vim.IterModule
 --- @operator call: vim.Iter<any, any...>
---- @overload fun<T>(src: T[]): vim.IterArray<T>
+--- @overload fun<T>(src: T[]): vim.IterArray<T, never>
 --- @overload fun<K, V>(src: table<K, V>): vim.Iter<K, V>
 --- @overload fun(src: table, ...): vim.Iter<any, any...>
 --- @overload fun(src: function, ...): vim.Iter<any, any...>
@@ -83,7 +81,8 @@ local M = {}
 --- @overload fun(self: vim.Iter<V1, V...>): V1?, V...
 local Iter = {}
 Iter.__index = Iter
-Iter.__call = function(self)
+
+function Iter:__call()
   return self:next()
 end
 
@@ -100,6 +99,9 @@ IterArray.__call = Iter.__call
 --- Packed tables use this as their metatable
 local packedmt = {}
 
+--- @generic V1, V...
+--- @param t V1|([V1, V...] & { n: integer })
+--- @return V1?, V...
 local function unpack(t)
   if type(t) == 'table' and getmetatable(t) == packedmt then
     return _G.unpack(t, 1, t.n)
@@ -118,8 +120,11 @@ local function pack(...)
   return ...
 end
 
+--- @generic T
+--- @param t T
 local function sanitize(t)
   if type(t) == 'table' and getmetatable(t) == packedmt then
+    --- @cast t table
     -- Remove length tag and metatable
     t.n = nil
     setmetatable(t, nil)
@@ -278,7 +283,8 @@ function Iter:unique(key)
 end
 
 --- @nodoc
---- @diagnostic disable-next-line:unused-local
+--- @diagnostic disable-next-line:unused
+--- @param depth? integer
 function Iter:flatten(depth)
   error('flatten() requires an array-like table')
 end
@@ -423,6 +429,7 @@ end
 ---                  Takes all of the values returned by the previous stage
 ---                  in the pipeline as arguments.
 function Iter:each(f)
+  --- @param ... any
   local function fn(...)
     if select(1, ...) ~= nil then
       f(...)
@@ -468,7 +475,7 @@ end
 ---
 ---
 --- @since 12
---- @overload fun<T>(self: vim.Iter<T>): T[]
+--- @overload fun<T>(self: vim.Iter<T, never>): T[]
 --- @overload fun<V1, V2, V...>(self: vim.Iter<V1, V2, V...>): [V1, V2, V...][]
 --- @return any[]
 function Iter:totable()
@@ -486,7 +493,7 @@ function Iter:totable()
 end
 
 --- @nodoc
---- @overload fun<T>(self: vim.IterArray<T>): T[]
+--- @overload fun<T>(self: vim.IterArray<T, never>): T[]
 --- @overload fun<V1, V2, V...>(self: vim.IterArray<V1, V2, V...>): [V1, V2, V...][]
 --- @return any[]
 function IterArray:totable()
@@ -563,6 +570,7 @@ function Iter:fold(init, f)
   local acc = init
 
   --- Use a closure to handle var args returned from iterator
+  --- @param ... any
   local function fn(...)
     if select(1, ...) ~= nil then
       acc = f(acc, ...)
@@ -631,7 +639,7 @@ function IterArray:next()
 end
 
 --- @nodoc
---- @diagnostic disable-next-line: unused-local
+--- @diagnostic disable-next-line: unused
 function Iter:rev()
   error('rev() requires an array-like table')
 end
@@ -721,6 +729,7 @@ end
 function Iter:find(f)
   if type(f) ~= 'function' then
     local val = f
+    --- @param v V1
     f = function(v)
       return v == val
     end
@@ -729,6 +738,7 @@ function Iter:find(f)
   local result = nil
 
   --- Use a closure to handle var args returned from iterator
+  --- @param ... any
   local function fn(...)
     if select(1, ...) ~= nil then
       if f(...) then
@@ -745,7 +755,8 @@ function Iter:find(f)
 end
 
 --- @nodoc
---- @diagnostic disable-next-line:unused-local
+--- @diagnostic disable-next-line:unused
+--- @param f V1|fun(v: V1, ...: V...): boolean
 function Iter:rfind(f)
   error('rfind() requires an array-like table')
 end
@@ -774,6 +785,7 @@ end
 function IterArray:rfind(f)
   if type(f) ~= 'function' then
     local val = f
+    --- @param v V1
     f = function(v)
       return v == val
     end
@@ -829,6 +841,10 @@ function Iter:take(n)
   end
 
   local stop = false
+
+  --- @generic A...
+  --- @param ... A...
+  --- @return A...
   local function fn(...)
     if not stop and select(1, ...) ~= nil and pred(...) then
       i = i + 1
@@ -868,7 +884,7 @@ function IterArray:take(n)
 end
 
 --- @nodoc
---- @diagnostic disable-next-line: unused-local
+--- @diagnostic disable-next-line: unused
 function Iter:pop()
   error('pop() requires an array-like table')
 end
@@ -896,7 +912,7 @@ function IterArray:pop()
 end
 
 --- @nodoc
---- @diagnostic disable-next-line: unused-local
+--- @diagnostic disable-next-line: unused
 function Iter:rpeek()
   error('rpeek() requires an array-like table')
 end
@@ -959,6 +975,7 @@ function Iter:skip(n)
   elseif type(n) == 'function' then
     local next = self.next
 
+    --- @return V1?, V...
     --- @diagnostic disable-next-line:duplicate-set-field
     self.next = function()
       while true do
@@ -1005,7 +1022,8 @@ function IterArray:skip(n)
 end
 
 --- @nodoc
---- @diagnostic disable-next-line:unused-local
+--- @diagnostic disable-next-line:unused
+--- @param n integer
 function Iter:rskip(n)
   error('rskip() requires an array-like table')
 end
@@ -1066,7 +1084,9 @@ function Iter:nth(n)
 end
 
 --- @nodoc
---- @diagnostic disable-next-line:unused-local
+--- @diagnostic disable-next-line:unused
+--- @param first integer
+--- @param last integer
 function Iter:slice(first, last)
   error('slice() requires an array-like table')
 end
@@ -1095,6 +1115,7 @@ function Iter:any(pred)
   local any = false
 
   --- Use a closure to handle var args returned from iterator
+  --- @param ... any
   local function fn(...)
     if select(1, ...) ~= nil then
       if pred(...) then
@@ -1119,6 +1140,7 @@ end
 function Iter:all(pred)
   local all = true
 
+  --- @param ... any
   local function fn(...)
     if select(1, ...) ~= nil then
       if not pred(...) then
@@ -1250,7 +1272,7 @@ end
 --- @generic R1, R...
 --- @param src table<R1, R>|fun(s: table, v: any): R1, R... Table or iterator to drain values from
 --- @return vim.Iter<R1, R...>
---- @overload fun<T>(src: T[]): vim.IterArray<T>
+--- @overload fun<T>(src: T[]): vim.IterArray<T, never>
 --- @overload fun<K, V>(src: table<K, V>): vim.Iter<K, V>
 --- @private
 function Iter.new(src, ...)
@@ -1315,8 +1337,11 @@ function IterArray.new(t)
   }, IterArray)
 end
 
-return setmetatable(M, {
+setmetatable(M, {
   __call = function(_, ...)
     return Iter.new(...)
   end,
 })
+
+-- Return M separately to work around EmmyLuaLs/emmylua-analyzer-rust#1240.
+return M

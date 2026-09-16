@@ -2892,6 +2892,11 @@ describe('API', function()
       eq(1, eval('g:one'))
       eq('', eval('&shada'))
       eq(0, eval("get(g:, 'optionset', 0)"))
+
+      -- Does not touch v:oldfiles (only ":rshada!" rebuilds it).
+      command('let v:oldfiles = ["/a", "/b"]')
+      api.nvim_load_context(ctx)
+      eq({ '/a', '/b' }, eval('v:oldfiles'))
     end)
 
     it('errors when context dict is invalid', function()
@@ -3220,7 +3225,7 @@ describe('API', function()
     end
 
     it('stream=job :terminal channel', function()
-      local screen = Screen.new(80, 24)
+      Screen.new(80, 24)
 
       command(':terminal')
       eq(1, api.nvim_get_current_buf())
@@ -3253,7 +3258,9 @@ describe('API', function()
       eq(expected2, actual2)
 
       -- Make sure Nvim TUI is started (which is after registering SIGHUP handler).
-      screen:expect({ any = 'Nvim is open source and freely distributable' })
+      t.retry(nil, nil, function()
+        matches('Nvim is open source and freely distributable', n.curbuf_contents())
+      end)
 
       -- :terminal with args + stopped process (Nvim TUI).
       eq(1, eval('jobstop(&channel)'))
@@ -3270,7 +3277,9 @@ describe('API', function()
       -- Use a process that doesn't read stdin, so PTY EOF can't race SIGHUP.
       argv = { n.testprg('shell-test'), 'HOLD' }
       fn.jobstart(argv, { term = true })
-      screen:expect({ any = { vim.pesc('holding $') } })
+      t.retry(nil, nil, function()
+        matches('holding %$', n.curbuf_contents())
+      end)
       eq(1, eval('jobstop(&channel)'))
       eval('jobwait([&channel], 1000)') -- Wait.
       local expected3 = term_channel_info(5, 3, argv)
@@ -4519,11 +4528,24 @@ describe('API', function()
       }, api.nvim_eval_statusline('%%StatusLineString%#WarningMsg#WithHighlights', {}))
     end)
 
+    it('reports an invalid window once', function()
+      -- find_window_by_handle() already sets the error, so a second
+      -- api_set_error() here would allocate a message over that one and leak it.
+      eq('Invalid window id: 23', pcall_err(api.nvim_eval_statusline, 'a', { winid = 23 }))
+    end)
+
     it("doesn't exceed maxwidth", function()
       eq({
         str = 'Should be trun>',
         width = 15,
       }, api.nvim_eval_statusline('Should be truncated%<', { maxwidth = 15 }))
+    end)
+
+    it('does not take a zero item width literally', function()
+      command('file some/dir/testfile.txt')
+      eq({ str = 'abc', width = 3 }, api.nvim_eval_statusline('%.0(abc%)', {}))
+      eq(api.nvim_eval_statusline('%.50f', {}), api.nvim_eval_statusline('%.0f', {}))
+      eq(api.nvim_eval_statusline('%.50l', {}), api.nvim_eval_statusline('%.0l', {}))
     end)
 
     it('has correct default fillchar', function()

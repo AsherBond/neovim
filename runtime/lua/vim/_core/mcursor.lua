@@ -49,6 +49,7 @@ local function coords()
 end
 
 --- Kitty cursors protocol: Sends a term sequence. Empty string ('') means clear.
+--- @param seq string
 local function send(seq)
   if seq == last_seq then -- Skip redundant sequences.
     return
@@ -71,6 +72,9 @@ end
 ---
 --- NOTE: The fake Visual selections ("nvim.multicursor.visual") are self-painting extmarks.
 --- TODO(justimk): could also do that for "nvim.multicursor" after #41576.
+--- @param bufnr integer
+--- @param topline integer
+--- @param botline integer
 local function display_win(_, _, bufnr, topline, botline)
   if tty_cursors then -- Terminal draws the cursors; emit once per redraw (on_end).
     pending = true
@@ -164,6 +168,8 @@ function M.jump(forward, count)
     idx = (i - 1 - steps) % n + 1
   end
   vim.cmd [[normal! m']]
+  -- Leave a cursor behind: the jump rotates which cursor is primary, the set of positions stays.
+  vim.api.nvim_mcursor(0, curpos:to_cursor())
   vim.api.nvim_win_set_cursor(0, positions[idx]:to_cursor())
   return true
 end
@@ -195,27 +201,36 @@ function M.visual()
     end
     return vim.fn.virtcol2col(0, lnum, vcol) - 1
   end
-  vim.api.nvim_win_set_cursor(0, { first, bytecol(first) })
+  vim.api.nvim_win_set_cursor(0, { cline, bytecol(cline) }) -- Align to column.
   for lnum = first, last do
     vim.api.nvim_mcursor(0, { lnum, bytecol(lnum) })
   end
   vim.cmd('norm! 1q=') -- "Follow" mode.
 end
 
---- "[count]Q": Places a multicursor at every match of the last search pattern.
-function M.matches()
+--- "[{Visual}][count]Q": Places a cursor at each match (limited to Visual linewise range, if any).
+--- @param first integer First line of the range (0: whole buffer).
+--- @param last integer
+function M.matches(first, last)
   if vim.fn.getreg('/') == '' then
     require('vim._core.util').echo_err('E35: No previous regular expression')
     return
   end
+  local ranged = first > 0
+  if ranged then
+    vim.cmd.normal({ vim.keycode('<Esc>'), bang = true }) -- End Visual mode.
+  end
   local view = vim.fn.winsaveview()
-  vim.api.nvim_win_set_cursor(0, { 1, 0 })
-  local pos = vim.fn.searchpos('', 'cW')
+  vim.api.nvim_win_set_cursor(0, { ranged and first or 1, 0 })
+  local stopline = ranged and last or vim.fn.line('$')
+  -- TODO(justinmk): if we really want to limit by charwise/block selection, then we should add that
+  -- feature to seachpos() or sth like that, rather than doing yucky stuff here.
+  local pos = vim.fn.searchpos('', 'cW', stopline)
   while pos[1] ~= 0 do
     vim.api.nvim_mcursor(0, { pos[1], pos[2] - 1 })
-    pos = vim.fn.searchpos('', 'W')
+    pos = vim.fn.searchpos('', 'W', stopline)
   end
-  vim.fn.winrestview(view)
+  vim.fn.winrestview(view) -- Primary stays put.
 end
 
 --- Inserts an ascending number at each cursor (Emacs F3-counter): 1, 2, 3, ….

@@ -58,6 +58,8 @@ function M.get_logical_pos(diagnostic)
     return diagnostic.lnum, diagnostic.col, diagnostic.end_lnum, diagnostic.end_col, true
   end
 
+  -- Diagnostic extmarks always have an end position.
+  ---@cast extmark [integer, integer, {end_row: integer, end_col: integer, invalid?: boolean}]
   return extmark[1], extmark[2], extmark[3].end_row, extmark[3].end_col, not extmark[3].invalid
 end
 
@@ -127,7 +129,9 @@ function M.diagnostic_cmp(a, b, primary_key, reverse, col_fn)
     b_val = b[primary_key] --[[@as integer]]
   end
 
-  local cmp = function(x, y)
+  --- @param x integer
+  --- @param y integer
+  local function cmp(x, y)
     if reverse then
       return x > y
     end

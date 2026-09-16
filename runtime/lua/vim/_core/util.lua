@@ -2,6 +2,27 @@
 
 local M = {}
 
+-- Generated from async.nvim/lua/async/_errors.lua: start
+local nil_error = 'error(nil)'
+
+--- Normalize a failed Lua operation for error slots where `nil` means success.
+--- @param err any
+--- @return any
+--- @private
+function M._normalize_error(err)
+  return err == nil and nil_error or err
+end
+
+--- Convert an error to a string without letting its metamethod interrupt cleanup.
+--- @param err any
+--- @return string
+--- @private
+function M._stringify_error(err)
+  local ok, message = pcall(tostring, err)
+  return ok and message or '<unprintable error>'
+end
+-- Generated from async.nvim/lua/async/_errors.lua: end
+
 --- Adds one or more blank lines above or below the cursor.
 --- @param above? boolean Place blank line(s) above the cursor
 local function add_blank(above)
@@ -35,6 +56,7 @@ end
 --- @param file string
 --- @return number buffer number of the edited buffer
 M.edit_in = function(winnr, file)
+  --- @param path string?
   local function resolved_path(path)
     if not path or path == '' then
       return ''
@@ -121,7 +143,8 @@ function M.term_exitcode()
 
   local info = vim.api.nvim_get_chan_info(chan_id)
   if info.exitcode and info.exitcode >= 0 then
-    return string.format('[Exit: %d]', info.exitcode)
+    -- use non-breaking space to avoid fillchar
+    return string.format('[Exit:\226\128\175%d]', info.exitcode)
   end
   return ''
 end
@@ -175,9 +198,12 @@ function M.cmd_errmsg(err)
   return (err:gsub('^Lua:%s*', ''))
 end
 
---- Utility function for displaying vim error codes (EXX)
+--- Display a Vim error code (EXX), or raise an error without editor APIs.
 --- @param msg string
 function M.echo_err(msg)
+  if not vim.api then
+    error(msg, 2)
+  end
   vim.api.nvim_echo({ { msg } }, true, { err = true })
 end
 
@@ -187,9 +213,11 @@ end
 --- @param name string Plugin name, e.g. "zip".
 --- @param msg string
 --- @param level? integer Level from |vim.log.levels|. Defaults to ERROR.
-function M.notify(name, msg, level)
+--- @param once? boolean Only show the message once.
+function M.notify(name, msg, level, once)
   vim.schedule(function()
-    vim.notify(('%s: %s'):format(name, msg), level or vim.log.levels.ERROR)
+    local notify = once and vim.notify_once or vim.notify
+    notify(('%s: %s'):format(name, msg), level or vim.log.levels.ERROR)
   end)
 end
 

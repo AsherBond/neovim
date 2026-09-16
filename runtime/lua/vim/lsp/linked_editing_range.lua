@@ -165,6 +165,7 @@ function LinkedEditor:refresh()
 end
 
 ---@package
+---@param bufnr integer
 function LinkedEditor:new(bufnr)
   self = Capability.new(self, bufnr)
 
@@ -227,7 +228,7 @@ end
 ---@param enable boolean? `true` or `nil` to enable, `false` to disable.
 ---@param filter vim.lsp.capability.enable.Filter?
 function M.enable(enable, filter)
-  vim.lsp._capability.enable('linked_editing_range', enable, filter)
+  lsp._capability.enable('linked_editing_range', enable, filter)
 end
 
 return M

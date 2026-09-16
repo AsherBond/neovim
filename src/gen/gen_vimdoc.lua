@@ -61,6 +61,9 @@ local INDENTATION = 4
 --- @field fn_helptag_fmt? fun(fun: nvim.gen_vimdoc.HelptagTarget): string
 ---
 --- @field append_only? string[]
+---
+--- Merge parsed files into the first section instead of rendering one section per file.
+--- @field merge_files? boolean
 
 ---@alias nvim.gen_vimdoc.HelptagTarget
 ---| nvim.luacats.parser.fun
@@ -254,6 +257,11 @@ local config = {
         fun.table = nil
       end
 
+      -- Render the callable version module as ordinary module functions.
+      if fun.class == 'vim.VersionModule' then
+        fun.classvar = nil
+      end
+
       if fun.classvar or vim.startswith(fun.name, 'vim.') or fun.module == 'vim.iter' then
         return
       end
@@ -342,6 +350,9 @@ local config = {
     },
     fn_xform = function(fun)
       fun.name = fun.name:gsub('result%.', '')
+      if fun.module == 'vim.lsp' and fun.name == 'config' then
+        fun.table = nil
+      end
       if fun.module == 'vim.lsp.protocol' then
         fun.classvar = nil
       end
@@ -357,6 +368,35 @@ local config = {
         return 'lsp-core'
       end
       return fmt('lsp-%s', name:lower())
+    end,
+  },
+  async = {
+    filename = 'lua-async.txt',
+    section_order = {
+      'async.lua',
+    },
+    merge_files = true,
+    files = {
+      'runtime/lua/vim/async.lua',
+      'runtime/lua/vim/async/_core.lua',
+      'runtime/lua/vim/async/_semaphore.lua',
+    },
+    section_fmt = function()
+      return 'Lua module: vim.async'
+    end,
+    helptag_fmt = function()
+      return { 'lua-async', 'vim.async' }
+    end,
+    fn_xform = function(fun)
+      if fun.module == 'vim.async._core' or fun.module == 'vim.async._semaphore' then
+        fun.module = 'vim.async'
+      end
+      if fun.name == 'new_semaphore' then
+        fun.name = 'semaphore'
+      end
+      if fun.classvar == 'M' then
+        fun.classvar = nil
+      end
     end,
   },
   diagnostic = {
@@ -642,7 +682,7 @@ local function get_class(ty, classes)
     return
   end
 
-  local cty = ty:gsub('%s*|%s*nil', '?'):gsub('?$', ''):gsub('%[%]$', '')
+  local cty = ty:gsub('%s*|%s*nil', '?'):gsub('?$', ''):gsub('%[%]$', ''):gsub('%b<>$', '')
 
   return classes[cty]
 end
@@ -660,27 +700,7 @@ local function inline_type(obj, classes)
 
   local cls = get_class(ty, classes)
 
-  if not cls or cls.nodoc then
-    return
-  end
-
-  if not cls.inlinedoc then
-    -- Not inlining so just add a: "See |tag|."
-    local tag = fmt('|%s|', cls.name)
-    if obj.desc and obj.desc:find(tag) then
-      -- Tag already there
-      return
-    end
-
-    -- TODO(lewis6991): Aim to remove this. Need this to prevent dead
-    -- references to types defined in runtime/lua/vim/lsp/_meta/protocol.lua
-    if not vim.startswith(cls.name, 'vim.') then
-      return
-    end
-
-    obj.desc = obj.desc or ''
-    local period = (obj.desc == '' or vim.endswith(obj.desc, '.')) and '' or '.'
-    obj.desc = obj.desc .. fmt('%s See %s.', period, tag)
+  if not cls or cls.nodoc or not cls.inlinedoc then
     return
   end
 
@@ -1248,6 +1268,10 @@ local function gen_target(cfg)
     end
   end
 
+  local merged_classes = {} --- @type table<string,nvim.luacats.parser.class>
+  local merged_funs = {} --- @type nvim.luacats.parser.fun[]
+  local merged_briefs = {} --- @type string[]
+
   for f, r in vim.spairs(file_results) do
     local classes, funs, briefs = r[1], r[2], r[3]
 
@@ -1267,14 +1291,31 @@ local function gen_target(cfg)
 
     print('    Processing file:', f)
 
-    -- FIXME: Using f_base will confuse `_meta/protocol.lua` with `protocol.lua`
-    local f_base = vim.fs.basename(f)
-    sections[f_base] = make_section(
-      f_base,
+    if cfg.merge_files then
+      merged_classes = vim.tbl_extend('error', merged_classes, classes)
+      vim.list_extend(merged_funs, funs)
+      vim.list_extend(merged_briefs, briefs)
+    else
+      -- FIXME: Using f_base will confuse `_meta/protocol.lua` with `protocol.lua`
+      local f_base = vim.fs.basename(f)
+      sections[f_base] = make_section(
+        f_base,
+        cfg,
+        render_briefs(briefs, cfg),
+        render_funs(funs, all_classes, cfg),
+        render_classes(classes, funs, cfg)
+      )
+    end
+  end
+
+  if cfg.merge_files then
+    local section_file = cfg.section_order[1]
+    sections[section_file] = make_section(
+      section_file,
       cfg,
-      render_briefs(briefs, cfg),
-      render_funs(funs, all_classes, cfg),
-      render_classes(classes, funs, cfg)
+      render_briefs(merged_briefs, cfg),
+      render_funs(merged_funs, all_classes, cfg),
+      render_classes(merged_classes, merged_funs, cfg)
     )
   end
 

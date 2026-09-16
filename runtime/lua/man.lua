@@ -270,12 +270,13 @@ function M._match_manpage_path(paths, name, sect)
   end
 
   -- find any that match the specified name
+  --- @type string[]
   --- @param v string
   local namematches = vim.tbl_filter(function(v)
     local tail = vim.fs.basename(v)
     return tail:find(name, 1, true) ~= nil
-  end, paths) or {}
-  local sectmatches = {}
+  end, paths)
+  local sectmatches = {} --- @type string[]
 
   if #namematches > 0 and sect ~= '' then
     --- @param v string
@@ -384,8 +385,8 @@ end
 --- (try `:Man 3 App::CLI`). Also on linux, name seems to be case-insensitive.
 --- So for `:Man PRIntf`, we still want the name of the buffer to be 'printf'.
 --- @param path string
---- @return string name
---- @return string sect
+--- @return string? name
+--- @return string? sect
 local function parse_path(path)
   local tail = vim.fs.basename(path)
   if
@@ -732,6 +733,7 @@ local function ref_from_args(args)
 end
 
 --- @param count integer
+--- @param smods vim.api.keyset.cmd.mods
 --- @param args string[]
 --- @return string? err
 function M.open_page(count, smods, args)
@@ -799,6 +801,7 @@ function M.open_page(count, smods, args)
 end
 
 --- Called when a man:// buffer is opened.
+--- @param ref string
 --- @return string? err
 function M.read_page(ref)
   local name, sect, err = parse_ref(ref)

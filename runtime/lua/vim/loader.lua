@@ -60,7 +60,7 @@ local stats = { find = { total = 0, time = 0, not_found = 0 } }
 --- @type table<string, uv.fs_stat.result>?
 local fs_stat_cache
 
---- @type table<string, table<string,vim.loader.ModuleInfo>>
+--- @type table<string, table<string,vim.loader.ModuleInfo>?>
 local indexed = {}
 
 --- @param path string
@@ -78,6 +78,7 @@ local function fs_stat_cached(path)
   return fs_stat_cache[path]
 end
 
+--- @param path string
 local function normalize(path)
   return fs.normalize(path, { plain = true, _fast = true })
 end
@@ -437,7 +438,8 @@ function M.enable(enable)
   M.enabled = enable
 
   if enable then
-    vim.fn.mkdir(vim.fs.abspath(M.path), 'p')
+    vim.fn.mkdir(fs.abspath(M.path), 'p')
+    ---@diagnostic disable-next-line: global-in-non-module
     _G.loadfile = loadfile_cached
     -- add Lua loader
     table.insert(loaders, 2, loader_cached)
@@ -451,6 +453,7 @@ function M.enable(enable)
       end
     end
   else
+    ---@diagnostic disable-next-line: global-in-non-module
     _G.loadfile = _loadfile
     for l = #loaders, 1, -1 do
       local loader = loaders[l]
@@ -464,6 +467,7 @@ end
 
 --- Tracks the time spent in a function
 --- @generic F: function
+--- @param stat string
 --- @param f F
 --- @return F
 local function track(stat, f)
@@ -507,13 +511,14 @@ end
 --- @private
 function M._inspect(opts)
   if opts and opts.print then
+    --- @param nsec number
     local function ms(nsec)
       return math.floor(nsec / 1e6 * 1000 + 0.5) / 1000 .. 'ms'
     end
     local chunks = {} --- @type string[][]
-    for _, stat in vim.spairs(stats) do
+    for name, stat in vim.spairs(stats) do
       vim.list_extend(chunks, {
-        { '\n' .. stat .. '\n', 'Title' },
+        { '\n' .. name .. '\n', 'Title' },
         { '* total:    ' },
         { tostring(stat.total) .. '\n', 'Number' },
         { '* time:     ' },

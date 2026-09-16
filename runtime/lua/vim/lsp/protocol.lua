@@ -1,6 +1,8 @@
 --- @diagnostic disable: duplicate-doc-alias
 
----@param tbl table<string, string|number>
+---@generic T: string|number
+---@param tbl table<string, T>
+---@return T[]
 local function get_value_set(tbl)
   local value_set = {}
   for _, v in pairs(tbl) do
@@ -583,6 +585,9 @@ function protocol.make_client_capabilities()
       callHierarchy = {
         dynamicRegistration = false,
       },
+      typeHierarchy = {
+        dynamicRegistration = false,
+      },
       colorProvider = {
         dynamicRegistration = true,
       },
@@ -605,6 +610,9 @@ function protocol.make_client_capabilities()
       },
       configuration = true,
       didChangeConfiguration = {
+        dynamicRegistration = false,
+      },
+      executeCommand = {
         dynamicRegistration = false,
       },
       workspaceFolders = true,
@@ -631,6 +639,9 @@ function protocol.make_client_capabilities()
         refreshSupport = true,
       },
       diagnostics = {
+        refreshSupport = true,
+      },
+      foldingRange = {
         refreshSupport = true,
       },
       fileOperations = {

@@ -44,8 +44,8 @@ local uv = vim.uv
 
 local M = {}
 
-local iswin = vim.fn.has('win32') == 1
-local os_sep = iswin and '\\' or '/'
+local os_sep = package.config:sub(1, 1)
+local iswin = os_sep == '\\'
 
 --- Iterate over all the parents of the given path (not expanded/resolved, the caller must do that).
 ---
@@ -173,7 +173,7 @@ end
 ---
 ---@since 15
 ---@param path string Filepath (or other identity string).
----@param opts? table
+---@param opts? { maxlen?: integer } #
 ---  - maxlen: (integer, default: 180) Max length (bytes) of the result.
 ---@return string # Filesystem-safe, mnemonic slug.
 function M.slug(path, opts)
@@ -276,7 +276,7 @@ local function fs_scandir_next(fs, path)
   end
 
   if etype == nil then
-    local stat = vim.uv.fs_lstat(M.joinpath(path, name))
+    local stat = uv.fs_lstat(M.joinpath(path, name))
     -- Workaround #39612 https://github.com/luvit/luv/issues/660
     etype = stat and stat.type or 'unknown'
   end
@@ -483,6 +483,7 @@ function M.find(names, opts)
   local matches = {} --- @type string[]
   local errors = {} --- @type string[]
 
+  --- @param match string
   local function add(match)
     matches[#matches + 1] = M.normalize(match)
     if #matches == limit then
@@ -491,9 +492,14 @@ function M.find(names, opts)
   end
 
   if opts.upward then
+    if path == stop then
+      return matches, errors
+    end
+
     local test --- @type fun(p: string): string[]
 
     if type(names) == 'function' then
+      --- @param p string
       test = function(p)
         local t = {}
         for name, type, err in M.dir(p, { err = true }) do
@@ -506,6 +512,7 @@ function M.find(names, opts)
         return t
       end
     else
+      --- @param p string
       test = function(p)
         local t = {} --- @type string[]
         local ok, aerr = uv.fs_access(p, 'R') -- Check if the root dir is readable.
@@ -554,28 +561,29 @@ function M.find(names, opts)
         if err ~= nil then
           table.insert(errors, err)
         else
-          local f = M.joinpath(dir, other)
+          -- Keep joinpath() calls inside the match and traversal branches. Joining paths for rejected
+          -- entries can account for up to ~25% of the total search time.
           if type(names) == 'function' then
             if (not opts.type or opts.type == type_) and names(other, dir) then
-              if add(f) then
+              if add(M.joinpath(dir, other)) then
                 return matches, errors
               end
             end
           else
             for _, name in ipairs(names) do
               if name == other and (not opts.type or opts.type == type_) then
-                if add(f) then
+                if add(M.joinpath(dir, other)) then
                   return matches, errors
                 end
               end
             end
           end
 
-          if
-            type_ == 'directory'
-            or (type_ == 'link' and opts.follow and (uv.fs_stat(f) or {}).type == 'directory')
-          then
-            dirs[#dirs + 1] = f
+          if type_ == 'directory' or (type_ == 'link' and opts.follow) then
+            local f = M.joinpath(dir, other)
+            if type_ == 'directory' or (uv.fs_stat(f) or {}).type == 'directory' then
+              dirs[#dirs + 1] = f
+            end
           end
         end
       end
