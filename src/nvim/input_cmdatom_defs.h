@@ -40,10 +40,11 @@ typedef struct {
 
 /// How an insert-session was entered from Visual mode.
 typedef enum {
-  kVInsNone,   ///< Not entered from Visual mode.
-  kVInsKeys,   ///< Redo opens with the selection's captured keys: replayable.
-  kVInsOther,  ///< Redo without the captured keys (Ex/Lua-motion selection, forced
-               ///< motion, or the "1v" fixed-size fallback for a void selection).
+  kVInsNone,    ///< Not entered from Visual mode.
+  kVInsKeys,    ///< Redo opens with the selection's captured keys: replayable.
+  kVInsMotion,  ///< Ex/Lua motion selected the region ("c" + Lua textobj): replayable.
+  kVInsOther,   ///< Redo without captured keys: forced or self-selecting motion (gn, gv), or "1v"
+                ///< fixed-size fallback.
 } VisualIns;
 
 /// The insert-session delimited by atom_ins_start()/atom_ins_end().
@@ -78,8 +79,8 @@ struct CmdAtom {
 /// Key classes (atom_key_class()).
 /// Flags, bc same char can mean different things per mode (CTRL-T: tag-jump vs i_CTRL-T indent).
 enum {
-  kKeyOpaque     = 1 << 0,  ///< Uncapturable keys (<Cmd>, K_LUA, plus kKeySynthetic): its only
-                            ///< trace is its effect.
+  kKeyOpaque     = 1 << 0,  ///< Cmds not reified from subatoms (<Cmd>, K_LUA), plus kKeySynthetic.
+                            ///< The cmd itself is the atom, else its only trace is its effect.
   kKeySynthetic  = 1 << 1,  ///< Not a user keystroke (K_EVENT, K_IGNORE): unlike <Cmd>/K_LUA, never
                             ///< reaches us from a mapping.
   kKeyPayload    = 1 << 2,  ///< Interactively-typed payload (/, ?, :, !).

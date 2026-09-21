@@ -246,6 +246,7 @@ EXTERN int p_dg;                ///< 'digraph'
 EXTERN char *p_dir;             ///< 'directory'
 EXTERN char *p_dy;              ///< 'display'
 EXTERN unsigned dy_flags;
+EXTERN int dy_escape_width INIT( = 2);
 EXTERN char *p_ead;             ///< 'eadirection'
 EXTERN int p_emoji;             ///< 'emoji'
 EXTERN int p_ea;                ///< 'equalalways'
@@ -519,7 +520,7 @@ EXTERN int p_cdh;               ///< 'cdhome'
 #define NO_LOCAL_UNDOLEVEL (-123456)
 
 // Buffer for an option-set error message. Large enough to list an option's valid values (see
-// opt_invalid_value_err()); the value is appended separately into IObuff.
+// opt_values_err()); the value is appended separately into IObuff.
 #define ERR_BUFLEN 256
 
 #define SB_MAX 1000000  // Maximum 'scrollback' value.

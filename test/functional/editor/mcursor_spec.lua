@@ -443,6 +443,23 @@ describe('multicursor', function()
   end)
 
   describe('normal-mode cascade', function()
+    it("'[ and '] are per-cursor", function()
+      cursors({ 'aa bb', 'cc dd' }, 'Qj')
+      feed('gUiw')
+      eq({ 'AA bb', 'CC dd' }, get_lines())
+      -- Each cursor's replay set its own change marks, so a mapping reading them acts per cursor.
+      command('nnoremap <F2> `[v`]u')
+      feed('<F2>')
+      eq({ 'aa bb', 'cc dd' }, get_lines())
+
+      -- The primary's marks are shifted by edits from other cursors.
+      clear_cursors()
+      cursors({ 'a', 'b', 'c', 'd', 'e' }, 'Q3j')
+      feed('dd') -- Delete line 1.
+      eq({ 'b', 'c', 'e' }, get_lines())
+      eq(3, fn.getpos("'[")[2])
+    end)
+
     it('CTRL-C interrupts the cascade; one "u" undoes the partial edit', function()
       local nlines = 5000
       local lines = {} ---@type string[]
@@ -1333,7 +1350,7 @@ describe('multicursor', function()
       local ev = atom_last()
       eq(
         { type = 'mapping', lhs = k('iX<Esc>'), changed = true },
-        t_atom.pick(atom_last(), 'type', 'lhs', 'changed')
+        t.pick(atom_last(), 'type', 'lhs', 'changed')
       )
       eq({
         { type = 'motion', keys = '^' },
@@ -1738,7 +1755,7 @@ describe('multicursor', function()
       eq('n', api.nvim_get_mode().mode)
     end)
 
-    it('shows per-cursor selection', function()
+    it('per-cursor selection', function()
       local screen = Screen.new(30, 6)
       cursors({ 'longword x', 'ab y', 'medium z' })
       -- Each cursor shows its own selection ("iw" = that cursor's word), previewed live.
@@ -1771,7 +1788,7 @@ describe('multicursor', function()
       eq('normal', screen.mode)
     end)
 
-    it('shows linewise/blockwise selections', function()
+    it('linewise/blockwise selections', function()
       local screen = Screen.new(30, 6)
       cursors({ 'aaaa', 'bbbb', 'cccc', 'dddd' }, 'Q2j')
       feed('Vj') -- linewise: primary lines 3-4, fake lines 1-2
@@ -1797,6 +1814,145 @@ describe('multicursor', function()
       ]])
     end)
 
+    it('gv reselects per-cursor #41606', function()
+      local screen = Screen.new(30, 6)
+      cursors({ 'aa bb cc dd', 'ee ff gg hh', 'ii jj kk ll' })
+      feed('v3l<Esc>')
+      -- Per-cursor '< '> marks: "gv" reselects that (absolute) area.
+      feed('gv')
+      screen:expect([[
+        {17:aa b}b cc dd                   |
+        {17:ee f}f gg hh                   |
+        {17:ii }^jj kk ll                   |
+        {1:~                             }|*2
+        {5:-- VISUAL --}                  |
+      ]])
+      feed('d')
+      eq({ 'b cc dd', 'f gg hh', 'j kk ll' }, get_lines())
+      -- "." redoes a same-size region ("1v"), like Vim: not "gv" (the collapsed area).
+      feed('.')
+      eq({ ' dd', ' hh', ' ll' }, get_lines())
+
+      -- The per-cursor "gv" regions are shifted by edits.
+      clear_cursors()
+      cursors({ 'a', 'b', 'c', 'd', 'e', 'f' }, '2jQgg')
+      feed('Vj<Esc>') -- Primary: lines 1-2. Cursor: lines 3-4.
+      feed('gvd')
+      eq({ 'e', 'f' }, get_lines())
+      -- ...and a cursor's delete shifts the primary's area.
+      clear_cursors()
+      cursors({ 'a', 'b', 'c', 'd', 'e', 'f' }, 'Q3j')
+      feed('Vj<Esc>') -- Cursor: lines 1-2. Primary: lines 4-5.
+      feed('gvd')
+      eq({ 'c', 'f' }, get_lines())
+      feed('gv')
+      screen:expect([[
+        {17:c}                             |
+        ^f                             |
+        {1:~                             }|*3
+        {5:-- VISUAL LINE --}             |
+      ]])
+      feed('<Esc>')
+
+      -- A cursor without a previous area (added after the selection) has nothing to reselect.
+      clear_cursors()
+      cursors({ 'aa bb', 'cc dd', 'ee ff' }, 'Qj')
+      feed('viw<Esc>')
+      feed('jQk') -- Cursor on line 3: no area.
+      feed('gvd')
+      eq({ ' bb', ' dd', 'ee ff' }, get_lines())
+      eq(2, ncursors())
+    end)
+
+    it('selection moved by API/Lua inside a mapping #41956', function()
+      local screen = Screen.new(30, 6)
+      n.exec_lua(function()
+        -- Extends the selection by 2 via the API, around a fed "o".
+        vim.keymap.set('x', 'gh', function()
+          local cursor = vim.api.nvim_win_get_cursor(0)
+          vim.api.nvim_win_set_cursor(0, { cursor[1], cursor[2] + 1 })
+          vim.cmd('normal! o')
+          vim.api.nvim_win_set_cursor(0, { cursor[1], cursor[2] + 3 })
+        end)
+        -- Starts a selection with a fed "v", extends it via the API.
+        vim.keymap.set('n', 'gL', function()
+          local cursor = vim.api.nvim_win_get_cursor(0)
+          vim.cmd('normal! v')
+          vim.api.nvim_win_set_cursor(0, { cursor[1], cursor[2] + 2 })
+        end)
+      end)
+      cursors({ 'aaaaaaa', 'bbbbbbb', 'ccccccc' })
+      atoms_start()
+      -- The fed "o" does not describe the selection the mapping leaves, so the mapping itself is
+      -- the subatom: it replays at each cursor, for the preview and the cascade alike.
+      feed('vgh')
+      screen:expect([[
+        a{17:aaa}aaa                       |
+        b{17:bbb}bbb                       |
+        c{17:cc}^cccc                       |
+        {1:~                             }|*2
+        {5:-- VISUAL --}                  |
+      ]])
+      feed('d')
+      eq({ 'aaaa', 'bbbb', 'cccc' }, get_lines())
+      eq({ { type = 'visual' } }, atoms_tail(1, 'type'))
+      -- A mapping that starts the selection: same.
+      feed('gL')
+      screen:expect([[
+        a{17:aaa}                          |
+        b{17:bbb}                          |
+        c{17:cc}^c                          |
+        {1:~                             }|*2
+        {5:-- VISUAL --}                  |
+      ]])
+      feed('d')
+      eq({ 'a', 'b', 'c' }, get_lines())
+
+      -- A fed "gv" reselects marks the mapping set: the mapping is the subatom, not "gv".
+      n.exec_lua(function()
+        vim.keymap.set('x', 'gs', function()
+          local row, col = unpack(vim.api.nvim_win_get_cursor(0))
+          vim.fn.setpos("'<", { 0, row, col + 1, 0 })
+          vim.fn.setpos("'>", { 0, row, col + 3, 0 })
+          vim.cmd.normal({ 'gv', bang = true })
+        end)
+      end)
+      clear_cursors()
+      cursors({ 'aaaaaaa', 'bbbbbbb', 'ccccccc' })
+      feed('vgs')
+      screen:expect([[
+        {17:aaa}aaaa                       |
+        {17:bbb}bbbb                       |
+        {17:cc}^ccccc                       |
+        {1:~                             }|*2
+        {5:-- VISUAL --}                  |
+      ]])
+      feed('d')
+      eq({ 'aaaa', 'bbbb', 'cccc' }, get_lines())
+
+      -- A mapping that ends the selection with an operator and starts a new one elsewhere: the
+      -- session is kept across the operator, the mapping replaces what it fed.
+      n.exec_lua(function()
+        vim.keymap.set('x', 'gl', function()
+          vim.cmd('normal! "_y')
+          vim.cmd('normal! 2l')
+          vim.cmd('normal! 1v')
+        end)
+      end)
+      clear_cursors()
+      cursors({ 'aaaaaaa', 'bbbbbbb', 'ccccccc' })
+      feed('vlgl')
+      screen:expect([[
+        aa{17:aa}aaa                       |
+        bb{17:bb}bbb                       |
+        cc{17:c}^cccc                       |
+        {1:~                             }|*2
+        {5:-- VISUAL --}                  |
+      ]])
+      feed('d')
+      eq({ 'aaaaa', 'bbbbb', 'ccccc' }, get_lines())
+    end)
+
     it('replays the full visual keysequence', function()
       cursors({ 'one two three x', 'aa bb cc d' }, 'Qj')
       -- Select word, extend twice, delete: selection re-executes at each cursor, so the extents are
@@ -1815,18 +1971,18 @@ describe('multicursor', function()
       eq({ 'Vd' }, atoms_tail(1))
     end)
 
-    it('shows selections opened by :normal #41705', function()
+    it('selections opened by :normal #41705', function()
       local screen = Screen.new(30, 6)
       command('nnoremap <F2> <Cmd>normal! viw<CR>')
       n.exec_lua(function()
+        vim.keymap.set('x', 'Z', '<Cmd>normal! iw<CR>')
         vim.keymap.set('n', '<F3>', function()
           vim.cmd.normal('vZ')
         end)
-        vim.keymap.set('x', 'Z', '<Cmd>normal! iw<CR>')
       end)
       atoms_start()
       -- Each entry opens the selection from a different enclosing frame: typed cmdline, <Cmd>
-      -- mapping, Lua mapping (nested x-mapping), RPC. Result does not depend on the follow-mode.
+      -- mapping, Lua mapping (nested x-mapping), RPC. Result does not depend on follow-mode.
       for i, keys in ipairs({ ':normal! viw<CR>', '<F2>', '<F3>', 'api' }) do
         clear_cursors()
         cursors({ 'longword x', 'ab y', 'medium z' })
@@ -1847,7 +2003,20 @@ describe('multicursor', function()
         eq({ { 0, 0 }, { 1, 0 } }, anchors(), keys)
         feed('d')
         eq({ ' x', ' y', ' z' }, get_lines(), keys)
-        eq({ 'viwd' }, atoms_tail(1))
+
+        -- The atom is the literal input: a command is captured as itself, not any keys it "feeds".
+        -- But fed input with no enclosing command (RPC) collects its own keys.
+        local expected = ({
+          [':normal! viw<CR>'] = k(':normal! viw<NL>d'),
+          ['<F2>'] = k('<Cmd>normal! viw<NL>d'),
+          ['api'] = 'viwd',
+        })[keys]
+        if expected then
+          eq({ expected }, atoms_tail(1), keys)
+        else
+          t.matches('^\128\253g%d+\nd$', atoms_tail(1)[1]) -- "<F3>": K_LUA + mapping id.
+        end
+
         screen:expect({
           condition = function()
             eq('normal', screen.mode)
@@ -1856,7 +2025,7 @@ describe('multicursor', function()
       end
     end)
 
-    it('previews selections after mapping motions', function()
+    it('selections after mapping motions', function()
       local screen = Screen.new(30, 6)
       cursors({ 'a longword x', 'bbbb ab y', 'cc medium z' })
       command('nnoremap <F2> w<Cmd>normal! viw<CR>')
@@ -1873,7 +2042,7 @@ describe('multicursor', function()
       ]])
       feed('d')
       eq({ 'a  x', 'bbbb  y', 'cc  z' }, get_lines())
-      eq({ 'wviwd' }, atoms_tail(1))
+      eq({ k('w<Cmd>normal! viw<NL>d') }, atoms_tail(1))
     end)
 
     it('refreshes a nested selection even if the primary selection is unchanged', function()
@@ -2084,7 +2253,7 @@ describe('multicursor', function()
       eq({ '(aa', '(bb', '(cc' }, get_lines())
     end)
 
-    it('q= toggle is synchronous within a mapping #41836', function()
+    it("is decided at a mapping's first move #41836", function()
       -- Cursors on lines 2-4, primary line 5, follow=ON.
       cursors({ 'l1', 'l2', 'l3', 'l4', 'l5' }, 'jQjQjQj1q=')
       -- Mapping toggles follow OFF, moves, then toggles ON: the move should NOT cascade.
@@ -2309,14 +2478,20 @@ describe('multicursor', function()
         text = evs[#evs].text,
         keys = evs[#evs].keys,
       })
-      -- No session marks outlive the session (mc_ins_commit() drops them, cascaded or not).
-      eq(
-        0,
-        n.exec_lua([[
+      -- Session marks (preview regions, trackers) do not leak: a second session adds none.
+      local function session_marks()
+        return n.exec_lua([[
           local ns = vim.api.nvim_get_namespaces()['nvim.multicursor._session']
           return ns and #vim.api.nvim_buf_get_extmarks(0, ns, 0, -1, {}) or 0
         ]])
-      )
+      end
+      local marks = session_marks()
+      feed('i')
+      n.poke_eventloop()
+      feed('Z')
+      n.poke_eventloop()
+      feed('<Esc>')
+      eq(marks, session_marks())
       -- A Visual-entered session keeps its "visual" type: each nested span-replay bracket owns
       -- its own InsSession, so it cannot clobber the primary session's `vis`.
       clear_cursors()
@@ -2495,6 +2670,27 @@ describe('multicursor', function()
       eq({ 'aa', 'x', 'bb', 'cc', 'x' }, get_lines())
       feed('u')
       eq({ 'aa', 'bb', 'cc' }, get_lines())
+    end)
+
+    it('empty insert-session does not add undo state #41883', function()
+      cursors({ 'abc', 'def', 'ghi' }, 'Qj')
+      local seq = fn.undotree().seq_last
+      feed('i<Esc>')
+      eq(seq, fn.undotree().seq_last)
+      feed('a<Esc>') -- Move the cursors (records extmark undo), but don't edit.
+      eq(seq, fn.undotree().seq_last)
+      -- In a mapping the session shares the mapping's undo state: only its own entry is dropped.
+      command('nnoremap <F5> xi<Esc>')
+      feed('<F5>')
+      eq({ 'bc', 'ef', 'ghi' }, get_lines())
+      eq(seq + 1, fn.undotree().seq_last)
+      feed('u')
+      eq({ 'abc', 'def', 'ghi' }, get_lines())
+      -- After an undo, the redo branch survives.
+      feed('i<Esc>')
+      eq(seq + 1, fn.undotree().seq_last)
+      feed('<C-r>')
+      eq({ 'bc', 'ef', 'ghi' }, get_lines())
     end)
 
     it('a mapped undo/redo (vim-repeat "nmap u") does not cascade', function()
@@ -2690,9 +2886,12 @@ describe('multicursor', function()
 
       cursors({ 'aaa', 'bbb', 'ccc' }, 'QjQ')
       exec_lua('vim.wait(10)') -- drain the scheduled refresh
-      -- Clear-all, then shape 29 ("follow main cursor") at each position.
+      -- Clear-all, text color (30), cursor color (40), then positions (29).
       local sent = exec_lua('return _G.sent')
-      eq('\027[>0;4 q\027[>29;2:1:1;2:2:1 q', sent[#sent])
+      t.matches(
+        '^\027%[>0;4 q\027%[>30;2:%d+:%d+:%d+ q\027%[>40;2:%d+:%d+:%d+ q\027%[>29;2:1:1;2:2:1 q$',
+        sent[#sent]
+      )
 
       -- The cell-highlight fallback is suppressed (no {17:} on line 1).
       screen:expect([[
@@ -2843,7 +3042,7 @@ describe('multicursor', function()
         operator = 'g@',
         changed = false,
         moved = true,
-      }, t_atom.pick(atom_last(), 'type', 'keys', 'lhs', 'operator', 'changed', 'moved'))
+      }, t.pick(atom_last(), 'type', 'keys', 'lhs', 'operator', 'changed', 'moved'))
     end)
 
     it('cursors placed inside the opfunc are live for the next typed cascade', function()
@@ -2989,7 +3188,58 @@ describe('multicursor', function()
     end)
   end)
 
-  describe('treesitter interaction', function()
+  describe('treesitter', function()
+    it('incremental selections at each cursor #41716', function()
+      -- The default ts "an"/"in" mappings: setpos("'<") + "gv" in Lua.
+      clear({ args_rm = { '--cmd' } })
+      command(n.nvim_set)
+      command('colorscheme vim')
+      command('hi MCursor guifg=Black guibg=LightGrey')
+      local screen = Screen.new(30, 6)
+      command('set filetype=lua')
+      cursors({ 'foo(one, two)', 'bar(three, four)', 'baz(five, six)' }, 'ftQj0ffQj0fs')
+      eq({ { 0, 9 }, { 1, 11 } }, anchors())
+      eq({ 3, 10 }, api.nvim_win_get_cursor(0))
+      feed('van')
+      screen:expect([[
+        foo(one, {17:two})                 |
+        bar(three, {17:four})              |
+        baz(five, {17:si}^x)                |
+        {1:~                             }|*2
+        {5:-- VISUAL --}                  |
+      ]])
+      feed('an')
+      screen:expect([[
+        foo{17:(one, two)}                 |
+        bar{17:(three, four)}              |
+        baz{17:(five, six}^)                |
+        {1:~                             }|*2
+        {5:-- VISUAL --}                  |
+      ]])
+      -- TODO: "in" after "an": the primary selects the first child. #42000
+      -- feed('in')
+      -- screen:expect([[
+      --   foo(one, {17:two})                 |
+      --   bar(three, {17:four})              |
+      --   baz(five, {17:si}^x)                |
+      --   {1:~                             }|*2
+      --   {5:-- VISUAL --}                  |
+      -- ]])
+      feed('cX')
+      eq({ 'fooX', 'barX', 'bazX' }, get_lines())
+      eq('i', fn.mode())
+      feed('<Esc>')
+      eq({ 'fooX', 'barX', 'bazX' }, get_lines())
+
+      clear_cursors()
+      cursors({ 'foo(one, two)', 'bar(three, four)', 'baz(five, six)' }, 'ftQj0ffQj0fs')
+      feed('canX')
+      eq({ 'foo(one, X)', 'bar(three, X)', 'baz(five, X)' }, get_lines())
+      eq('i', fn.mode())
+      feed('<Esc>')
+      eq({ 'foo(one, X)', 'bar(three, X)', 'baz(five, X)' }, get_lines())
+    end)
+
     it('markdown highlighting survives a live insert', function()
       n.exec_lua([[
         -- Large, injection-heavy buffer: multi-slice ASYNC parses (the

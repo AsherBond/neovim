@@ -744,13 +744,14 @@ static void draw_statuscol(win_T *wp, winlinevars_T *wlv, int col_rows, statusco
   prev_wp = wp;
 
   char buf[MAXPATHL];
+  const CharBuf outbuf = { buf, sizeof(buf) };
   // When a buffer's line count has changed, make a best estimate for the full
   // width of the status column by building with the largest possible line number.
   // Add potentially truncated width and rebuild before drawing anything.
   if (wp->w_statuscol_line_count != wp->w_nrwidth_line_count) {
     wp->w_statuscol_line_count = wp->w_nrwidth_line_count;
     int width = build_statuscol_str(wp, wp->w_nrwidth_line_count,
-                                    wp->w_nrwidth_line_count, 0, buf, stcp);
+                                    wp->w_nrwidth_line_count, 0, outbuf, stcp);
     if (width > stcp->width) {
       int addwidth = MIN(width - stcp->width, MAX_STCWIDTH - stcp->width);
       wp->w_nrwidth += addwidth;
@@ -766,7 +767,7 @@ static void draw_statuscol(win_T *wp, winlinevars_T *wlv, int col_rows, statusco
     }
   }
 
-  int width = build_statuscol_str(wp, lnum, relnum, virtnum, buf, stcp);
+  int width = build_statuscol_str(wp, lnum, relnum, virtnum, outbuf, stcp);
   // Force a redraw in case of error or when truncated
   if (*wp->w_p_stc == NUL || (width > stcp->width && stcp->width < MAX_STCWIDTH)) {
     if (*wp->w_p_stc == NUL) {  // 'statuscolumn' reset due to error
@@ -2680,7 +2681,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
           xstrlcpy(wlv.extra, transchar_buf(wp->w_buffer, mb_c), sizeof(wlv.extra));
           wlv.p_extra = wlv.extra;
           if (wlv.n_extra == 0) {
-            wlv.n_extra = byte2cells(mb_c) - 1;
+            wlv.n_extra = dy_escape_width - 1;
           }
           if ((dy_flags & kOptDyFlagUhex) && wp->w_p_rl) {
             rl_mirror_ascii(wlv.p_extra, NULL);   // reverse "<12>"
@@ -2695,7 +2696,7 @@ int win_line(win_T *wp, linenr_T lnum, int startrow, int endrow, int col_rows, b
             p[wlv.n_extra] = NUL;
             wlv.p_extra = p;
           } else {
-            wlv.n_extra = byte2cells(mb_c) - 1;
+            wlv.n_extra = dy_escape_width - 1;
             mb_c = (uint8_t)(*wlv.p_extra++);
           }
           wlv.n_attr = wlv.n_extra + 1;
