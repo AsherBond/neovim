@@ -164,6 +164,7 @@ static uint32_t mc_vsel_ns(void)
 }
 
 /// Namespace for the previous session's cursor positions, snapshotted on clear ("gQ" restores).
+/// Mark id 1 is the primary-cursor position.
 static uint32_t mc_last_ns(void)
 {
   static uint32_t ns = 0;
@@ -592,13 +593,6 @@ void mc_ins_cascade_start(bool cascade, CmdOrigin origin, uint64_t root_frame)
   }
 }
 
-/// True during a span replay. The replay's synthetic <Esc> does not end the primary insert-session,
-/// so session-end cleanup must not run.
-bool mc_ins_replaying(void)
-{
-  return mc_replaying() && mc_ins_span.active;
-}
-
 /// Saves the primary's insert-session state: each span replay runs a nested edit().
 static McInsSaved mc_ins_save_state(void)
 {
@@ -795,6 +789,19 @@ void mc_ins_cascade_restart(void)
   mc_ins_span.done_len = ins.size;
   api_free_string(ins);
   mc_ins_preview_rebase();
+}
+
+/// True during a span replay. The replay's synthetic <Esc> does not end the primary insert-session,
+/// so session-end cleanup must not run.
+bool mc_ins_replaying(void)
+{
+  return mc_replaying() && mc_ins_cascading();
+}
+
+/// True during insert-cascade.
+bool mc_ins_cascading(void)
+{
+  return mc_ins_span.active;
 }
 
 /// True if the insert-session started by `root_frame` cascaded a span.
@@ -1338,7 +1345,8 @@ void mc_ns_clearing(buf_T *buf, uint32_t ns_id)
   }
 }
 
-/// Deleting the "nvim.multicursor" namespace deletes its cursors. Saves snapshot for "gQ".
+/// Deleting the "nvim.multicursor" namespace deletes its cursors. Saves snapshot for "gQ" (and
+/// reserves extmark-id 1 for the primary cursor).
 void mc_ns_cleared(buf_T *buf, uint32_t ns_id)
 {
   if ((ns_id != mc_ns() && ns_id != 0) || mc_replaying() || !mc_buf_has_cursors(buf)) {
@@ -1359,14 +1367,20 @@ void mc_ns_cleared(buf_T *buf, uint32_t ns_id)
   }
 
   // Snapshot the positions into "nvim.multicursor.last" ("gQ").
-  extmark_clear(buf, mc_last_ns(), 0, 0, MAXLNUM, MAXCOL);
-  for (size_t i = 0; i < kv_size(mc_cursors); i++) {
-    Context *ctx = &kv_A(mc_cursors, i);
-    if (ctx->buf != buf->handle) {
-      continue;
+  if (!exiting) {
+    extmark_clear(buf, mc_last_ns(), 0, 0, MAXLNUM, MAXCOL);
+    if (curbuf == buf) {
+      uint32_t primary = 1;  // Reserve id 1 for the primary cursor.
+      extmark_set_pos(buf, mc_last_ns(), &primary, curwin->w_cursor, true, false, false);
     }
-    uint32_t mark = 0;
-    extmark_set_pos(buf, mc_last_ns(), &mark, ctx->pos, true, false, false);
+    for (size_t i = 0; i < kv_size(mc_cursors); i++) {
+      Context *ctx = &kv_A(mc_cursors, i);
+      if (ctx->buf != buf->handle) {
+        continue;
+      }
+      uint32_t mark = 0;
+      extmark_set_pos(buf, mc_last_ns(), &mark, ctx->pos, true, false, false);
+    }
   }
   mc_cleanup(false, NULL, 0);
   if (kv_size(mc_cursors) == 0) {
