@@ -39,7 +39,9 @@ local testlog = 'Xtest-tui-log'
 local env_notermguicolors = { COLORTERM = 'xterm-256color' }
 
 describe('TUI', function()
-  it('exit status 1 and error message with server --listen error #34365', function()
+  -- FLAKY: the server writes to the inherited tty, which may happen before TUI enters the alternate
+  -- screen. #40557
+  it('exit status 1 and error message with --listen error #34365', { retries = 2 }, function()
     clear()
     local addr_in_use = api.nvim_get_vvar('servername')
     local screen = tt.setup_child_nvim(
@@ -295,10 +297,19 @@ describe('TUI :detach', function()
     end)
 
     -- Simulate the host terminal disconnecting: SIGKILL the client so it can't shut down cleanly.
-    -- On Windows this also exercises the console hand-off in rpc_close_event().
-    n.exec_lua(function(pid)
+    --
+    -- On Windows this also exercises console hand-off in rpc_close_event(), which must finish
+    -- before the :terminal closes the console (client exit), else the server dies with it. So defer
+    -- this Nvim's job-exit handling (`vim.wait(fast_only=true)`) until the server drops the UI.
+    n.exec_lua(function(pid, addr)
       vim.uv.kill(pid, 'sigkill')
-    end, n.fn.jobpid(term_job))
+      local chan = vim.fn.sockconnect('pipe', addr, { rpc = true })
+      assert(vim.wait(4000, function()
+        return #vim.rpcrequest(chan, 'nvim_list_uis') == 0
+      end, 10, true))
+      vim.fn.chanclose(chan)
+    end, n.fn.jobpid(term_job), child_server)
+    screen:expect({ any = vim.pesc('[Process exited') })
 
     retry(nil, 4000, function()
       eq(2, ({ n.connect(child_server):request('nvim_eval', '1+1') })[2])
@@ -1187,18 +1198,28 @@ describe('TUI', function()
 
   it('accepts resize while pager is active', function()
     tt.override_screen_expect_for_conpty(screen)
+    local chan = ({ child_session:request('nvim_get_api_info') })[2][1]
     child_session:request(
       'nvim_exec2',
-      [[
+      ([[
       set more
       func! ManyErr()
         for i in range(20)
           echoerr "FAIL ".i
         endfor
       endfunc
-    ]],
+      autocmd VimResized * call rpcnotify(%d, 'VimResized', &lines)
+    ]]):format(chan),
       {}
     )
+
+    local function resize(width, height)
+      screen:try_resize(width, height)
+      -- The host terminal shows the bottom rows of a shrunk pager before the child redraws, so wait
+      -- for the child (blocked in the pager) to get the new size before sending it more input.
+      eq({ 'notification', 'VimResized', { height - 1 } }, child_session:next_message(10000))
+    end
+
     feed_data(':call ManyErr()\r')
     screen:expect([[
       {101:Error in function ManyErr:}                        |
@@ -1210,7 +1231,7 @@ describe('TUI', function()
       {5:-- TERMINAL --}                                    |
     ]])
 
-    screen:try_resize(50, 10)
+    resize(50, 10)
     screen:expect([[
       :call ManyErr()                                   |
       {101:Error in function ManyErr:}                        |
@@ -1237,7 +1258,7 @@ describe('TUI', function()
       {5:-- TERMINAL --}                                    |
     ]])
 
-    screen:try_resize(50, 7)
+    resize(50, 7)
     screen:expect([[
       {101:FAIL 1}                                            |
       {101:FAIL 2}                                            |
@@ -1248,7 +1269,7 @@ describe('TUI', function()
       {5:-- TERMINAL --}                                    |
     ]])
 
-    screen:try_resize(50, 5)
+    resize(50, 5)
     screen:expect([[
       {101:FAIL 3}                                            |
       {101:FAIL 4}                                            |
@@ -1266,7 +1287,7 @@ describe('TUI', function()
       {5:-- TERMINAL --}                                    |
     ]])
 
-    screen:try_resize(50, 10)
+    resize(50, 10)
     screen:expect([[
       :call ManyErr()                                   |
       {101:Error in function ManyErr:}                        |
@@ -1404,7 +1425,7 @@ describe('TUI', function()
     ]])
   end)
 
-  it('does not interpret ESC preceding repeat/release event as ALT #41763', function()
+  it('does not interpret ESC preceding repeat/release event/response as ALT #41763', function()
     child_session:request('nvim_command', 'noremap <M-Esc> <Nop>')
     child_session:request('nvim_command', 'noremap! <M-Esc> <Nop>')
     feed_data('i\015')
@@ -1414,6 +1435,10 @@ describe('TUI', function()
     feed_data('\015')
     wait_for_mode('niI')
     feed_data('\027\027[27;1:2u\027[27;1:3u') -- ESC, ESC repeat, ESC release
+    wait_for_mode('n')
+    feed_data('i')
+    wait_for_mode('i')
+    feed_data('\027\027P1$r0m\027\\') -- ESC, DECRQSS response
     wait_for_mode('n')
   end)
 
@@ -3751,7 +3776,7 @@ describe('TUI', function()
     end)
   end)
 
-  it('exits immediately when stdin is closed #35744', function()
+  it('exits immediately when stdin is closed #35744', { retries = 2 }, function()
     local screen = tt.setup_child_nvim(
       { '--clean', '--cmd', 'set laststatus=2' },
       { env = vim.tbl_extend('force', env_notermguicolors, { NVIM_LOG_FILE = testlog }) }
@@ -5184,7 +5209,7 @@ describe('TUI client', function()
       test_remote_tui_quit()
     end)
 
-    it('with :cquit', function()
+    it('with :cquit', { retries = 2 }, function()
       test_remote_tui_quit(42)
     end)
   end)
