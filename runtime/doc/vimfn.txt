@@ -4397,7 +4397,7 @@ getreginfo([{regname}])                                           *getreginfo()*
 			Key		Description ~
 			regcontents	List of lines contained in register
 					{regname}, like
-					getreg({regname}, 1, 1).
+					getreg({regname}, 1, 1), see |getreg()|.
 			regtype		the type of register {regname}, as in
 					|getregtype()|.
 			isunnamed	Boolean flag, v:true if this register
@@ -6923,7 +6923,7 @@ matchbufline({buf}, {pat}, {lnum}, {end}, [, {dict}])           *matchbufline()*
                   • {dict} (`table?`)
 
                 Return: ~
-                  (`string[]`)
+                  (`table`)
 
 matchdelete({id} [, {win}])                            *matchdelete()* *E802* *E803*
 		Deletes a match with ID {id} previously defined by |matchadd()|
