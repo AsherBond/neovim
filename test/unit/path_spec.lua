@@ -513,7 +513,7 @@ describe('path.c', function()
       eq(OK, result)
     end)
 
-    itp('produces absolute path for .. without a slash', function()
+    itp('produces absolute path for .. without a slash, and dir/..', function()
       local old_dir = uv.cwd()
       uv.chdir('..')
       local expected = uv.cwd()
@@ -523,6 +523,11 @@ describe('path.c', function()
       local do_expand = 1
       local buf, result = vim_FullName(filename, buflen, do_expand)
       eq(expected, ffi.string(buf))
+      eq(OK, result)
+      -- Also "dir/..".
+      filename = 'unit-test-directory/..'
+      buf, result = vim_FullName(filename, get_buf_len(old_dir, filename), do_expand)
+      eq(old_dir, ffi.string(buf))
       eq(OK, result)
     end)
 
@@ -597,6 +602,12 @@ describe('path.c', function()
       local buflen = get_buf_len(expected, filename)
       local do_expand = 1
       local buf, result = vim_FullName(filename, buflen, do_expand)
+      eq(expected, ffi.string(buf))
+      eq(OK, result)
+      -- But removes it from an existing directory.
+      expected = uv.cwd() .. '/unit-test-directory'
+      filename = 'unit-test-directory/'
+      buf, result = vim_FullName(filename, get_buf_len(expected, filename), do_expand)
       eq(expected, ffi.string(buf))
       eq(OK, result)
     end)
@@ -744,47 +755,48 @@ describe('path.c', function()
       end
 
       -- Check normal scheme with just alphabetic
-      eq(1, path_with_url([[test://xyz/foo/b0]]))
-      eq(2, path_with_url([[test:\\xyz\foo\b0]]))
+      eq(true, path_with_url([[test://xyz/foo/b0]]))
+      eq(false, path_with_url([[test:\\xyz\foo\b0]]))
 
       -- Check valid scheme with just alphanumeric
-      eq(1, path_with_url([[test123://xyz/foo/b0]]))
-      eq(2, path_with_url([[test123:\\xyz\foo\b0]]))
+      eq(true, path_with_url([[test123://xyz/foo/b0]]))
+      eq(false, path_with_url([[test123:\\xyz\foo\b0]]))
 
       -- Check invalid scheme (contains invalid character)
-      eq(0, path_with_url([[test_abc://xyz/foo/b2]]))
+      eq(false, path_with_url([[test_abc://xyz/foo/b2]]))
 
       -- Check valid scheme containing '+', '-', or '.'
-      eq(1, path_with_url([[test+abc://xyz/foo/b1]]))
-      eq(2, path_with_url([[test+abc:\\xyz\foo\b1]]))
-      eq(1, path_with_url([[test-abc://xyz/foo/b3]]))
-      eq(2, path_with_url([[test-abc:\\xyz\foo\b3]]))
-      eq(1, path_with_url([[test.abc://xyz/foo/b1]]))
-      eq(2, path_with_url([[test.abc:\\xyz\foo\b1]]))
+      eq(true, path_with_url([[test+abc://xyz/foo/b1]]))
+      eq(false, path_with_url([[test+abc:\\xyz\foo\b1]]))
+      eq(true, path_with_url([[test-abc://xyz/foo/b3]]))
+      eq(false, path_with_url([[test-abc:\\xyz\foo\b3]]))
+      eq(true, path_with_url([[test.abc://xyz/foo/b1]]))
+      eq(false, path_with_url([[test.abc:\\xyz\foo\b1]]))
 
       -- Check valid scheme with full suite of allowed characters
-      eq(1, path_with_url([[test+abc-123.ghi://xyz/foo/b1]]))
-      eq(2, path_with_url([[test+abc-123.ghi:\\xyz\foo\b1]]))
+      eq(true, path_with_url([[test+abc-123.ghi://xyz/foo/b1]]))
+      eq(false, path_with_url([[test+abc-123.ghi:\\xyz\foo\b1]]))
 
       -- Check invalid scheme starting or ending with '+', '-', or '.'
-      eq(0, path_with_url([[-test://xyz/foo/b4]]))
-      eq(0, path_with_url([[test-://xyz/foo/b5]]))
-      eq(0, path_with_url([[+test://xyz/foo/b4]]))
-      eq(0, path_with_url([[test+://xyz/foo/b5]]))
-      eq(0, path_with_url([[.test://xyz/foo/b4]]))
-      eq(0, path_with_url([[test.://xyz/foo/b5]]))
+      eq(false, path_with_url([[-test://xyz/foo/b4]]))
+      eq(false, path_with_url([[test-://xyz/foo/b5]]))
+      eq(false, path_with_url([[+test://xyz/foo/b4]]))
+      eq(false, path_with_url([[test+://xyz/foo/b5]]))
+      eq(false, path_with_url([[.test://xyz/foo/b4]]))
+      eq(false, path_with_url([[test.://xyz/foo/b5]]))
 
       -- Check additional valid scheme containing '+', '-', or '.'
-      eq(1, path_with_url([[test-C:/xyz/foo/b5]]))
-      eq(1, path_with_url([[test-custom:/xyz/foo/b5]]))
-      eq(1, path_with_url([[test+C:/xyz/foo/b5]]))
-      eq(1, path_with_url([[test+custom:/xyz/foo/b5]]))
-      eq(1, path_with_url([[test.C:/xyz/foo/b5]]))
-      eq(1, path_with_url([[test.custom:/xyz/foo/b5]]))
+      eq(true, path_with_url([[test-C:/xyz/foo/b5]]))
+      eq(true, path_with_url([[test-custom:/xyz/foo/b5]]))
+      eq(true, path_with_url([[test+C:/xyz/foo/b5]]))
+      eq(true, path_with_url([[test+custom:/xyz/foo/b5]]))
+      eq(true, path_with_url([[test.C:/xyz/foo/b5]]))
+      eq(true, path_with_url([[test.custom:/xyz/foo/b5]]))
 
       -- Check invalid scheme representing drive letter
-      eq(0, path_with_url([[c:/xyz/foo/b5]]))
-      eq(0, path_with_url([[C:/xyz/foo/b5]]))
+      eq(false, path_with_url([[c:/xyz/foo/b5]]))
+      eq(false, path_with_url([[C:/xyz/foo/b5]]))
+      eq(false, path_with_url([[C:\xyz\foo\b5]]))
     end)
   end)
 end)
