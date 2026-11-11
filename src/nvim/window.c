@@ -396,7 +396,7 @@ newwindow:
       if (Prenum) {  // go to specified window
         win_T *last_focusable = firstwin;
         for (wp = firstwin; --Prenum > 0;) {
-          if (!wp->w_floating || (!wp->w_config.hide && wp->w_config.focusable)) {
+          if (!wp->w_floating || win_is_focusable(wp)) {
             last_focusable = wp;
           }
           if (wp->w_next == NULL) {
@@ -404,8 +404,7 @@ newwindow:
           }
           wp = wp->w_next;
         }
-        while (wp != NULL && wp->w_floating
-               && (wp->w_config.hide || !wp->w_config.focusable)) {
+        while (wp != NULL && wp->w_floating && !win_is_focusable(wp)) {
           wp = wp->w_next;
         }
         if (wp == NULL) {  // went past the last focusable window
@@ -417,14 +416,12 @@ newwindow:
           if (wp == NULL) {
             wp = lastwin;  // wrap around
           }
-          while (wp != NULL && wp->w_floating
-                 && (wp->w_config.hide || !wp->w_config.focusable)) {
+          while (wp != NULL && wp->w_floating && !win_is_focusable(wp)) {
             wp = wp->w_prev;
           }
         } else {  // go to next window
           wp = curwin->w_next;
-          while (wp != NULL && wp->w_floating
-                 && (wp->w_config.hide || !wp->w_config.focusable)) {
+          while (wp != NULL && wp->w_floating && !win_is_focusable(wp)) {
             wp = wp->w_next;
           }
           if (wp == NULL) {
@@ -504,7 +501,7 @@ newwindow:
   // cursor to last accessed (previous) window
   case 'p':
   case Ctrl_P:
-    if (!win_valid(prevwin) || prevwin->w_config.hide || !prevwin->w_config.focusable) {
+    if (!win_valid(prevwin) || !win_is_focusable(prevwin)) {
       beep_flush();
     } else {
       win_goto(prevwin);
@@ -3023,7 +3020,7 @@ int win_close(win_T *win, bool free_buf, bool force)
           break;
         }
         if (!wp->w_p_pvw && !bt_quickfix(wp->w_buffer)
-            && !(wp->w_floating && (wp->w_config.hide || !wp->w_config.focusable))) {
+            && !(wp->w_floating && !win_is_focusable(wp))) {
           curwin = wp;
           break;
         }
@@ -4040,13 +4037,13 @@ static void frame_new_width(frame_T *topfrp, int width, bool leftfirst, bool wfw
     if (extra_cols < 0) {
       // reduce frame width, rightmost frame first
       while (frp != NULL) {
-        int w = frame_minwidth(frp, NULL);
-        if (frp->fr_width + extra_cols < w) {
-          extra_cols += frp->fr_width - w;
-          frame_new_width(frp, w, leftfirst, wfw);
-        } else {
-          frame_new_width(frp, frp->fr_width + extra_cols,
-                          leftfirst, wfw);
+        int old_width = frp->fr_width;
+        frame_new_width(frp, MAX(old_width + extra_cols, frame_minwidth(frp, NULL)),
+                        leftfirst, wfw);
+        // Take the rest from the next frame. Count the width actually taken: a frame may stay wider
+        // than requested, e.g. if it contains a 'winfixwidth' window.
+        extra_cols += old_width - frp->fr_width;
+        if (extra_cols >= 0) {
           break;
         }
         if (leftfirst) {
@@ -7476,8 +7473,7 @@ int min_rows(tabpage_T *tp) FUNC_ATTR_NONNULL_ALL
   return total;
 }
 
-/// Return the minimal number of rows that is needed on the screen to display
-/// the current number of windows for all tab pages.
+/// Minimum number of screen-rows needed to display the current windows for all tabpages.
 int min_rows_for_all_tabpages(void)
 {
   if (firstwin == NULL) {       // not initialized yet
@@ -7493,6 +7489,20 @@ int min_rows_for_all_tabpages(void)
     total = MAX(total, n);
   }
   total += tabline_height() + global_stl_height();
+  return total;
+}
+
+/// Minimum number of screen-columns needed to display the current windows for all tabpages.
+int min_cols_for_all_tabpages(void)
+{
+  if (firstwin == NULL) {       // not initialized yet
+    return MIN_COLUMNS;
+  }
+
+  int total = 0;
+  FOR_ALL_TABS(tp) {
+    total = MAX(total, frame_minwidth(tp->tp_topframe, NULL));
+  }
   return total;
 }
 
@@ -7945,4 +7955,9 @@ win_T *lastwin_nofloating(tabpage_T *tp)
     res = res->w_prev;
   }
   return res;
+}
+
+bool win_is_focusable(const win_T *wp)
+{
+  return wp->w_config.focusable && !wp->w_config.hide;
 }

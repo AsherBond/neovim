@@ -93,7 +93,6 @@ describe('lua rpc', function()
       {6:Press ENTER or type command to continue}^           |
     ]],
     }
-    feed('<cr>')
     retry(10, nil, function()
       eq({ 3, NIL }, api.nvim_get_var('yy'))
     end)
@@ -165,7 +164,7 @@ describe('lua rpc', function()
       end)
     )
 
-    -- Close handles, else uv_loop_close() logs an error at exit (EXITFREE builds).
+    -- Release handles, else uv_loop_close() logs an error at exit (EXITFREE builds).
     exec_lua(function()
       vim.fn.chanclose(_G.chan)
       for _, pipe in ipairs(_G.pipes) do

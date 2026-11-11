@@ -2598,6 +2598,8 @@ int parse_command_modifiers(exarg_T *eap, const char **errormsg, cmdmod_T *cmod,
         break;
       }
       if (!skip_only) {
+        xfree(cmod->cmod_filter_pat);
+        vim_regfree(cmod->cmod_filter_regmatch.regprog);
         cmod->cmod_filter_pat = xstrdup(reg_pat);
         cmod->cmod_filter_regmatch.regprog = vim_regcomp(reg_pat, RE_MAGIC);
         if (cmod->cmod_filter_regmatch.regprog == NULL) {
@@ -4839,7 +4841,7 @@ static void ex_cquit(exarg_T *eap)
 {
   // this does not always pass on the exit code to the Manx compiler. why?
   int status = eap->addr_count > 0 ? (int)eap->line2 : EXIT_FAILURE;
-  ui_call_error_exit(status);
+  ui_call_error_exit(status, NULL_STRING);
   getout(status);
 }
 
@@ -4894,11 +4896,6 @@ static void ex_exmode(exarg_T *eap)
 /// ":restart +cmd <command>": restart the Nvim server using ":cmd" and runs <command> in the new server.
 static void ex_restart(exarg_T *eap)
 {
-  // XXX: The UI reaches this server through an SSH tunnel, which cannot reach the new server.
-  if (strequal(get_vim_var_str(VV_STARTREASON), "remote-ssh")) {
-    emsg(_("E6103: :restart is not supported with remote-ssh"));
-    return;
-  }
   if (!eap->forceit) {
     dict_T *extra_d = tv_dict_alloc();  // Pass +cmd in the `extra` param of nlua_call_excmd.
     tv_dict_add_str(extra_d, S_LEN("quit_cmd"), eap->do_ecmd_cmd ? eap->do_ecmd_cmd : "");
@@ -5102,7 +5099,10 @@ static void ex_restart(exarg_T *eap)
 #endif
 
   // Send restart event with new listen address to all UIs.
-  remote_ui_restart(cstr_as_string(listen_addr));
+  // If the new server reused the --listen address (TODO: not on Windows, it rebinds on exit), UI
+  // reconnects through the `addr` (e.g. a tunnel) stored on its channel (nvim_chan_set).
+  bool reuse_addr = listen_arg != NULL && strequal(listen_addr, listen_arg);
+  remote_ui_restart(cstr_as_string(listen_addr), reuse_addr);
   ui_flush();
   xfree(listen_addr);
 
@@ -5842,7 +5842,7 @@ static void ex_tabs(exarg_T *eap)
     FOR_ALL_WINDOWS_IN_TAB(wp, tp) {
       if (got_int) {
         break;
-      } else if (!wp->w_config.focusable || wp->w_config.hide) {
+      } else if (!win_is_focusable(wp)) {
         continue;
       }
 
@@ -5917,54 +5917,88 @@ static void ex_detach(exarg_T *eap)
 ///
 /// Connects the current UI to a different server
 ///
-/// ":connect <address>" detaches the current UI and connects to the given server.
+/// ":connect" shows a menu of discovered servers.
+/// ":connect <addr>" detaches the UI and connects to <addr>, then stops the current server.
 /// ":connect ssh://<uri>" bootstraps a remote Nvim over SSH, then connects.
-/// ":connect! <address>" stops the current server if no other UIs are attached, then connects to the given server.
+///
+/// Fails if this is the last UI and ":qall" would fail (e.g. unsaved changes).
 static void ex_connect(exarg_T *eap)
 {
   char *addr = eap->arg;
   typval_T ssh_rettv = { .v_type = VAR_UNKNOWN };
+  char *full_addr = NULL;  // "foo.sock" => "/home/me/foo.sock"
   bool is_tcp = socket_address_tcp_host_end(addr) != NULL;
+  bool is_ssh = STRNICMP(addr, "ssh://", 6) == 0;
   const char *error = NULL;
 
-  // SSH URI: bootstrap remote Nvim, get local forwarded socket.
-  if (STRNICMP(addr, "ssh://", 6) == 0) {
-    // XXX: ":connect!" not supported. The tunnel is owned by this server, stopping it would kill the session.
-    if (eap->forceit) {
-      emsg(_(e_nobang));
-      return;
-    }
-    if (!remote_ui_attached(current_ui)) {
-      emsg(_(e_noui));
-      return;
-    }
-
-    typval_T argvars[] = { { .v_type = VAR_STRING, .vval.v_string = addr },
-                           { .v_type = VAR_NUMBER, .vval.v_number = (varnumber_T)current_ui },
-                           { .v_type = VAR_UNKNOWN } };
-    nlua_call_typval("vim.net._ssh", "start", argvars, &ssh_rettv);
-
-    if (ssh_rettv.v_type == VAR_SPECIAL) {
-      return;  // User declined the prompt.
-    }
-    if (ssh_rettv.v_type != VAR_STRING || ssh_rettv.vval.v_string == NULL) {
-      emsg(_("E6101: SSH connection failed"));
-      tv_clear(&ssh_rettv);
-      return;
-    }
-
-    addr = ssh_rettv.vval.v_string;
-  } else if ((is_tcp || path_is_absolute(addr))  // UI CWD may differ.
-             && !socket_alive(&main_loop, is_tcp, addr, &error)) {
-    semsg(_("E6102: Cannot connect to %s: %s"), addr, error);
+  // XXX: No "!" for no-args, SSH (tunnel owned by this server, stopping it would kill the session).
+  if (eap->forceit && (*addr == NUL || is_ssh)) {
+    emsg(_(e_nobang));
+    return;
+  }
+  if (!remote_ui_attached(current_ui)) {
+    emsg(_(e_noui));
+    return;
+  }
+  // Abort if this is the last UI and a buffer has unsaved changes.
+  if (ui_active() == 1 && check_changed_any(false, false)) {
     return;
   }
 
-  bool stop_server = eap->forceit ? (ui_active() == 1) : false;
+  // No address: let the user select from a menu of known servers.
+  if (*addr == NUL) {
+    typval_T no_args[] = { { .v_type = VAR_UNKNOWN } };
+    nlua_call_typval("vim._core.server", "select_connect", no_args, NULL);
+    return;
+  }
+
+  // SSH URI: bootstrap remote Nvim, get local forwarded socket.
+  if (is_ssh) {
+    typval_T argvars[] = { { .v_type = VAR_STRING, .vval.v_string = addr },
+                           { .v_type = VAR_NUMBER, .vval.v_number = (varnumber_T)current_ui },
+                           { .v_type = VAR_UNKNOWN } };
+    nlua_call_typval("vim.net._ssh", "connect", argvars, &ssh_rettv);
+    if (ssh_rettv.v_type != VAR_STRING || ssh_rettv.vval.v_string == NULL) {
+      tv_clear(&ssh_rettv);
+      return;  // Declined, interrupted (CTRL-C), or failed (E6101 shown).
+    }
+
+    addr = ssh_rettv.vval.v_string;
+  } else {
+    if (!is_tcp && !path_is_absolute(addr)) {
+      // Relative to the current directory (not the UI's), like other file args.
+      addr = full_addr = FullName_save(addr, true);
+    }
+    if (!socket_alive(&main_loop, is_tcp, addr, &error)) {
+      semsg(_("E6102: Cannot connect to %s: %s"), addr, error);
+      xfree(full_addr);
+      return;
+    }
+
+    // remote-ssh: UI reconnects through same tunnel, relinked to `addr` (vim.net._ssh.relink()).
+    Channel *chan = find_channel(current_ui);
+    if (!is_tcp && chan && chan->addr) {
+      typval_T argvars[] = { { .v_type = VAR_STRING, .vval.v_string = chan->addr },
+                             { .v_type = VAR_STRING, .vval.v_string = addr },
+                             { .v_type = VAR_UNKNOWN } };
+      typval_T relinked = { .v_type = VAR_UNKNOWN };
+      nlua_call_typval("vim.net._ssh", "relink", argvars, &relinked);
+      if (relinked.v_type != VAR_BOOL) {  // Error (already shown).
+        xfree(full_addr);
+        return;
+      }
+      if (relinked.vval.v_bool == kBoolVarTrue) {
+        addr = chan->addr;
+      }
+    }
+  }
+
+  bool stop_server = !is_ssh && ui_active() == 1;
 
   Error err = ERROR_INIT;
   remote_ui_connect(current_ui, addr, &err);
   tv_clear(&ssh_rettv);
+  xfree(full_addr);
 
   if (ERROR_SET(&err)) {
     emsg(err.msg);
@@ -7006,19 +7040,21 @@ static void ex_redraw(exarg_T *eap)
   } else if (Visual.active) {
     redraw_curbuf_later(UPD_INVERTED);
   }
-  update_screen();
+  const bool redrawn = update_screen() == OK;
   if (need_maketitle) {
     maketitle();
   }
   RedrawingDisabled = r;
   p_lz = p;
 
-  // Reset msg_didout, so that a message that's there is overwritten.
-  msg_didout = false;
-  msg_col = 0;
+  if (redrawn) {  // Else postponed (e.g. at the hit-enter prompt): keep the messages.
+    // Reset msg_didout, so that a message that's there is overwritten.
+    msg_didout = false;
+    msg_col = 0;
 
-  // No need to wait after an intentional redraw.
-  need_wait_return = false;
+    // No need to wait after an intentional redraw.
+    need_wait_return = false;
+  }
 
   ui_flush();
 }
