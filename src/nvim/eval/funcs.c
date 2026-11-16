@@ -1427,24 +1427,30 @@ static void flatten_common(typval_T *argvars, typval_T *rettv, bool make_copy)
   }
 
   list_T *list = argvars[0].vval.v_list;
-  rettv->v_type = VAR_LIST;
-  rettv->vval.v_list = list;
   if (list == NULL) {
+    rettv->v_type = VAR_LIST;
+    rettv->vval.v_list = NULL;
     return;
   }
 
   if (make_copy) {
     list = tv_list_copy(NULL, list, false, get_copyID());
-    rettv->vval.v_list = list;
     if (list == NULL) {
       return;
     }
   } else {
+    // Do not touch "rettv" before the lock check: on failure "rettv"
+    // must stay VAR_UNKNOWN, since the caller unconditionally calls
+    // clear_tv() on it, which must not drop a reference to "l" that
+    // was never taken.
     if (value_check_lock(tv_list_locked(list), N_("flatten() argument"), TV_TRANSLATE)) {
       return;
     }
     tv_list_ref(list);
   }
+
+  rettv->v_type = VAR_LIST;
+  rettv->vval.v_list = list;
 
   tv_list_flatten(list, NULL, tv_list_len(list), maxdepth);
 }
@@ -2418,7 +2424,6 @@ static void f_wait(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
     rettv->vval.v_number = -3;
   } else if (got_int) {
     got_int = false;
-    vgetc();
     rettv->vval.v_number = -2;
   } else if (tv_get_number_chk(&exprval, &error)) {
     rettv->vval.v_number = 0;
@@ -6541,6 +6546,7 @@ static void f_sockconnect(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
     on_data.buffered = tv_dict_get_number(opts, "data_buffered");
     if (on_data.buffered && on_data.cb.type == kCallbackNone) {
       on_data.self = opts;
+      opts->dv_refcount++;  // Like common_job_callbacks().
     }
   }
 
@@ -6579,6 +6585,7 @@ static void f_stdioopen(typval_T *argvars, typval_T *rettv, EvalFuncData fptr)
   on_stdin.buffered = tv_dict_get_number(opts, "stdin_buffered");
   if (on_stdin.buffered && on_stdin.cb.type == kCallbackNone) {
     on_stdin.self = opts;
+    opts->dv_refcount++;  // Like common_job_callbacks().
   }
 
   const char *error;

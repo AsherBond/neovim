@@ -1262,8 +1262,13 @@ describe('TUI', function()
     child_exec_lua([[
       _G.termresponse = nil
       vim.api.nvim_create_autocmd('TermResponse', {
-        once = true,
-        callback = function(ev) _G.termresponse = ev.data.sequence end,
+        callback = function(ev)
+          -- Ignore other responses, e.g. a late "\027[0n" (DSR) from startup.
+          if ev.data.sequence == '\027P0$r' then
+            _G.termresponse = ev.data.sequence
+            return true
+          end
+        end,
       })
     ]])
     feed_data('\027P0$r\027\\')
@@ -1607,6 +1612,35 @@ describe('TUI', function()
                                                         |
       {5:-- TERMINAL --}                                    |
     ]])
+  end)
+
+  it('terminal responses are not user input #29047', function()
+    -- Uses XTGETTCAP (DCS) responses: on Windows, ConPTY passes DCS input but not OSC.
+    poke_both_eventloop() -- Make sure startup requests have finished.
+    child_exec_lua([[
+      _G.termresponses = {}
+      vim.api.nvim_create_autocmd('TermResponse', {
+        callback = function(ev) table.insert(_G.termresponses, ev.data.sequence) end,
+      })
+    ]])
+    local expected = {} ---@type string[]
+    -- Windows: ConPTY treats a incomplete-at-end-of-write sequence as keys?
+    if not is_os('win') then
+      -- Response split by a pause longer than 'ttimeoutlen'.
+      feed_data('\027P1+r6E76')
+      vim.uv.sleep(300)
+      feed_data('696D=31\027\\')
+      table.insert(expected, '\027P1+r6E76696D=31')
+    end
+    -- Response read atomically, with 'nottimeout'.
+    child_session:request('nvim_command', 'set nottimeout | echo "nottimeout"')
+    screen:expect({ any = 'nottimeout' }) -- The TUI received the option.
+    feed_data('\027P1+r6E76696D=32\027\\')
+    table.insert(expected, '\027P1+r6E76696D=32')
+    -- Each response arrives as a complete TermResponse (not typed as user-input keys).
+    retry(nil, nil, function()
+      eq(expected, child_exec_lua('return _G.termresponses'))
+    end)
   end)
 
   it('accepts ASCII control sequences', function()
@@ -3381,7 +3415,7 @@ describe('TUI', function()
       ^                                                  |
       {100:~                                                 }|*3
       {3:[No Name]                                         }|
-      Type  :qa  and press <Enter> to exit Nvim         |
+      :call jobwait([g:id])                             |
       {5:-- TERMINAL --}                                    |
     ]])
   end)
@@ -4167,28 +4201,27 @@ describe('TUI FocusGained/FocusLost', function()
       {5:-- TERMINAL --}                                    |
     ]])
 
-    feed_data('\027[I')
-    screen:expect {
-      grid = [[
-      ^ready $ zia                                       |
-                                                        |
-      [Process exited 0]                                |
-                                                        |*2
-      gained                                            |
-      {5:-- TERMINAL --}                                    |
-    ]],
-      timeout = (4 * screen.timeout),
-    }
+    retry(2, 3 * screen.timeout, function()
+      feed_data('\027[I')
+      screen:expect([[
+        ^ready $ zia                                       |
+                                                          |
+        [Process exited 0]                                |
+                                                          |*2
+        gained                                            |
+        {5:-- TERMINAL --}                                    |
+      ]])
 
-    feed_data('\027[O')
-    screen:expect([[
-      ^ready $ zia                                       |
-                                                        |
-      [Process exited 0]                                |
-                                                        |*2
-      lost                                              |
-      {5:-- TERMINAL --}                                    |
-    ]])
+      feed_data('\027[O')
+      screen:expect([[
+        ^ready $ zia                                       |
+                                                          |
+        [Process exited 0]                                |
+                                                          |*2
+        lost                                              |
+        {5:-- TERMINAL --}                                    |
+      ]])
+    end)
   end)
 
   it('in hit-enter prompt', function()
@@ -4203,16 +4236,18 @@ describe('TUI FocusGained/FocusLost', function()
       {102:Press ENTER or type command to continue}^           |
       {5:-- TERMINAL --}                                    |
     ]])
-    feed_data('\027[I')
-    screen:expect([[
-      msg2                                              |
-      msg3                                              |
-      msg4                                              |
-      msg5                                              |
-      gained                                            |
-      {102:Press ENTER or type command to continue}^           |
-      {5:-- TERMINAL --}                                    |
-    ]])
+    retry(2, 3 * screen.timeout, function()
+      feed_data('\027[I')
+      screen:expect([[
+        msg2                                              |
+        msg3                                              |
+        msg4                                              |
+        msg5                                              |
+        gained                                            |
+        {102:Press ENTER or type command to continue}^           |
+        {5:-- TERMINAL --}                                    |
+      ]])
+    end)
   end)
 end)
 
