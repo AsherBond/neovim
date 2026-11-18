@@ -5484,7 +5484,7 @@ static void ex_print(exarg_T *eap)
   if (curbuf->b_ml.ml_flags & ML_EMPTY) {
     emsg(_(e_empty_buffer));
   } else {
-    for (linenr_T line = eap->line1; line <= eap->line2 && !got_int; os_breakcheck()) {
+    for (linenr_T line = eap->line1; line <= eap->line2 && !got_int; line_breakcheck()) {
       print_line(line,
                  (eap->cmdidx == CMD_number || eap->cmdidx == CMD_pound
                   || (eap->flags & EXFLAG_NR)),
@@ -6600,6 +6600,13 @@ static void ex_sleep(exarg_T *eap)
 /// @param hide_cursor  hide the cursor if true
 void do_sleep(int64_t msec, bool hide_cursor)
 {
+  if (main_loop.recursive || !nlua_is_deferred_safe()) {
+    // Can't re-enter uv_run() (e.g. from `%{F()}` in api-fast nvim_eval_statusline()).
+    // Can't process deferred events in a fast callback (e.g. vim.ui_attach() "msg_show").
+    os_sleep((uint64_t)MAX(msec, 0));
+    return;
+  }
+
   if (hide_cursor) {
     ui_busy_start();
   }
